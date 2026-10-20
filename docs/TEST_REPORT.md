@@ -36,6 +36,8 @@ ignores them; CI uploads them as artifacts).
 | D-19 | 3 | Windows uninstaller | Empty `OpenWithProgids`, extension, and `RegisteredApplications` keys were left behind | af3958b | L-02 |
 | D-20 | 2 | Reader | Accessibility: each tab contained a focusable close button, and the document could not be reached with Tab | 526fb5b | UI-07 (`tests/reader/ui-checks.mjs`) |
 | D-21 | 2 | Reader | Accessibility: the fallback page's heading label had 4.0:1 contrast in the dark theme | 526fb5b | UI-07 |
+| D-22 | 2 | Reader, Linux | The 1,000-page report froze the page for 3.9 s while it loaded (P-04 responsiveness) | 20332ef | P-04 probe in `tests/perf/run_perf.py`, reader test (1,000 pages, longest task) |
+| D-23 | 2 | Reader, Linux | After Tab past the last control, or Ctrl+Tab on Linux, no key reached the page until a click | 7575fdf | `linux_regressions.py` (keyboard focus), reader test "Tab wraps around", UI-06 |
 
 Every defect above is fixed. Known gaps that remain are listed at the end.
 
@@ -222,6 +224,33 @@ Every defect above is fixed. Known gaps that remain are listed at the end.
   focusable; Delete and Ctrl+W close a tab, and the tab says so with
   `aria-keyshortcuts`); the document is in the Tab order; a `--warning-text`
   token is `#fbbf24` in the dark theme.
+
+### D-22: a long document froze the page while it loaded (severity 2)
+
+- Steps: open the generated 1,000-page report (P-04). A probe asks the web
+  process for a trivial answer every 100 ms while the document loads.
+- Actual: the longest web-process stall was 3,927 ms. All pages were
+  attached to the document in one task, and a second full layout followed
+  when the outline pane appeared and changed the fit zoom.
+- Fix: documents over 60 pages are attached in batches (8 pages, then 20
+  per frame) with a layout per batch; the outline pane is shown before the
+  first batch, so the fit zoom is final; the outline is built from one
+  paragraph index map instead of a search per entry.
+- After: longest web stall 578 ms on the Linux host; in Chromium the longest
+  task in the 1,000-page reader test stays under 800 ms (measured 96 to
+  358 ms).
+
+### D-23: the keyboard stopped reaching the page (severity 2)
+
+- Steps: on Linux, open two documents and press Ctrl+Tab, then Tab or Page
+  Down. Or press Tab from the document area, the last control.
+- Actual: nothing happened until a click. Tab past the last control moved
+  the focus out of the web view to the native window, which has nothing
+  else to focus. On Linux, GTK also handles Ctrl+Tab itself and moved the
+  focus to a hidden text view inside the web view.
+- Fix: the reader wraps Tab and Shift+Tab around its controls; the Linux
+  host watches the window's focus widget and gives the focus back to the
+  web view unless a popover (the context menu) holds it.
 
 ## Known gaps
 
