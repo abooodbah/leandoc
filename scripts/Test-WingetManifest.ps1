@@ -30,8 +30,13 @@ if ($null -eq $winget) {
 & $winget.Source --version
 & $winget.Source validate --manifest $ManifestPath --disable-interactivity
 $code = $LASTEXITCODE
-# 0 is valid; winget reports warnings-only results with a distinct code.
-if ($code -ne 0) {
+# 0 is valid. 0x8A150068 (APPINSTALLER_CLI_ERROR_MANIFEST_VALIDATION_WARNING)
+# means valid with warnings; a client older than the 1.12.0 schema warns that
+# it does not know the schema header, which the winget-pkgs pipeline accepts.
+$validationWarning = -1978335192  # 0x8A150068 as a signed 32-bit exit code
+if ($code -eq $validationWarning) {
+    Write-Output '::warning title=winget validate::The manifests are valid with warnings (see the log). An older winget client warns about the 1.12.0 schema header.'
+} elseif ($code -ne 0) {
     throw "winget validate failed with exit code $code."
 }
 Write-Output "winget validate passed for $ManifestPath"

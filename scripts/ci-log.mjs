@@ -51,7 +51,11 @@ if (mode === "run") {
     console.log(`::error title=${title}::No log was captured at ${logFile}.`);
     process.exit(0);
   }
-  const lines = readFileSync(logFile, "utf8").replace(/\r/g, "").split("\n");
+  // Colour codes from pwsh and compilers would only clutter the annotation.
+  const lines = readFileSync(logFile, "utf8")
+    .replace(/\u001b\[[0-9;]*[A-Za-z]/g, "")
+    .replace(/\r/g, "")
+    .split("\n");
   // Lines that usually name the cause, then the tail of the log.
   const interesting = /\b(error|errors|fail|failed|failure|fatal|exception|denied|not found|cannot|could not|missing|warning C\d+|FAIL)\b/i;
   const picked = [];
