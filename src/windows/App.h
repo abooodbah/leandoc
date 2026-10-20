@@ -80,6 +80,7 @@ private:
     void ConfigureWebView();
     void ResizeWebView();
     void NavigateToReader();
+    void OpenDroppedFile(const std::wstring& path);
     void RecreateWebView();
     void HandleProcessFailed(COREWEBVIEW2_PROCESS_FAILED_KIND kind);
     void SetMinimized(bool minimized);
