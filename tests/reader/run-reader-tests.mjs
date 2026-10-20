@@ -576,6 +576,27 @@ describe("keyboard reading and the outline (U-02, U-06)", () => {
     });
   });
 
+  test("Tab wraps around inside the page instead of leaving it (UI-06)", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeBigDocx(3);
+      await host.openDocument({ bytes, report, fileName: "three.docx" });
+      const order = [];
+      for (let step = 0; step < 30; step += 1) {
+        await host.page.keyboard.press("Tab");
+        order.push(await host.page.evaluate(() => document.activeElement.id || document.activeElement.tagName));
+      }
+      assert.ok(!order.includes("BODY"), `focus never leaves the controls: ${order.join(" ")}`);
+      const first = order.indexOf("findInput");
+      assert.ok(first >= 0 && order.indexOf("findInput", first + 1) > first, `Tab comes round again: ${order.join(" ")}`);
+      for (const id of ["viewPage", "viewReading", "zoomOut", "zoomValue", "zoomIn", "themeButton", "editorButton", "openButton", "docScroller"]) {
+        assert.ok(order.includes(id), `Tab reaches ${id}`);
+      }
+      await host.page.focus("#findInput");
+      await host.page.keyboard.press("Shift+Tab");
+      assert.notEqual(await host.page.evaluate(() => document.activeElement.tagName), "BODY", "Shift+Tab wraps too");
+    });
+  });
+
   test("a clicked outline entry stays current although the next heading is close", async () => {
     await withHost({}, async (host) => {
       const { bytes, report } = await makeBigDocx(30, { sectionHeadings: true });

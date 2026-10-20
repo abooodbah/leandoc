@@ -1857,7 +1857,51 @@
     }
   });
 
+  // Tab past the last control (or Shift+Tab before the first) would move
+  // the focus out of the web view to the native window, which has nothing
+  // else to focus: the keyboard then reached nothing until a click. The
+  // focus wraps around inside the page instead; every control stays
+  // reachable, so this is no keyboard trap.
+  var TABBABLE = "a[href], button, input, select, textarea, [tabindex]";
+
+  function tabbableElements() {
+    return Array.prototype.filter.call(document.querySelectorAll(TABBABLE), function (node) {
+      if (node.disabled || node.tabIndex < 0 || node.closest("[hidden], [aria-hidden='true']")) {
+        return false;
+      }
+      var style = window.getComputedStyle(node);
+      return style.visibility !== "hidden" && style.display !== "none" && node.getClientRects().length > 0;
+    });
+  }
+
+  function wrapTabFocus(event) {
+    if (event.key !== "Tab" || event.ctrlKey || event.altKey || event.metaKey) {
+      return false;
+    }
+    var list = tabbableElements();
+    if (!list.length) {
+      return false;
+    }
+    var active = document.activeElement;
+    var index = list.indexOf(active);
+    var target = null;
+    if (event.shiftKey && (index === 0 || index < 0 && (!active || active === document.body))) {
+      target = list[list.length - 1];
+    } else if (!event.shiftKey && (index === list.length - 1 || index < 0 && (!active || active === document.body))) {
+      target = list[0];
+    }
+    if (!target) {
+      return false;
+    }
+    event.preventDefault();
+    target.focus();
+    return true;
+  }
+
   document.addEventListener("keydown", function (event) {
+    if (wrapTabFocus(event)) {
+      return;
+    }
     var key = typeof event.key === "string" ? event.key.toLowerCase() : "";
     var mod = modifier(event);
     var inFind = event.target === elements.findInput;

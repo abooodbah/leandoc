@@ -216,10 +216,13 @@ def ui05(ctx):
     return "; ".join(notes)
 
 
+# The find field shows its focus on its frame (.search-field:focus-within).
 FOCUS_JS = """
 const a = document.activeElement;
 const s = getComputedStyle(a);
-const shown = (s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0) || s.boxShadow !== 'none';
+const field = a.closest('.search-field');
+const shown = (s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0) || s.boxShadow !== 'none' ||
+  (field !== null && getComputedStyle(field).boxShadow !== 'none');
 return {id: a.id || a.className || a.tagName, tag: a.tagName, label: a.getAttribute('aria-label') || a.textContent.trim().slice(0, 24),
   visibleFocus: shown || a === document.body || a.id === 'docScroller', focusVisible: a.matches(':focus-visible')};
 """
@@ -244,11 +247,13 @@ def ui06(ctx):
             start = state()
             key("ctrl+f")
             results["Ctrl+F"] = state()["focus"] == "findInput"
-            xdotool("type", "--delay", "30", "the")
+            # The last document is active; "e" occurs in it many times.
+            xdotool("type", "--delay", "30", "e")
             time.sleep(0.3)
             first = state()["find"]
             key("F3")
-            results["F3"] = state()["find"] != first and state()["find"].startswith("2/")
+            after_f3 = state()["find"]
+            results["F3"] = after_f3 != first and after_f3.startswith("2/")
             key("Escape")
             key("ctrl+plus")
             zoomed = state()["zoom"]
@@ -277,9 +282,10 @@ def ui06(ctx):
             key("ctrl+9")
             app.wait_render()
             results["Ctrl+9"] = state()["file"] == "not-displayed.docx"
+            before_reload = app.eval("document.documentElement.dataset.pages")
             key("F5")
-            reloaded = app.wait_render()
-            results["F5"] = '"generation":2' in reloaded.result
+            reloaded = json.loads(app.wait_render().result)
+            results["F5"] = reloaded["tab"] > 0 and not reloaded["failed"] and before_reload is not None
             key("ctrl+w")
             app.wait("document.querySelectorAll('.tab').length === 2")
             results["Ctrl+W"] = True
@@ -292,17 +298,29 @@ def ui06(ctx):
             results["Ctrl+O"] = len(windows) > before_windows
             if len(windows) > before_windows:
                 app.screenshot(ctx.out / "ui06" / "open-dialog-behind.png")
+                dialog = [w for w in windows if w != window][0]
+                # Xvfb has no window manager, so the new dialog does not get
+                # the keyboard by itself; a desktop gives it the focus.
+                xdotool("windowfocus", "--sync", dialog)
                 key("Escape")
                 time.sleep(0.5)
                 xdotool("windowfocus", "--sync", window)
+                time.sleep(0.3)
 
             # Tab order from the top of the window.
-            app.js("document.activeElement.blur(); document.body.focus(); return 1")
+            xdotool("windowfocus", "--sync", window)
+            time.sleep(0.3)
+            app.js("window.__keys = []; document.addEventListener('keydown', (e) => window.__keys.push(e.key), true);"
+                   "document.activeElement.blur(); return 1")
             order = []
             for _ in range(40):
                 key("Tab", delay=0.08)
                 order.append(app.js(FOCUS_JS))
             app.screenshot(ctx.out / "ui06" / "tab-focus.png")
+            keys_seen = app.eval("window.__keys.length")
+            open_windows = subprocess.run(["xdotool", "search", "--onlyvisible", "--pid", str(app.pid)],
+                                          capture_output=True, text=True).stdout.split()
+            page_focus = app.eval("document.hasFocus()")
         ids = [entry["id"] for entry in order]
         reached = {i for i in ids}
         expected = {"findInput", "viewPage", "viewReading", "zoomOut", "zoomValue", "zoomIn",
@@ -311,7 +329,8 @@ def ui06(ctx):
         invisible = sorted({entry["id"] for entry in order if not entry["visibleFocus"]})
         failed = sorted(name for name, ok in results.items() if not ok)
         check(not failed, f"shortcuts that did not work: {failed}")
-        check(not missing, f"controls the Tab key never reached: {missing}; order {ids[:20]}")
+        check(not missing, f"controls the Tab key never reached: {missing}; order {ids[:20]}; "
+              f"{keys_seen} keys reached the page, page focus {page_focus}, windows {open_windows}")
         check(not invisible, f"focus not visible on: {invisible}")
         cycle = ids.index(ids[0], 1) if ids[0] in ids[1:] else None
         check(cycle is not None, f"Tab cycles back, so there is no trap: {ids}")

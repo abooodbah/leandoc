@@ -48,6 +48,7 @@ for (const [guard, reason] of [
   [/g_app_info_launch_default_for_uri\(href->c_str\(\)/, "links open through the desktop handler"],
   [/g_signal_connect\(webView_, "context-menu", G_CALLBACK\(OnContextMenu\)/, "the context menu is filtered"],
   [/recoveriesInWindow_ > 4/, "renderer recoveries are capped"],
+  [/"notify::focus-widget"/, "the keyboard focus returns to the web view"],
   [/g_filename_to_uri\(path\.c_str\(\)/, "recent paths are stored as file URIs"],
   [/DefaultAppForFile\(path\)/, "the default editor is looked up per file type"],
   [/g_subprocess_newv\(argv/, "editors start with an argument vector"],

@@ -96,6 +96,14 @@ watched (Windows polls every 500 ms, Linux uses a `GFileMonitor` on the
 folder, macOS polls every 500 ms) and reloads after it has been stable for
 350 ms.
 
+Keyboard focus stays in the page. The reader wraps Tab from the last control
+to the first (and Shift+Tab the other way), so the focus never leaves the
+web view for a native window that has nothing else to focus. On Linux, GTK
+uses Ctrl+Tab to move the focus to a hidden widget inside the web view; the
+host watches the window's `focus-widget` and gives the focus back to the web
+view whenever it lands anywhere but the web view or a popover (the context
+menu).
+
 ## Settings
 
 | Host | Where | What |

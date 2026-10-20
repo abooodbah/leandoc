@@ -191,10 +191,13 @@ private:
     static gboolean OnScriptDeadline(gpointer data);
     static gboolean OnExitAfterRender(gpointer data);
     static void OnWindowMapped(GtkWidget* widget, gpointer data);
+    static void OnFocusWidgetChanged(GObject* object, GParamSpec* spec, gpointer data);
+    static gboolean OnRestoreFocus(gpointer data);
 
     GtkApplication* application_ = nullptr;
     GtkWidget* window_ = nullptr;
     GtkCssProvider* windowCss_ = nullptr;
+    guint focusRestore_ = 0;
     WebKitWebView* webView_ = nullptr;
     WebKitWebContext* webContext_ = nullptr;
     WebKitNetworkSession* networkSession_ = nullptr;

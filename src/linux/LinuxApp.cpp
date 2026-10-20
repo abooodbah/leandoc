@@ -379,6 +379,9 @@ LinuxApp::~LinuxApp() {
     if (scriptDeadline_ != 0) {
         g_source_remove(scriptDeadline_);
     }
+    if (focusRestore_ != 0) {
+        g_source_remove(focusRestore_);
+    }
     if (scriptCancel_ != nullptr) {
         // Pending script reads and evaluations finish as cancelled and never
         // touch this object again.
@@ -494,7 +497,37 @@ void LinuxApp::Initialize() {
     // The window was shown before the web view existed, so the web view must
     // take the keyboard focus itself.
     gtk_widget_grab_focus(GTK_WIDGET(webView_));
+    // The web view is the window's only widget, but GTK's own focus keys can
+    // still move the focus off it: Ctrl+Tab moves it to a hidden text view
+    // inside the web view, and the keyboard then reaches nothing until a
+    // click. The focus goes back to the web view whenever that happens.
+    g_signal_connect(window_, "notify::focus-widget", G_CALLBACK(OnFocusWidgetChanged), this);
     NavigateToReader();
+}
+
+void LinuxApp::OnFocusWidgetChanged(GObject*, GParamSpec*, gpointer data) {
+    auto* self = static_cast<LinuxApp*>(data);
+    if (self->webView_ == nullptr || self->focusRestore_ != 0) {
+        return;
+    }
+    GtkWidget* focus = gtk_window_get_focus(GTK_WINDOW(self->window_));
+    GtkWidget* view = GTK_WIDGET(self->webView_);
+    // A popover (the context menu) may hold the focus. Any other widget
+    // inside the web view, such as the hidden text view GTK's Ctrl+Tab
+    // moves to, takes the keys away from the page.
+    if (focus == view || (focus != nullptr && gtk_widget_get_ancestor(focus, GTK_TYPE_POPOVER) != nullptr)) {
+        return;
+    }
+    self->focusRestore_ = g_idle_add(OnRestoreFocus, self);
+}
+
+gboolean LinuxApp::OnRestoreFocus(gpointer data) {
+    auto* self = static_cast<LinuxApp*>(data);
+    self->focusRestore_ = 0;
+    if (self->webView_ != nullptr) {
+        gtk_widget_grab_focus(GTK_WIDGET(self->webView_));
+    }
+    return G_SOURCE_REMOVE;
 }
 
 void LinuxApp::ConfigureWebView() {

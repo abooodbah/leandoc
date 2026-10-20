@@ -68,6 +68,9 @@ class FakeDesktop:
         self.apps = self.share / "applications"
         self.apps.mkdir(parents=True)
         os.symlink("/usr/share/mime", self.share / "mime")
+        # GTK's file chooser needs the system's compiled GSettings schemas.
+        if os.path.isdir("/usr/share/glib-2.0"):
+            os.symlink("/usr/share/glib-2.0", self.share / "glib-2.0")
         self.config = self.root / "config"
         self.config.mkdir()
         self.bin = self.root / "bin"

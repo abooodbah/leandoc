@@ -12,6 +12,9 @@
    then the document shows the renderer-stopped page.
 4. A file name that is not valid UTF-8 opens, shows in the recent list, and
    opens again from there; a settings file with such a path keeps its list.
+5. The keyboard keeps working: after Ctrl+Tab (which GTK uses to move the
+   focus into a hidden widget) and after Tab past the last control, the
+   next keys still reach the page.
 """
 
 from __future__ import annotations
@@ -169,10 +172,44 @@ def non_utf8_names(build):
         shutil.rmtree(work, ignore_errors=True)
 
 
+def keyboard_focus(build):
+    features = ROOT / "tests" / "fixtures" / "features"
+    with Session(build, [features / "tables.docx", features / "notes.docx"]) as app:
+        app.wait_render()
+        app.wait("document.querySelectorAll('.tab').length === 2")
+        window = app.window_id()
+        xdotool("windowfocus", "--sync", window)
+        time.sleep(0.3)
+        app.js("window.__keys = 0; document.addEventListener('keydown', () => { window.__keys += 1; }, true); return 1")
+        xdotool("key", "--clearmodifiers", "ctrl+Tab")
+        app.wait_render()
+        time.sleep(0.3)
+        active = app.eval("document.getElementById('fileName').textContent")
+        before = app.eval("window.__keys")
+        for _ in range(3):
+            xdotool("key", "--clearmodifiers", "Tab")
+            time.sleep(0.15)
+        after_ctrl_tab = app.eval("window.__keys") - before
+        # Tab from the document area, the last control, comes round to the
+        # first control instead of leaving the page.
+        app.js("document.getElementById('docScroller').focus(); return 1")
+        xdotool("key", "--clearmodifiers", "Tab")
+        time.sleep(0.2)
+        wrapped = app.eval("document.activeElement.id")
+        xdotool("key", "--clearmodifiers", "Tab")
+        time.sleep(0.2)
+        next_control = app.eval("document.activeElement.id")
+    check(active == "tables.docx", f"Ctrl+Tab switches the tab: {active}")
+    check(after_ctrl_tab == 3, f"after Ctrl+Tab every key still reaches the page: {after_ctrl_tab} of 3")
+    check(wrapped == "findInput" and next_control == "viewPage",
+          f"Tab wraps from the last control to the first: {wrapped}, then {next_control}")
+    print(f"keyboard focus: {after_ctrl_tab} of 3 keys after Ctrl+Tab, wrap to {wrapped}", flush=True)
+
+
 def main():
     build = Build.find(sys.argv[1] if len(sys.argv) > 1 else None)
     os.environ.setdefault("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
-    for step in (fallbacks, context_menu, crash_cap, non_utf8_names):
+    for step in (fallbacks, context_menu, crash_cap, non_utf8_names, keyboard_focus):
         wait_for_no_leftovers()
         try:
             step(build)
