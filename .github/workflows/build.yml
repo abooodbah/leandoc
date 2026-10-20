@@ -600,8 +600,6 @@ jobs:
         if: always()
         shell: bash
         run: |
-          sudo apt-get install -y --no-install-recommends heaptrack gdb
-          sudo sysctl -w kernel.yama.ptrace_scope=0 || true
           bash tests/usage/run-linux.sh python3 tests/perf/heap_profile.py --minutes 5 --out artifacts/perf || true
           node tests/perf/annotate-results.mjs artifacts/perf/heap-profile.md "Heap profile of the idle UI process"
 
