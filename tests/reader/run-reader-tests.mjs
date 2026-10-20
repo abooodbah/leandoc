@@ -532,6 +532,56 @@ describe("fallback pages and empty state (VIEW-01)", () => {
   });
 });
 
+describe("keyboard reading and the outline (U-02, U-06)", () => {
+  test("a rendered document takes the focus, so Page Down scrolls at once", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeBigDocx(20);
+      await host.openDocument({ bytes, report, fileName: "twenty.docx" });
+      assert.equal(await host.page.evaluate(() => document.activeElement.id), "docScroller");
+      for (const key of ["PageDown", "Space", "ArrowDown"]) {
+        const before = await host.page.$eval("#docScroller", (node) => node.scrollTop);
+        await host.page.keyboard.press(key);
+        await host.page.waitForFunction((top) => document.getElementById("docScroller").scrollTop > top, before,
+          { timeout: 5000 }).catch(() => assert.fail(`${key} did not scroll`));
+      }
+      await host.page.keyboard.press("End");
+      await host.page.waitForFunction(() => {
+        const node = document.getElementById("docScroller");
+        return node.scrollTop >= node.scrollHeight - node.clientHeight - 2;
+      }, null, { timeout: 5000 }).catch(async () => assert.fail(`End did not reach the end: ${
+        JSON.stringify(await host.page.$eval("#docScroller", (n) => [n.scrollTop, n.scrollHeight, n.clientHeight]))}`));
+      // Chromium drops a key that lands on the last frame of its own scroll
+      // animation, so the test pauses as a reader would.
+      await host.page.waitForTimeout(300);
+      await host.page.keyboard.press("Home");
+      await host.page.waitForFunction(() => document.getElementById("docScroller").scrollTop === 0, null,
+        { timeout: 5000 }).catch(async () => assert.fail(`Home did not return to the top: ${
+          await host.page.$eval("#docScroller", (n) => [n.scrollTop, document.activeElement.id, document.activeElement.tagName])}`));
+      // A control the reader is using keeps the focus when a document arrives.
+      await host.page.focus("#findInput");
+      await host.openDocument({ generation: 2, bytes, report, fileName: "twenty.docx" });
+      assert.equal(await host.page.evaluate(() => document.activeElement.id), "findInput");
+    });
+  });
+
+  test("a clicked outline entry stays current although the next heading is close", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeBigDocx(30, { sectionHeadings: true });
+      await host.openDocument({ bytes, report, fileName: "chapters.docx" });
+      for (const text of ["Chapter 2", "Chapter 3", "Overview 2"]) {
+        await host.page.locator("#outlineList a", { hasText: text }).click();
+        await host.page.waitForTimeout(150);
+        assert.equal(await host.page.$eval("#outlineList [aria-current]", (node) => node.textContent), text);
+      }
+      // Scrolling away hands the highlight back to the scroll position.
+      await host.page.mouse.move(700, 500);
+      await host.page.mouse.wheel(0, 200000);
+      await host.page.waitForFunction(() =>
+        document.querySelector("#outlineList [aria-current]").textContent === "Overview 3");
+    });
+  });
+});
+
 describe("chrome interactions (VIEW-01)", () => {
   test("tabs: strip, switching, closing, keyboard", async () => {
     await withHost({}, async (host) => {

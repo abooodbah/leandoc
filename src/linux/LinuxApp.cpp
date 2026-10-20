@@ -491,6 +491,9 @@ void LinuxApp::Initialize() {
     ConfigureWebView();
     ApplyWindowTheme();
     gtk_window_set_child(GTK_WINDOW(window_), GTK_WIDGET(webView_));
+    // The window was shown before the web view existed, so the web view must
+    // take the keyboard focus itself.
+    gtk_widget_grab_focus(GTK_WIDGET(webView_));
     NavigateToReader();
 }
 

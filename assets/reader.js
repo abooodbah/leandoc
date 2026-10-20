@@ -77,6 +77,13 @@
   var supportsZoom = !!(window.CSS && CSS.supports && CSS.supports("zoom", "2"));
   var outlineEntries = [];
   var currentOutlineIndex = -1;
+  // The entry the reader jumped to stays current until the reader scrolls
+  // (wheel, keys, pointer, touch) or the view moves more than half a screen
+  // from the jump (find, a reload). Two headings close together would
+  // otherwise highlight the second one right after a click on the first, and
+  // pages that lay out lazily can nudge the position by themselves after a
+  // jump, so an exact position cannot tell.
+  var pinnedOutline = null;
   var search = { matches: [], index: -1, marks: false };
   var toastTimer = 0;
   var scrollFrame = 0;
@@ -604,6 +611,7 @@
     }
     root.dataset.renderState = "ready";
     root.dataset.pages = String(pages);
+    focusDocumentIfIdle();
     post({
       type: "rendered",
       tab: expected.tab,
@@ -613,12 +621,56 @@
     });
   }
 
+  // Page Down, Space, the arrows, Home, and End scroll whatever holds the
+  // focus. A freshly opened document leaves it on the body, which does not
+  // scroll, so the keyboard did nothing until the reader clicked the page.
+  // The document takes the focus unless a control already has it.
+  function focusDocumentIfIdle() {
+    var active = document.activeElement;
+    if (active && active !== document.body && active !== root) {
+      return;
+    }
+    try {
+      elements.docScroller.focus({ preventScroll: true });
+    } catch (_error) {
+      elements.docScroller.focus();
+    }
+  }
+
   // Links, anchors, and ids inside the rendered document
+
+  var CSS_UNITS = { px: 1, pt: 96 / 72, in: 96, cm: 96 / 2.54, mm: 96 / 25.4, pc: 16 };
+
+  function cssPixels(value) {
+    var match = /^(-?[\d.]+)(px|pt|in|cm|mm|pc)$/.exec(String(value || "").trim());
+    return match ? parseFloat(match[1]) * CSS_UNITS[match[2]] : NaN;
+  }
+
+  // A lazily laid-out page is sized by contain-intrinsic-size until it is
+  // drawn. That size is the content box, so it is the page size less the page
+  // margins docx-preview writes as padding. With the whole page size instead,
+  // every page not yet drawn was 192 px too tall on Letter paper: the
+  // scrollbar was wrong, and Home, End, and jumps landed short as pages laid
+  // out during the scroll.
+  function lazyPageSize(section) {
+    var style = section.style;
+    var width = cssPixels(style.width) - cssPixels(style.paddingLeft) - cssPixels(style.paddingRight);
+    var height = cssPixels(style.minHeight) - cssPixels(style.paddingTop) -
+      cssPixels(style.paddingBottom);
+    if (!(width > 0) || !(height > 0)) {
+      return "";
+    }
+    return "auto " + Math.round(width) + "px auto " + Math.round(height) + "px";
+  }
 
   function prepareDocumentDom() {
     if (currentView === "page") {
       elements.docBody.querySelectorAll(".docx-wrapper > section.docx").forEach(function (section) {
         if (!section.querySelector("p[class*='docx-num-']")) {
+          var size = lazyPageSize(section);
+          if (size) {
+            section.style.containIntrinsicSize = size;
+          }
           section.classList.add("ld-lazy");
         }
       });
@@ -804,6 +856,7 @@
     var entries = report && Array.isArray(report.outline) ? report.outline : [];
     outlineEntries = [];
     currentOutlineIndex = -1;
+    pinnedOutline = null;
     var fragment = document.createDocumentFragment();
     var previous = null;
     var paragraphs = null;
@@ -851,6 +904,13 @@
     scrollFrame = 0;
     if (!displayed || !outlineEntries.length) {
       return;
+    }
+    if (pinnedOutline !== null) {
+      var moved = Math.abs(elements.docScroller.scrollTop - pinnedOutline.scrollTop);
+      if (outlineEntries[pinnedOutline.index] && moved <= elements.docScroller.clientHeight / 2) {
+        return;
+      }
+      pinnedOutline = null;
     }
     var withTargets = outlineEntries.filter(function (entry) {
       return entry.target && entry.target.isConnected;
@@ -909,6 +969,7 @@
     } catch (_error) {
       entry.target.focus();
     }
+    pinnedOutline = null;
     updateOutlineCurrent();
     if (currentOutlineIndex !== index) {
       if (currentOutlineIndex >= 0 && outlineEntries[currentOutlineIndex]) {
@@ -917,6 +978,7 @@
       currentOutlineIndex = index;
       entry.link.setAttribute("aria-current", "location");
     }
+    pinnedOutline = { index: index, scrollTop: elements.docScroller.scrollTop };
   }
 
   function toggleOutline() {
@@ -1578,6 +1640,14 @@
     }
   });
   elements.docScroller.addEventListener("scroll", scheduleOutlineUpdate, { passive: true });
+  ["wheel", "pointerdown", "touchstart", "keydown"].forEach(function (type) {
+    elements.docScroller.addEventListener(type, function () {
+      if (pinnedOutline !== null) {
+        pinnedOutline = null;
+        scheduleOutlineUpdate();
+      }
+    }, { passive: true });
+  });
   elements.docScroller.addEventListener("wheel", function (event) {
     if (!(event.ctrlKey || (isMac && event.metaKey)) || !displayed) {
       return;

@@ -34,6 +34,8 @@ const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/>
 <w:pPr><w:keepNext/><w:spacing w:before="240" w:after="120"/><w:outlineLvl w:val="0"/></w:pPr>
 <w:rPr><w:b/><w:color w:val="1F3864"/><w:sz w:val="32"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/>
+<w:pPr><w:keepNext/><w:outlineLvl w:val="1"/></w:pPr><w:rPr><w:b/><w:sz w:val="26"/></w:rPr></w:style>
 </w:styles>`;
 
 const WORDS = ("river survey sample morning water bank current reading level station " +
@@ -53,7 +55,7 @@ function paragraph(text, style) {
   return `<w:p>${properties}<w:r><w:t xml:space="preserve">${text}</w:t></w:r></w:p>`;
 }
 
-export async function makeBigDocx(pages = 300) {
+export async function makeBigDocx(pages = 300, { sectionHeadings = false } = {}) {
   const body = [];
   const outline = [];
   let index = 0;
@@ -62,6 +64,12 @@ export async function makeBigDocx(pages = 300) {
       outline.push({ level: 1, text: `Chapter ${Math.ceil(page / 10)}`, paragraph: index });
       body.push(paragraph(`Chapter ${Math.ceil(page / 10)}`, "Heading1"));
       index += 1;
+      if (sectionHeadings) {
+        // A second heading right under the first, as reports often have.
+        outline.push({ level: 2, text: `Overview ${Math.ceil(page / 10)}`, paragraph: index });
+        body.push(paragraph(`Overview ${Math.ceil(page / 10)}`, "Heading2"));
+        index += 1;
+      }
     }
     for (let line = 0; line < 7; line += 1) {
       const marker = page === pages && line === 6 ? " Final marker otter." : "";

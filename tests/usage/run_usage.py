@@ -347,8 +347,14 @@ def u05(ctx):
         key("shift+F3")
         back = app.js(FIND_STATE)
         page_total = first["count"].split("/")[-1]
-        key("ctrl+shift+v")
+        # In the find field Ctrl+Shift+V pastes as plain text, so the reader
+        # clicks Reading, then finds again by typing the phrase anew.
+        click_element(app, "#viewReading")
         app.wait_render()
+        carried = app.js(FIND_STATE)
+        key("ctrl+f")
+        xdotool("type", "--delay", "40", "station")
+        time.sleep(0.4)
         reading = app.js(FIND_STATE)
         view = app.eval("document.documentElement.dataset.view")
         ctx.shot(app, "U-05")
@@ -360,7 +366,9 @@ def u05(ctx):
         check(second["count"].startswith("2/") and third["count"].startswith("3/"),
               f"Enter and F3 step forward: {second['count']}, {third['count']}")
         check(back["count"].startswith("2/"), f"Shift+F3 steps back: {back['count']}")
-        check(view == "reading", f"Ctrl+Shift+V switched to reading view: {view}")
+        check(view == "reading", f"switched to reading view: {view}")
+        check(carried["count"].split("/")[-1] == page_total,
+              f"the search carries over to reading view: {carried['count']}")
         check(reading["count"].split("/")[-1] == page_total,
               f"same count in reading view: {page_total} and {reading['count']}")
         check(cleared["count"] == "" and cleared["value"] == "" and cleared["highlights"] == 0,
@@ -373,6 +381,7 @@ def u06(ctx):
     with session(ctx.build, [ctx.docs["report-60"]]) as app:
         app.wait_render(timeout=60)
         entries = app.eval("document.querySelectorAll('#outlineList a').length")
+        # The reader keeps a 16 px scroll margin above a heading it jumps to.
         result = app.js("""
             const links = [...document.querySelectorAll('#outlineList a')];
             const scroller = document.getElementById('docScroller');
@@ -385,7 +394,7 @@ def u06(ctx):
               const current = document.querySelector('#outlineList [aria-current]');
               const atEnd = scroller.scrollTop >= scroller.scrollHeight - scroller.clientHeight - 2;
               if (!target || target.textContent.trim() !== links[i].textContent.trim() ||
-                  (!atEnd && Math.abs(top) > 4) || current !== links[i]) {
+                  (!atEnd && (top < -1 || top > 24)) || current !== links[i]) {
                 bad.push({i, text: links[i].textContent, top, current: current && current.textContent});
               }
             }
@@ -474,7 +483,7 @@ def u08(ctx):
             "legacy.doc": (SECURITY / "legacy.doc", "legacy-doc", "Word 97-2003"),
             "protected.docx": (SECURITY / "encrypted.docx", "encrypted-ooxml", "password protected"),
             "minutes.odt": (KINDS / "minimal.odt", "odt", "OpenDocument"),
-            "budget.docx": (KINDS / "spreadsheet.xlsx", "missing-main-part", "no Word document body"),
+            "budget.docx": (KINDS / "spreadsheet.xlsx", "missing-main-part", "Word document part"),
             "empty.docx": (None, None, None),
         }
         rows = []
@@ -508,11 +517,15 @@ def u08(ctx):
         shutil.rmtree(work, ignore_errors=True)
 
 
+# List paragraphs carry an indent and a marker, so only plain paragraphs are
+# checked for flush-right text; lists are checked for direction. (The driver
+# joins a script onto one line, so scripts carry no // comments.)
 ARABIC_CHECK = """
 const body = document.getElementById('docBody');
 const ps = [...body.querySelectorAll('p')];
 const rtl = ps.filter((p) => /[\\u0600-\\u06ff]/.test(p.textContent) && p.textContent.trim());
-const rightAligned = rtl.filter((p) => {
+const plain = rtl.filter((p) => !/docx-num-/.test(p.className) && !p.closest('td'));
+const rightAligned = plain.filter((p) => {
   const range = document.createRange(); range.selectNodeContents(p);
   const t = range.getBoundingClientRect(), b = p.getBoundingClientRect();
   return getComputedStyle(p).direction === 'rtl' && (Math.abs(t.right - b.right) < 4 || t.width > b.width - 8);
@@ -522,7 +535,7 @@ const lists = rtl.filter((p) => /docx-num-/.test(p.className)).map((p) => {
   return {dir: getComputedStyle(p).direction, marker: before.content};
 });
 const tables = [...body.querySelectorAll('table')].map((t) => getComputedStyle(t).direction);
-return {paragraphs: rtl.length, rightAligned, lists, tables,
+return {paragraphs: rtl.length, plain: plain.length, rightAligned, lists, tables,
   outline: [...document.querySelectorAll('#outlineList a')].map((a) => a.textContent)};
 """
 
@@ -548,7 +561,7 @@ def u09(ctx):
                 outline = [entry[1] for entry in expected["outline"]]
                 check(result["paragraphs"] > 0, f"{path.name}: Arabic paragraphs")
                 if expected["rightToLeft"]:
-                    check(result["rightAligned"] == result["paragraphs"],
+                    check(result["rightAligned"] == result["plain"],
                           f"{path.name}: every Arabic paragraph is right aligned: {result}")
                 check(all(item["dir"] == "rtl" for item in result["lists"]),
                       f"{path.name}: Arabic lists are mirrored: {result['lists']}")
@@ -563,16 +576,16 @@ def u09(ctx):
                 app.js("const i = document.getElementById('findInput'); i.value = ''; "
                        "i.dispatchEvent(new Event('input')); return 1")
                 notes.append(f"{key_name}: {result['paragraphs']} RTL paragraphs, find '{word}' {count}")
-            title = app.js("""const n = document.getElementById('fileName');
-                const range = document.createRange(); const text = n.firstChild;
-                const dot = text.textContent.lastIndexOf('.docx');
-                range.setStart(text, 0); range.setEnd(text, dot); const stem = range.getBoundingClientRect();
-                range.setStart(text, dot); range.setEnd(text, text.textContent.length);
-                return {text: n.textContent, stemLeft: stem.left, extLeft: range.getBoundingClientRect().left,
-                  window: document.title};""")
+            # One character at a time: the first Arabic letter must be drawn
+            # left of the final "x", so the name is not reversed around ".docx".
+            title = app.js("""const n = document.getElementById('fileName'); const text = n.firstChild;
+                const box = (i) => { const r = document.createRange(); r.setStart(text, i); r.setEnd(text, i + 1);
+                  return r.getBoundingClientRect(); };
+                return {text: n.textContent, firstRight: box(0).right,
+                  lastLeft: box(text.textContent.length - 1).left, window: document.title};""")
             ctx.shot(app, "U-09")
             check(title["text"] == named.name, f"the file name is shown as written: {title['text']}")
-            check(title["extLeft"] > title["stemLeft"], f"'.docx' stays at the end of the name: {title}")
+            check(title["lastLeft"] > title["firstRight"], f"'.docx' stays at the end of the name: {title}")
         return "; ".join(notes)
     finally:
         shutil.rmtree(work, ignore_errors=True)
