@@ -9,6 +9,9 @@
 #import <WebKit/WebKit.h>
 
 #include "leandoc-version.h"
+#include "core/Links.h"
+
+#include <optional>
 
 namespace {
 
@@ -77,6 +80,61 @@ LDAppDelegate *Delegate(void) {
 - (void)userContentController:(WKUserContentController *)userContentController
       didReceiveScriptMessage:(WKScriptMessage *)message {
     [self.delegate userContentController:userContentController didReceiveScriptMessage:message];
+}
+@end
+
+// The page's context menu keeps only copy and text-editing items. WebKit's
+// own items such as "Download Linked File", "Open Link", and "Open Image in
+// New Window" would fetch what the document points to.
+static BOOL LDIsAllowedMenuItem(NSMenuItem *item) {
+    if (item.isSeparatorItem) {
+        return YES;
+    }
+    if (item.hasSubmenu) {
+        return NO;
+    }
+    static NSSet<NSString *> *allowedIdentifiers;
+    static NSSet<NSString *> *allowedActions;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+      allowedIdentifiers = [NSSet setWithArray:@[
+          @"WKMenuItemIdentifierCopy", @"WKMenuItemIdentifierCopyLink",
+          @"WKMenuItemIdentifierPaste"
+      ]];
+      allowedActions = [NSSet setWithArray:@[
+          @"cut:", @"copy:", @"paste:", @"pasteAsPlainText:", @"selectAll:", @"delete:"
+      ]];
+    });
+    if (item.identifier != nil && [allowedIdentifiers containsObject:item.identifier]) {
+        return YES;
+    }
+    return item.action != nullptr &&
+           [allowedActions containsObject:NSStringFromSelector(item.action)];
+}
+
+@interface LDReaderWebView : WKWebView
+@end
+
+@implementation LDReaderWebView
+- (void)willOpenMenu:(NSMenu *)menu withEvent:(NSEvent *)event {
+    [super willOpenMenu:menu withEvent:event];
+    for (NSMenuItem *item in [menu.itemArray copy]) {
+        if (!LDIsAllowedMenuItem(item)) {
+            [menu removeItem:item];
+        }
+    }
+    // Drop separators left at either end or doubled up.
+    BOOL previousSeparator = YES;
+    for (NSMenuItem *item in [menu.itemArray copy]) {
+        if (item.isSeparatorItem && previousSeparator) {
+            [menu removeItem:item];
+            continue;
+        }
+        previousSeparator = item.isSeparatorItem;
+    }
+    if (menu.itemArray.lastObject.isSeparatorItem) {
+        [menu removeItem:menu.itemArray.lastObject];
+    }
 }
 @end
 
@@ -174,7 +232,7 @@ LDAppDelegate *Delegate(void) {
         [configuration.userContentController addUserScript:probe];
     }
 
-    _webView = [[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
+    _webView = [[LDReaderWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
     _webView.translatesAutoresizingMaskIntoConstraints = NO;
     _webView.navigationDelegate = self;
     _webView.UIDelegate = self;
@@ -410,12 +468,13 @@ LDAppDelegate *Delegate(void) {
     if (href.length == 0 || href.length > 8192 || ContainsNUL(href)) {
         return;
     }
-    NSURLComponents *components = [NSURLComponents componentsWithString:href];
-    NSString *scheme = components.scheme.lowercaseString;
-    NSURL *URL = components.URL;
-    const BOOL web = [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"];
-    const BOOL mail = [scheme isEqualToString:@"mailto"];
-    if (URL == nil || !((web && URL.host.length > 0) || mail)) {
+    // The same rule as every host (src/core/Links.h): http and https with a
+    // host, and mailto with only its addresses, subject, body, cc, and bcc.
+    const char *utf8 = href.UTF8String;
+    const auto normalized =
+        utf8 == nullptr ? std::nullopt : leandoc::core::NormalizeExternalLink(utf8);
+    NSURL *URL = normalized ? [NSURL URLWithString:@(normalized->c_str())] : nil;
+    if (URL == nil) {
         [self showStatus:@"LeanDoc opens web and email links only." tone:@"warning"];
         return;
     }

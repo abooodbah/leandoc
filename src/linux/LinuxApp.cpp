@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "Timing.h"
+#include "core/Links.h"
 
 namespace leandoc::linux_host {
 namespace {
@@ -438,6 +439,7 @@ void LinuxApp::ConfigureWebView() {
     g_signal_connect(webView_, "print", G_CALLBACK(OnPrint), this);
     g_signal_connect(
         webView_, "web-process-terminated", G_CALLBACK(OnWebProcessTerminated), this);
+    g_signal_connect(webView_, "context-menu", G_CALLBACK(OnContextMenu), this);
 }
 
 void LinuxApp::NavigateToReader() {
@@ -741,27 +743,15 @@ void LinuxApp::LaunchEditor(const std::filesystem::path& path) {
 }
 
 void LinuxApp::HandleLink(std::string_view hrefView) {
-    if (hrefView.empty() || hrefView.size() > 8192) {
-        return;
-    }
-    const std::string href(hrefView);
-    GError* error = nullptr;
-    GUri* parsed = g_uri_parse(href.c_str(), G_URI_FLAGS_NONE, &error);
-    if (parsed == nullptr) {
-        g_clear_error(&error);
-        SendStatus("That link is not a valid address.", "warning");
-        return;
-    }
-    const std::string scheme = LowercaseAscii(g_uri_get_scheme(parsed));
-    const char* host = g_uri_get_host(parsed);
-    const bool web = scheme == "http" || scheme == "https";
-    const bool allowed = (web && host != nullptr && host[0] != '\0') || scheme == "mailto";
-    g_uri_unref(parsed);
-    if (!allowed) {
+    // The same rule as every host (src/core/Links.h): http and https with a
+    // host, and mailto with only its addresses, subject, body, cc, and bcc.
+    const auto href = core::NormalizeExternalLink(hrefView);
+    if (!href) {
         SendStatus("LeanDoc opens web and email links only.", "warning");
         return;
     }
-    if (!g_app_info_launch_default_for_uri(href.c_str(), nullptr, &error)) {
+    GError* error = nullptr;
+    if (!g_app_info_launch_default_for_uri(href->c_str(), nullptr, &error)) {
         g_clear_error(&error);
         SendStatus("Linux could not open that link.", "error");
     }
@@ -1580,6 +1570,72 @@ gboolean LinuxApp::OnDecidePolicy(
         return TRUE;
     }
     return FALSE;
+}
+
+// The page's context menu keeps only copy and text-editing actions. WebKit's
+// own items such as "Download Linked File", "Open Link", and "Open Image in
+// New Window" would fetch what the document points to.
+static bool IsAllowedContextMenuAction(WebKitContextMenuAction action) {
+    switch (action) {
+        case WEBKIT_CONTEXT_MENU_ACTION_NO_ACTION:  // separators
+        case WEBKIT_CONTEXT_MENU_ACTION_COPY:
+        case WEBKIT_CONTEXT_MENU_ACTION_COPY_LINK_TO_CLIPBOARD:
+        case WEBKIT_CONTEXT_MENU_ACTION_CUT:
+        case WEBKIT_CONTEXT_MENU_ACTION_PASTE:
+        case WEBKIT_CONTEXT_MENU_ACTION_PASTE_AS_PLAIN_TEXT:
+        case WEBKIT_CONTEXT_MENU_ACTION_DELETE:
+        case WEBKIT_CONTEXT_MENU_ACTION_SELECT_ALL:
+            return true;
+        default:
+            return false;
+    }
+}
+
+gboolean LinuxApp::OnContextMenu(
+    WebKitWebView*, WebKitContextMenu* menu, WebKitHitTestResult*, gpointer data) {
+    std::vector<WebKitContextMenuItem*> removed;
+    for (GList* item = webkit_context_menu_get_items(menu); item != nullptr; item = item->next) {
+        auto* entry = WEBKIT_CONTEXT_MENU_ITEM(item->data);
+        if (!IsAllowedContextMenuAction(webkit_context_menu_item_get_stock_action(entry)) ||
+            webkit_context_menu_item_get_submenu(entry) != nullptr) {
+            removed.push_back(entry);
+        }
+    }
+    for (WebKitContextMenuItem* entry : removed) {
+        webkit_context_menu_remove(menu, entry);
+    }
+    // Drop separators left at either end or doubled up.
+    removed.clear();
+    WebKitContextMenuItem* lastKept = nullptr;
+    for (GList* item = webkit_context_menu_get_items(menu); item != nullptr; item = item->next) {
+        auto* entry = WEBKIT_CONTEXT_MENU_ITEM(item->data);
+        const bool separator = webkit_context_menu_item_is_separator(entry);
+        if (separator && (lastKept == nullptr || webkit_context_menu_item_is_separator(lastKept))) {
+            removed.push_back(entry);
+        } else {
+            lastKept = entry;
+        }
+    }
+    if (lastKept != nullptr && webkit_context_menu_item_is_separator(lastKept)) {
+        removed.push_back(lastKept);
+    }
+    for (WebKitContextMenuItem* entry : removed) {
+        webkit_context_menu_remove(menu, entry);
+    }
+    const guint remaining = webkit_context_menu_get_n_items(menu);
+    auto* app = static_cast<LinuxApp*>(data);
+    if (app->testScript_) {
+        std::string actions;
+        for (GList* item = webkit_context_menu_get_items(menu); item != nullptr; item = item->next) {
+            actions += actions.empty() ? "" : ",";
+            actions += std::to_string(static_cast<int>(webkit_context_menu_item_get_stock_action(
+                WEBKIT_CONTEXT_MENU_ITEM(item->data))));
+        }
+        std::printf("LEANDOC_EVENT context-menu actions=%s\n", actions.c_str());
+        std::fflush(stdout);
+    }
+    // TRUE suppresses the menu when nothing is left.
+    return remaining == 0 ? TRUE : FALSE;
 }
 
 GtkWidget* LinuxApp::OnCreateWebView(WebKitWebView*, WebKitNavigationAction*, gpointer) {

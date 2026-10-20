@@ -2,6 +2,7 @@
 // line and the process exits 1. The first argument is tests/fixtures.
 
 #include "core/DocCore.h"
+#include "core/Links.h"
 #include "core/Zip.h"
 
 #include <algorithm>
@@ -1019,6 +1020,43 @@ void TestDisplayedFeatures() {
            "simple fields become their result runs");
 }
 
+
+// The link rule every host applies before the operating system sees a link.
+void TestLinks() {
+    using leandoc::core::NormalizeExternalLink;
+    auto link = [](std::string_view href) {
+        return NormalizeExternalLink(href).value_or("<refused>");
+    };
+    ExpectEqual(link("https://example.com/a?b=c#d"), "https://example.com/a?b=c#d",
+                "a normalised https link passes unchanged");
+    ExpectEqual(link("HTTPS://example.com/"), "https://example.com/",
+                "the scheme is compared without case and lowered");
+    ExpectEqual(link("http://user@example.com:8080/x"), "http://user@example.com:8080/x",
+                "userinfo and port are kept");
+    ExpectEqual(link("MailTo:reader@example.com"), "mailto:reader@example.com",
+                "mailto is accepted in any case");
+    ExpectEqual(link("mailto:a@example.com?subject=Hi&attach=/home/u/.ssh/id_rsa&body=x"),
+                "mailto:a@example.com?subject=Hi&body=x", "attach= is dropped");
+    ExpectEqual(link("mailto:a@example.com?ATTACHMENT=%2Fetc%2Fpasswd&CC=b@example.com"),
+                "mailto:a@example.com?CC=b@example.com",
+                "parameters are matched without case and only the allow-list stays");
+    ExpectEqual(link("mailto:?cc=b@example.com"), "mailto:?cc=b@example.com",
+                "a cc recipient alone is enough");
+    ExpectEqual(link("mailto:a@example.com#frag"), "mailto:a@example.com",
+                "the mailto fragment is dropped");
+    for (const char* refused :
+         {"", "mailto:", "mailto:?subject=x", "mailto:?attach=/etc/passwd",
+          "https://", "https:///path", "http:example.com", "https://?q", "ftp://example.com/",
+          "file:///etc/passwd", "javascript:alert(1)", "data:text/html,x",
+          "https://exa mple.com/", "mailto:a b@example.com", "https://example.com/\\x",
+          "https://example.com/\"x", "https://example.com/<x>", "https://ex\x01.com/",
+          "https://ex\xc3\xa9.com/", "leandoc://app/reader.html", "noscheme"}) {
+        Expect(!NormalizeExternalLink(refused), std::string("refused: ") + refused);
+    }
+    Expect(!NormalizeExternalLink("https://example.com/" + std::string(8200, 'a')),
+           "links over 8192 bytes are refused");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1036,6 +1074,7 @@ int main(int argc, char** argv) {
     TestRightToLeft();
     TestSanitizing();
     TestDisplayedFeatures();
+    TestLinks();
     TestClassification(fixtures);
     TestPerformance(fixtures);
     std::cout << checks - failures << " of " << checks << " checks passed\n";

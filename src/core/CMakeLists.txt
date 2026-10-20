@@ -22,6 +22,7 @@ target_compile_definitions(leandoc_vendor_config INTERFACE
 set(LEANDOC_CORE_SOURCES
   Cfb.cpp
   DocCore.cpp
+  Links.cpp
   Word.cpp
   Xml.cpp
   Zip.cpp)

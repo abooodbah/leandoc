@@ -4,6 +4,7 @@
 
 #include "linux/EditorChoice.h"
 #include "linux/TestHooks.h"
+#include "windows/ContextMenu.h"
 #include "windows/EditorChoice.h"
 #include "windows/HostJson.h"
 #include "windows/TestHooks.h"
@@ -279,8 +280,23 @@ void TestScriptCommands() {
           "unknown commands are invalid");
 }
 
+// Context menus keep copy and editing items only; nothing that fetches.
+void TestContextMenu() {
+    namespace wh = leandoc::windows_host;
+    for (const wchar_t* allowed : {L"copy", L"copyLinkLocation", L"selectAll", L"paste"}) {
+        Check(wh::IsAllowedContextMenuItem(allowed), "Windows keeps copy and edit items");
+    }
+    for (const wchar_t* refused :
+         {L"saveLinkAs", L"openLinkInNewWindow", L"saveImageAs", L"copyImageLocation",
+          L"copyImage", L"saveAs", L"print", L"reload", L"back", L"forward",
+          L"inspectElement", L"share", L"webCapture", L"createQrCode", L"", L"Copy"}) {
+        Check(!wh::IsAllowedContextMenuItem(refused), "Windows drops every other item");
+    }
+}
+
 int main() {
     TestHooks();
+    TestContextMenu();
     TestScriptCommands();
     TestWindowsEditorOrder();
     TestLinuxEditorOrder();

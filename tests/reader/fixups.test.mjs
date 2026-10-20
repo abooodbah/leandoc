@@ -103,6 +103,22 @@ test("Only http, https, and mailto links stay links", () => {
   }
 });
 
+test("mailto links keep only their addresses and allowed parameters", () => {
+  const href = (raw) => Fixups.classifyHref(raw).href;
+  assert.equal(href("MAILTO:a@example.com"), "mailto:a@example.com");
+  assert.equal(href("mailto:a@example.com?subject=Hi&attach=/home/u/.ssh/id_rsa&body=x"),
+    "mailto:a@example.com?subject=Hi&body=x");
+  assert.equal(href("mailto:a@example.com?ATTACHMENT=%2Fetc%2Fpasswd&CC=b@example.com"),
+    "mailto:a@example.com?CC=b@example.com");
+  assert.equal(href("mailto:a b@example.com?subject=two words"),
+    "mailto:a%20b@example.com?subject=two%20words");
+  assert.equal(href("mailto:a@example.com#frag"), "mailto:a@example.com");
+  assert.equal(href("mailto:?cc=b@example.com"), "mailto:?cc=b@example.com");
+  for (const blocked of ["mailto:?attach=/etc/passwd", "mailto:?subject=x", "mailto:?cc="]) {
+    assert.equal(Fixups.classifyHref(blocked).kind, "blocked", blocked);
+  }
+});
+
 // Minimal element objects in the shape of an XML DOM: localName, children,
 // attributes.
 function el(localName, children = [], attributes = {}) {

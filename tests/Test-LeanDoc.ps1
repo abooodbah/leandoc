@@ -71,7 +71,10 @@ function Test-StaticInvariants {
         'add_PermissionRequested',
         'COREWEBVIEW2_PERMISSION_STATE_DENY',
         'add_DownloadStarting',
-        'get_Source\(&rawSource\)'
+        'get_Source\(&rawSource\)',
+        'add_ContextMenuRequested',
+        'FilterContextMenu\(items\.Get\(\)\)',
+        'NormalizeExternalLink\(rawHref\)'
     )) { Assert-Match $app $guard "WebView2 guard is missing: $guard" }
     Assert-Match $app '(?s)add_DownloadStarting.*?put_Cancel\(TRUE\)' 'WebView2 downloads must be cancelled.'
     Assert-Match $app 'SetCurrentProcessExplicitAppUserModelID\(L"LeanDoc\.Reader"\)' 'The AppUserModelID must stay stable.'

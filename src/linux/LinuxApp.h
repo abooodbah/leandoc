@@ -120,6 +120,11 @@ private:
         WebKitPolicyDecision* decision,
         WebKitPolicyDecisionType type,
         gpointer data);
+    static gboolean OnContextMenu(
+        WebKitWebView* view,
+        WebKitContextMenu* menu,
+        WebKitHitTestResult* hitTest,
+        gpointer data);
     static GtkWidget* OnCreateWebView(
         WebKitWebView* view,
         WebKitNavigationAction* action,

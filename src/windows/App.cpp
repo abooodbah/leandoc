@@ -1,8 +1,10 @@
 #include "App.h"
 
+#include "ContextMenu.h"
 #include "Editor.h"
 #include "Platform.h"
 #include "core/DocCore.h"
+#include "core/Links.h"
 #include "leandoc-version.h"
 #include "resource.h"
 
@@ -476,6 +478,52 @@ void LeanDocApp::ResizeWebView() {
     controller_->put_Bounds(bounds);
 }
 
+namespace {
+
+void FilterContextMenu(ICoreWebView2ContextMenuItemCollection* items) {
+    UINT32 count = 0;
+    items->get_Count(&count);
+    // Remove from the end so earlier indexes stay valid.
+    for (UINT32 index = count; index > 0; --index) {
+        ComPtr<ICoreWebView2ContextMenuItem> item;
+        if (FAILED(items->GetValueAtIndex(index - 1, &item))) {
+            continue;
+        }
+        COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND kind = COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_COMMAND;
+        item->get_Kind(&kind);
+        wchar_t* rawName = nullptr;
+        item->get_Name(&rawName);
+        const std::wstring name = rawName == nullptr ? L"" : rawName;
+        CoTaskMemFree(rawName);
+        const bool keep = kind == COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR ||
+                          (kind != COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SUBMENU &&
+                           leandoc::windows_host::IsAllowedContextMenuItem(name));
+        if (!keep) {
+            items->RemoveValueAtIndex(index - 1);
+        }
+    }
+    // Drop separators left at either end or doubled up.
+    bool previousSeparator = true;
+    items->get_Count(&count);
+    for (UINT32 index = 0; index < count;) {
+        ComPtr<ICoreWebView2ContextMenuItem> item;
+        COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND kind = COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_COMMAND;
+        if (SUCCEEDED(items->GetValueAtIndex(index, &item))) {
+            item->get_Kind(&kind);
+        }
+        const bool separator = kind == COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR;
+        if (separator && (previousSeparator || index + 1 == count)) {
+            items->RemoveValueAtIndex(index);
+            --count;
+            continue;
+        }
+        previousSeparator = separator;
+        ++index;
+    }
+}
+
+}  // namespace
+
 void LeanDocApp::ConfigureWebView() {
     ComPtr<ICoreWebView2Settings> settings;
     webView_->get_Settings(&settings);
@@ -484,8 +532,29 @@ void LeanDocApp::ConfigureWebView() {
     settings->put_AreDefaultScriptDialogsEnabled(FALSE);
     settings->put_IsStatusBarEnabled(FALSE);
     settings->put_AreDevToolsEnabled(FALSE);
-    settings->put_AreDefaultContextMenusEnabled(TRUE);
     settings->put_IsZoomControlEnabled(FALSE);
+
+    // The context menu keeps only copy and editing items (ContextMenu.h).
+    // Without the event the menu is turned off rather than left whole.
+    ComPtr<ICoreWebView2_11> webView11;
+    if (SUCCEEDED(webView_.As(&webView11))) {
+        settings->put_AreDefaultContextMenusEnabled(TRUE);
+        EventRegistrationToken menuToken = {};
+        webView11->add_ContextMenuRequested(
+            Callback<ICoreWebView2ContextMenuRequestedEventHandler>(
+                [](ICoreWebView2*, ICoreWebView2ContextMenuRequestedEventArgs* arguments)
+                    -> HRESULT {
+                    ComPtr<ICoreWebView2ContextMenuItemCollection> items;
+                    if (SUCCEEDED(arguments->get_MenuItems(&items))) {
+                        FilterContextMenu(items.Get());
+                    }
+                    return S_OK;
+                })
+                .Get(),
+            &menuToken);
+    } else {
+        settings->put_AreDefaultContextMenusEnabled(FALSE);
+    }
     settings->put_IsBuiltInErrorPageEnabled(FALSE);
 
     ComPtr<ICoreWebView2Settings3> settings3;
@@ -1286,24 +1355,16 @@ void LeanDocApp::HandleRendered(const host_json::Object& message, bool failed) {
     StartSmokeProbe();
 }
 
-void LeanDocApp::HandleLink(const std::string& href) {
-    if (href.empty() || href.size() > 8192) {
-        return;
-    }
-    // Only web and mail links, opened by the system handler after a click.
-    const bool web = href.rfind("https://", 0) == 0 || href.rfind("http://", 0) == 0;
-    const bool mail = href.rfind("mailto:", 0) == 0;
-    const std::size_t hostStart = href.find("://") == std::string::npos ? 0 : href.find("://") + 3;
-    const bool hasHost = web && hostStart < href.size() && href[hostStart] != '/' &&
-                         href[hostStart] != '?' && href[hostStart] != '#';
-    const bool clean = std::none_of(href.begin(), href.end(), [](char character) {
-        const auto byte = static_cast<unsigned char>(character);
-        return byte <= 0x20 || byte == 0x7F || character == '"' || character == '\\';
-    });
-    if (!clean || !((web && hasHost) || mail)) {
+void LeanDocApp::HandleLink(const std::string& rawHref) {
+    // The same rule as every host (src/core/Links.h): http and https with a
+    // host, and mailto with only its addresses, subject, body, cc, and bcc,
+    // opened by the system handler after a click.
+    const auto normalized = leandoc::core::NormalizeExternalLink(rawHref);
+    if (!normalized) {
         SendStatus("LeanDoc opens web and email links only.", "warning");
         return;
     }
+    const std::string& href = *normalized;
     const std::wstring wide = Utf8ToWide(href);
     const auto result = reinterpret_cast<INT_PTR>(
         ShellExecuteW(window_, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL));

@@ -256,6 +256,22 @@ def make_image_heavy(path: Path, images: int = 40, width: int = 420, height: int
     return path
 
 
+def make_link_document(path: Path, links: list[tuple[str, str]], title: str = "Links") -> Path:
+    """One large hyperlink per line, so a pointer can land on each."""
+    rels = document_rels()
+    extra = "".join(
+        f'<Relationship Id="rIdLink{index}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
+        f'Target="{escape(target, {chr(34): "&quot;"})}" TargetMode="External"/>'
+        for index, (_text, target) in enumerate(links))
+    rels = rels.replace("</Relationships>", extra + "</Relationships>")
+    parts = [paragraph(title, "Title")]
+    for index, (text, _target) in enumerate(links):
+        parts.append(f'<w:p><w:hyperlink r:id="rIdLink{index}"><w:r><w:rPr><w:color w:val="0563C1"/>'
+                     f'<w:u w:val="single"/><w:sz w:val="48"/></w:rPr><w:t xml:space="preserve">{escape(text)}</w:t></w:r></w:hyperlink></w:p>')
+    write_package(path, document_xml("".join(parts)), rels)
+    return path
+
+
 def make_all(directory: Path) -> dict[str, Path]:
     directory.mkdir(parents=True, exist_ok=True)
     made = {}

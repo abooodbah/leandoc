@@ -225,6 +225,50 @@
     return value;
   }
 
+  // Rebuilds a mailto link from its addresses and only the subject, body, cc,
+  // and bcc parameters, so parameters such as attach= never reach a mail
+  // client. The hosts apply the same rule (src/core/Links.h).
+  var MAILTO_PARAMETERS = ["subject", "body", "cc", "bcc"];
+
+  // Percent-encodes what the URL parser leaves raw in an opaque path but the
+  // hosts refuse: spaces, controls, non-ASCII, quotes, backslashes, angle
+  // brackets, and backticks.
+  function encodeForHost(text) {
+    return text.replace(/[\u0000-\u0020\u007f-\uffff"\\<>`]/g, function (character) {
+      try {
+        return encodeURIComponent(character);
+      } catch (_error) {
+        return "";
+      }
+    });
+  }
+
+  function cleanMailto(parsed) {
+    var serialized = parsed.href;
+    var rest = serialized.slice("mailto:".length).split("#")[0];
+    var question = rest.indexOf("?");
+    var addresses = question < 0 ? rest : rest.slice(0, question);
+    var kept = [];
+    var recipient = addresses.length > 0;
+    if (question >= 0) {
+      rest.slice(question + 1).split("&").forEach(function (pair) {
+        var equals = pair.indexOf("=");
+        var key = (equals < 0 ? pair : pair.slice(0, equals)).toLowerCase();
+        if (MAILTO_PARAMETERS.indexOf(key) < 0) {
+          return;
+        }
+        if ((key === "cc" || key === "bcc") && equals >= 0 && pair.length > equals + 1) {
+          recipient = true;
+        }
+        kept.push(pair);
+      });
+    }
+    if (!recipient) {
+      return "";
+    }
+    return encodeForHost("mailto:" + addresses + (kept.length ? "?" + kept.join("&") : ""));
+  }
+
   function classifyHref(raw) {
     var href = typeof raw === "string" ? raw.trim() : "";
     if (!href) {
@@ -249,8 +293,9 @@
     if ((scheme === "http:" || scheme === "https:") && parsed.hostname) {
       return { kind: "external", href: parsed.href };
     }
-    if (scheme === "mailto:" && href.length > 7) {
-      return { kind: "external", href: href };
+    if (scheme === "mailto:") {
+      var mail = cleanMailto(parsed);
+      return mail ? { kind: "external", href: mail } : { kind: "blocked" };
     }
     return { kind: "blocked" };
   }
