@@ -226,6 +226,24 @@ function Test-Smoke {
     $fallback = Invoke-LeanDocSmoke -ExePath $exe -DocumentPath (Join-Path $fixtures 'plain.rtf')
     Assert-Equal $fallback.ExitCode 1 'A file without a renderable package must fail the smoke test.'
     Write-TestPass 'WebView2 smoke test renders a document and rejects a fallback file'
+
+    # SPEC section 5 test hooks: --trace-timing reports every event and
+    # --exit-after-render closes LeanDoc on its own after the first page.
+    [void](Wait-WebView2Idle -TimeoutSeconds 30)
+    $launch = Measure-LeanDocLaunch -ExePath $exe -DocumentPaths @(Join-Path $fixtures 'smoke.docx') `
+        -SettleMilliseconds 500 -SampleCount 1
+    Assert-True ($null -eq $launch.Failure) ("The timed launch failed: {0}" -f $launch.Failure)
+    foreach ($event in @('process-start', 'window-visible', 'webview-ready',
+            'document-requested', 'package-served', 'rendered')) {
+        Assert-True $launch.Events.Contains($event) "--trace-timing did not report $event."
+    }
+    Assert-True ($launch.Events['webview-ready'] -ge $launch.Events['window-visible']) 'webview-ready came before window-visible.'
+    Assert-True ($launch.Events['rendered'] -ge $launch.Events['package-served']) 'rendered came before package-served.'
+    Assert-True ($launch.Pages -ge 1) 'The rendered event reported no pages.'
+    Assert-True $launch.ExitedOnItsOwn '--exit-after-render did not close LeanDoc.'
+    Assert-Equal $launch.ExitCode 0 'LeanDoc did not exit cleanly after --exit-after-render.'
+    Write-TestNote ('timing: {0}' -f (($launch.Events.GetEnumerator() | ForEach-Object { '{0}={1}' -f $_.Key, $_.Value }) -join ' '))
+    Write-TestPass ('--trace-timing reports every event and --exit-after-render exits ({0} processes, {1} MiB private)' -f $launch.ProcessCount, $launch.PrivateMiB)
 }
 
 function Wait-LeanDocTitle {

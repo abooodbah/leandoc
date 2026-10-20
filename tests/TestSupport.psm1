@@ -433,6 +433,8 @@ function Measure-LeanDocLaunch {
     $complete = $false
     $failure = $null
     $sample = $null
+    $selfExit = $false
+    $exitCode = $null
     try {
         $target = if ($quoted.Count -gt 0) { 'rendered' } else { 'webview-ready' }
         $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
@@ -461,7 +463,8 @@ function Measure-LeanDocLaunch {
         }
     } finally {
         if ($quoted.Count -gt 0 -and $null -eq $failure) {
-            [void]$process.WaitForExit($exitAfter + 10000)
+            $selfExit = $process.WaitForExit($exitAfter + 10000)
+            if ($selfExit) { $exitCode = $process.ExitCode }
         }
         Stop-LeanDocTestProcessTree -RootProcess $process
     }
@@ -470,6 +473,8 @@ function Measure-LeanDocLaunch {
     [pscustomobject]@{
         Complete = $complete
         Failure = $failure
+        ExitedOnItsOwn = $selfExit
+        ExitCode = $exitCode
         Events = $events
         WindowVisibleMs = if ($events.Contains('window-visible')) { $events['window-visible'] } else { $null }
         WebViewReadyMs = if ($events.Contains('webview-ready')) { $events['webview-ready'] } else { $null }
