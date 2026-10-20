@@ -165,7 +165,8 @@ function Test-Distribution {
     $required = @(
         'LeanDoc.exe', 'WebView2Loader.dll', 'tools\leandoc-inspect.exe',
         'assets\reader.html', 'assets\reader.css', 'assets\reader.js',
-        'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md'
+        'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
+        'installer\install.ps1', 'installer\uninstall.ps1'
     )
     foreach ($relative in $required) {
         $path = Join-Path $resolvedDist $relative
@@ -182,7 +183,7 @@ function Test-Distribution {
     $files = @(Get-ChildItem -LiteralPath $resolvedDist -Recurse -File)
     $unexpected = @($files | ForEach-Object { $_.FullName.Substring($prefix.Length) } | Where-Object {
         $_ -notin @('LeanDoc.exe', 'WebView2Loader.dll', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
-                    'tools\leandoc-inspect.exe') -and
+                    'tools\leandoc-inspect.exe', 'installer\install.ps1', 'installer\uninstall.ps1') -and
         $_ -notmatch '^assets\\[A-Za-z0-9._\\-]+\.(html|css|js|mjs|json|woff2|woff|ttf|svg|png)$'
     })
     Assert-Equal $unexpected.Count 0 ('Files outside the payload allow-list: ' + ($unexpected -join ', '))
@@ -208,8 +209,9 @@ function Get-InstallFootprint {
 
 function Test-ValidateOnly {
     $before = Get-InstallFootprint | ConvertTo-Json -Compress
-    $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'installer\install.ps1') `
-        -SourceDirectory $resolvedDist -ValidateOnly 2>&1
+    # The copy inside the payload finds LeanDoc.exe one folder up, as in the ZIP.
+    $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedDist 'installer\install.ps1') `
+        -ValidateOnly 2>&1
     Assert-Equal $LASTEXITCODE 0 ("install.ps1 -ValidateOnly failed: " + ($output -join ' '))
     Assert-Match ($output -join "`n") 'Validated LeanDoc' 'install.ps1 -ValidateOnly did not report the payload.'
     $after = Get-InstallFootprint | ConvertTo-Json -Compress

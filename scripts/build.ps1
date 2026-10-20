@@ -16,7 +16,8 @@ param(
 # Builds LeanDoc for Windows with CMake and MSVC, runs CTest, and stages the
 # portable payload in dist\:
 #   LeanDoc.exe, WebView2Loader.dll, assets\, tools\leandoc-inspect.exe,
-#   README.md, LICENSE, THIRD_PARTY_NOTICES.md
+#   installer\install.ps1, installer\uninstall.ps1, README.md, LICENSE,
+#   THIRD_PARTY_NOTICES.md
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -150,6 +151,12 @@ Invoke-CheckedCommand -FilePath $node -ArgumentList @(
 # notices for bundled dependencies.
 Copy-RequiredFile -Source (Join-Path $repoRoot 'README.md') -Destination (Join-Path $distDirectory 'README.md')
 Copy-RequiredFile -Source (Join-Path $repoRoot 'LICENSE') -Destination (Join-Path $distDirectory 'LICENSE')
+# The optional per-user installer sits beside the executable as in the ZIP,
+# so dist\ can be installed and tested as it is.
+foreach ($installerName in @('install.ps1', 'uninstall.ps1')) {
+    Copy-RequiredFile -Source (Join-Path $repoRoot ('installer\' + $installerName)) `
+        -Destination (Join-Path $distDirectory ('installer\' + $installerName))
+}
 $notices = Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md'
 if (-not (Test-Path -LiteralPath $notices -PathType Leaf)) {
     # Until the root file exists, CMake joins docs/notices/*.md.
