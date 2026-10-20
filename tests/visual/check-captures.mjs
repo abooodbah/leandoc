@@ -39,7 +39,7 @@ function stats(image) {
 
 // A text thumbnail of a light capture: the denser the ink (pixels darker
 // than mid grey) in a cell, the darker its character.
-function thumbnail(image, columns = 72, rows = 26) {
+function thumbnail(image, columns = 56, rows = 20) {
   const { width, height, pixels } = image;
   const lines = [];
   for (let row = 0; row < rows; row += 1) {
@@ -113,10 +113,11 @@ console.log(header);
 console.log(rows.join("\n"));
 notice(`UI-01 ${platform} captures`, `${header}\n${rows.join("\n")}\n` +
   (problems.length ? `Problems:\n${problems.join("\n")}` : "Every capture present, none flat, every dark capture darker."));
-// Annotations hold up to 64 KB; a few thumbnails per notice keeps each small.
-for (let start = 0; start < thumbnails.length; start += 4) {
-  notice(`UI-01 ${platform} page view, light (${start + 1}-${Math.min(thumbnails.length, start + 4)})`,
-    thumbnails.slice(start, start + 4).join("\n\n"));
+// The API returns at most 4,096 characters of a notice, and a title ends at
+// its first comma: three thumbnails per notice, no comma in the title.
+for (let start = 0; start < thumbnails.length; start += 3) {
+  notice(`UI-01 ${platform} page view light ${start + 1} to ${Math.min(thumbnails.length, start + 3)}`,
+    thumbnails.slice(start, start + 3).join("\n\n"));
 }
 if (problems.length) {
   console.error(problems.join("\n"));

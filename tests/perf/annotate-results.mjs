@@ -17,6 +17,23 @@ if (log && pattern && existsSync(log)) {
     body += `\n${lines.join("\n")}`;
   }
 }
-// Annotations hold up to 64 KB.
-body = body.slice(0, 60000);
-console.log(`::notice title=${title}::${body.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")}`);
+// The API returns at most 4,096 characters of a notice (and a title ends at
+// its first comma), so the text goes out in parts of whole lines, at most
+// eight of them.
+const parts = [];
+let part = "";
+for (const line of body.split("\n")) {
+  if (part.length + line.length + 1 > 4000 && part) {
+    parts.push(part);
+    part = "";
+  }
+  part += (part ? "\n" : "") + line.slice(0, 4000);
+}
+if (part) {
+  parts.push(part);
+}
+const label = title.replace(/,/g, " ");
+parts.slice(0, 8).forEach((text, index) => {
+  const name = parts.length > 1 ? `${label} part ${index + 1} of ${Math.min(parts.length, 8)}` : label;
+  console.log(`::notice title=${name}::${text.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")}`);
+});
