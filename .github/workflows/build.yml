@@ -810,6 +810,11 @@ jobs:
       - release
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The release is already published when this job runs. Pages must be
+    # enabled once in the repository settings (Source: GitHub Actions); until
+    # then this job fails without failing the release, and pages.yml can
+    # deploy the site later.
+    continue-on-error: true
     permissions:
       contents: read
       pages: write
