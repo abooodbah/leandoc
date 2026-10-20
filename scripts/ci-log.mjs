@@ -103,14 +103,15 @@ if (mode === "run") {
   const render = (indices) => indices.sort((a, b) => a - b)
     .map((index) => (lines[index].length > 300 ? `${lines[index].slice(0, 300)} ...` : lines[index]))
     .join("\n");
+  // GitHub keeps only the first 4,096 characters of an annotation message.
   const pushChunks = (label, text) => {
-    const size = 6000;
+    const size = 4096 - label.length - 16;
     for (let offset = 0; offset < text.length && chunks.length < 9; offset += size) {
       chunks.push(`${label}\n${text.slice(offset, offset + size)}`);
     }
   };
-  pushChunks("Last lines:", render(tail));
   pushChunks("Matching lines:", render(firstPart));
+  pushChunks("Last lines:", render(tail));
   const escape = (text) => text.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
   chunks.forEach((chunk, index) => {
     console.log(`::error title=${title} (${index + 1}/${chunks.length})::${escape(chunk)}`);

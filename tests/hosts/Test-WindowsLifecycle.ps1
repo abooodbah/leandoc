@@ -38,6 +38,10 @@ function Get-State {
         if ($null -eq $handle) { $lines.Add("HKCU\$key (absent)"); continue }
         try {
             foreach ($name in ($handle.GetValueNames() | Sort-Object)) {
+                # RegisteredApplications is shared: Windows registers other
+                # apps there (for example AppX packages) while the test runs.
+                # Only LeanDoc's own value is LeanDoc's to add and remove.
+                if ($key -eq 'Software\RegisteredApplications' -and $name -ne 'LeanDoc') { continue }
                 $lines.Add(('HKCU\{0} [{1}] = {2}' -f $key, $name, $handle.GetValue($name)))
             }
             $lines.Add(('HKCU\{0} subkeys: {1}' -f $key, (($handle.GetSubKeyNames() | Sort-Object) -join ',')))
