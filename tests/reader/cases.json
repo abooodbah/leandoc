@@ -1,0 +1,141 @@
+{
+  "fixtureDir": "tests/reader/dev-fixtures",
+  "reportsFile": "tests/reader/dev-fixtures/reports.json",
+  "cases": [
+    {
+      "id": "headings",
+      "file": "headings.docx",
+      "expect": {
+        "text": ["Quarterly field report", "kingfisher", "The closing paragraph mentions"],
+        "count": { "table": 1 },
+        "pagesAtLeast": 3,
+        "outline": true,
+        "findCounts": { "kingfisher": 10 }
+      }
+    },
+    {
+      "id": "bullets",
+      "file": "bullets.docx",
+      "expect": {
+        "text": ["First bullet in Symbol", "Inline symbol check: ✓ done."],
+        "absentText": ["", ""],
+        "bullets": [
+          { "text": "First bullet in Symbol", "marker": "•" },
+          { "text": "Second level in Courier New", "marker": "o" },
+          { "text": "Third level in Wingdings", "marker": "▪" },
+          { "text": "Arrow bullet item", "marker": "➢" },
+          { "text": "Check mark item", "marker": "✓" },
+          { "text": "Diamond item", "marker": "❖" }
+        ],
+        "numbered": ["Plan the survey", "Choose the sites", "Upstream site"]
+      }
+    },
+    {
+      "id": "tables",
+      "file": "tables.docx",
+      "expect": {
+        "text": ["Merged across two columns", "Merged down two rows", "C4"],
+        "count": { "table": 1, "td[colspan='2']": 1, "td[rowspan='2']": 1 },
+        "header": "LeanDoc header text",
+        "footer": "LeanDoc footer text",
+        "pagesAtLeast": 2,
+        "findCounts": { "merged": 4 }
+      }
+    },
+    {
+      "id": "hyperlinks",
+      "file": "hyperlinks.docx",
+      "expect": {
+        "text": ["Example site", "Script text", "Local file text"],
+        "links": [
+          { "text": "Example site", "href": "https://example.com/leandoc" },
+          { "text": "Write to the reader", "href": "mailto:reader@example.com" }
+        ],
+        "blockedLinks": ["Script text", "Local file text"],
+        "internalLink": { "text": "Jump to the target", "target": "Bookmark target paragraph." }
+      }
+    },
+    {
+      "id": "arabic",
+      "file": "arabic.docx",
+      "expect": {
+        "text": ["تقرير المسح", "LeanDoc"],
+        "direction": [
+          { "text": "تقرير المسح", "dir": "rtl" },
+          { "text": "زار الفريق", "dir": "rtl" },
+          { "text": "الخطوة الأولى", "dir": "rtl" },
+          { "text": "An English paragraph", "dir": "ltr" }
+        ],
+        "numbered": ["الخطوة الأولى"],
+        "rightAligned": ["زار الفريق"],
+        "bidiVisualTables": 1,
+        "tableOrder": { "right": "الموقع", "left": "ملاحظات" }
+      }
+    },
+    {
+      "id": "images",
+      "file": "images.docx",
+      "expect": {
+        "text": ["Figure 1. A generated test picture."],
+        "count": { "img": 1 },
+        "imagesLoaded": 1
+      }
+    }
+  ],
+  "fidelity": [
+    {
+      "id": "none",
+      "features": [],
+      "text": null
+    },
+    {
+      "id": "notices-only",
+      "features": [
+        { "code": "tracked-changes", "count": 3, "notDisplayed": false, "singular": "tracked change", "plural": "tracked changes" },
+        { "code": "comments", "count": 2, "notDisplayed": false, "singular": "comment", "plural": "comments" },
+        { "code": "macros", "count": 1, "notDisplayed": false, "singular": "macro project", "plural": "macro projects" }
+      ],
+      "text": "This document contains tracked changes (shown as accepted), comments (hidden), and macros (not run)."
+    },
+    {
+      "id": "not-displayed-only",
+      "features": [
+        { "code": "text-box", "count": 2, "notDisplayed": true, "singular": "text box", "plural": "text boxes" },
+        { "code": "equation", "count": 1, "notDisplayed": true, "singular": "equation", "plural": "equations" }
+      ],
+      "text": "This document contains 2 text boxes and 1 equation that LeanDoc does not display."
+    },
+    {
+      "id": "both",
+      "features": [
+        { "code": "text-box", "count": 2, "notDisplayed": true, "singular": "text box", "plural": "text boxes" },
+        { "code": "equation", "count": 1, "notDisplayed": true, "singular": "equation", "plural": "equations" },
+        { "code": "chart", "count": 4, "notDisplayed": true, "singular": "chart", "plural": "charts" },
+        { "code": "tracked-changes", "count": 3, "notDisplayed": false, "singular": "tracked change", "plural": "tracked changes" },
+        { "code": "comments", "count": 2, "notDisplayed": false, "singular": "comment", "plural": "comments" },
+        { "code": "macros", "count": 1, "notDisplayed": false, "singular": "macro project", "plural": "macro projects" }
+      ],
+      "text": "This document contains 2 text boxes, 1 equation, and 4 charts that LeanDoc does not display. It also contains tracked changes (shown as accepted), comments (hidden), and macros (not run)."
+    },
+    {
+      "id": "remote",
+      "features": [
+        { "code": "remote-template", "count": 1, "notDisplayed": false, "singular": "remote template", "plural": "remote templates" },
+        { "code": "remote-image", "count": 2, "notDisplayed": false, "singular": "remote image", "plural": "remote images" },
+        { "code": "external-content", "count": 1, "notDisplayed": false, "singular": "external reference", "plural": "external references" },
+        { "code": "dde-field", "count": 1, "notDisplayed": false, "singular": "DDE field", "plural": "DDE fields" },
+        { "code": "embedded-fonts", "count": 2, "notDisplayed": false, "singular": "embedded font", "plural": "embedded fonts" }
+      ],
+      "text": "This document contains a remote template (not fetched), remote images (not fetched), external content (not fetched), DDE fields (not run), and embedded fonts (system fonts used)."
+    }
+  ],
+  "fallbacks": [
+    { "kind": "legacy-doc", "fileName": "minutes.doc", "text": "This is a Word 97-2003 document (.doc). LeanDoc 0.1 reads .docx files only." },
+    { "kind": "encrypted-ooxml", "fileName": "salary.docx", "text": "This document is password protected. LeanDoc does not open protected documents." },
+    { "kind": "rtf", "fileName": "letter.rtf", "text": "This is a Rich Text Format document (.rtf). LeanDoc 0.1 reads .docx files only." },
+    { "kind": "odt", "fileName": "notes.odt", "text": "This is an OpenDocument text file (.odt). LeanDoc 0.1 reads .docx files only." },
+    { "kind": "not-a-document", "fileName": "budget.xlsx", "text": "This file is not a Word document. LeanDoc reads .docx files only." },
+    { "kind": "docx", "ok": false, "errorCode": "xml-doctype", "errorMessage": "This document contains a DTD, which LeanDoc refuses to read.", "fileName": "xxe.docx", "text": "This document contains a DTD, which LeanDoc refuses to read." },
+    { "kind": "docx", "ok": false, "errorCode": "corrupt-zip", "errorMessage": "", "fileName": "truncated.docx", "text": "This document is damaged and cannot be read." }
+  ]
+}
