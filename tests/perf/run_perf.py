@@ -73,6 +73,12 @@ def settle(app: Session, minimum: float = 3.0, maximum: float = 12.0):
         time.sleep(0.5)
 
 
+def breakdown(sample) -> str:
+    """Private dirty MiB per process, for the notes of the leak checks."""
+    parts = sorted((p["exe"], p.get("private_dirty_kb", 0) / 1024) for p in sample.processes)
+    return ", ".join(f"{name} {value:.1f}" for name, value in parts)
+
+
 def vm_hwm_kib(pid: int) -> int:
     try:
         for line in open(f"/proc/{pid}/status"):
@@ -409,7 +415,7 @@ def leak_open_close(results, build, docs, cycles=30):
     """M-06: open and close the 300-page report 30 times in one window."""
     with Session(build, []) as app:
         app.wait("document.documentElement.dataset.renderState === 'empty'")
-        after = []
+        after, parts = [], []
         for cycle in range(cycles):
             app.command(f"open {docs['report-300']}")
             app.wait_render(timeout=60)
@@ -418,12 +424,15 @@ def leak_open_close(results, build, docs, cycles=30):
             if cycle == 0 or cycle == cycles - 1:
                 sample, _ = settle(app)
                 after.append(sample.summary())
+                parts.append(breakdown(sample))
+                print(f"  M-06 after close {cycle + 1}: {parts[-1]}", flush=True)
         app.quit()
     first, last = after[0]["privateDirtyMiB"], after[-1]["privateDirtyMiB"]
     growth = round((last - first) / first * 100, 1)
     results.measure("M-06", growth, "% growth", "within 10%", abs(growth) <= 10,
                     f"after first close {first} MiB, after close {cycles} {last} MiB",
-                    [first, last], {"privateMiB": [after[0]["privateMiB"], after[-1]["privateMiB"]]})
+                    [first, last], {"privateMiB": [after[0]["privateMiB"], after[-1]["privateMiB"]],
+                                    "processes": parts})
 
 
 def leak_tabs_views(results, build, docs, cycles=50, switches=50):
@@ -433,7 +442,7 @@ def leak_tabs_views(results, build, docs, cycles=50, switches=50):
         app.wait("document.querySelectorAll('.tab').length === 10")
         keys = tab_ids(app)
         active = keys[-1]
-        marks = []
+        marks, parts = [], []
         for cycle in range(cycles):
             for key in keys:
                 if key == active:
@@ -444,19 +453,23 @@ def leak_tabs_views(results, build, docs, cycles=50, switches=50):
             if cycle == 0 or cycle == cycles - 1:
                 sample, _ = settle(app)
                 marks.append(sample.summary())
+                parts.append(breakdown(sample))
+                print(f"  M-07 after cycle {cycle + 1}: {parts[-1]}", flush=True)
         for switch in range(switches):
             app.js("document.getElementById('" + ("viewReading" if switch % 2 == 0 else "viewPage")
                    + "').click(); return 1")
             app.wait_render(timeout=60)
         sample, _ = settle(app)
         marks.append(sample.summary())
+        parts.append(breakdown(sample))
+        print(f"  M-07 after {switches} view switches: {parts[-1]}", flush=True)
         app.quit()
     first = marks[0]["privateDirtyMiB"]
     growth = round(max(marks[1]["privateDirtyMiB"], marks[2]["privateDirtyMiB"]) - first, 1)
     results.measure("M-07", growth, "MiB growth", "< 15", growth < 15,
                     f"after cycle 1 {first} MiB, after cycle {cycles} {marks[1]['privateDirtyMiB']} MiB, "
                     f"after {switches} view switches {marks[2]['privateDirtyMiB']} MiB",
-                    [m["privateDirtyMiB"] for m in marks])
+                    [m["privateDirtyMiB"] for m in marks], {"processes": parts})
 
 
 def idle(results, build, docs, minutes):
@@ -474,6 +487,8 @@ def idle(results, build, docs, minutes):
             ticks.append(sample_tree(app.pid).cpu_ticks)
         end = app.memory()
         app.quit()
+    print(f"  M-08 idle start: {breakdown(start)}", flush=True)
+    print(f"  M-08 idle end: {breakdown(end)}", flush=True)
     hz = os.sysconf("SC_CLK_TCK")
     growth = round(end.private_dirty_mib - start.private_dirty_mib, 2)
     cpu = round((ticks[-1] - ticks[0]) / hz, 2)
@@ -484,7 +499,8 @@ def idle(results, build, docs, minutes):
                     f"{int(minutes)} min idle after a quiet minute; CPU {cpu} s over the tree "
                     f"({round(cpu / (minutes * 60) * 100, 3)}% of a core)",
                     [start.private_dirty_mib, end.private_dirty_mib],
-                    {"cpuSeconds": cpu, "cpuSecondsPerMinute": per_minute, "minutes": minutes})
+                    {"cpuSeconds": cpu, "cpuSecondsPerMinute": per_minute, "minutes": minutes,
+                     "processes": [breakdown(start), breakdown(end)]})
 
 
 def security_peak(results, build, runs, m02_records):
