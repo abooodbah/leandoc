@@ -552,7 +552,7 @@ void LeanDocApp::ConfigureWebView() {
                     wchar_t path[32768] = {};
                     DWORD length = static_cast<DWORD>(std::size(path));
                     if (SUCCEEDED(PathCreateFromUrlW(uri.c_str(), path, &length, 0))) {
-                        OpenDroppedFile(std::wstring(path, length));
+                        OpenDroppedFile(std::wstring(path));
                     }
                 }
                 return S_OK;
