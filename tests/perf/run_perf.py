@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import platform
 import shutil
 import statistics
@@ -96,6 +97,19 @@ def dirty_by_mapping(pid: int) -> dict:
     except OSError:
         pass
     return totals
+
+
+def graphics_libraries(pid: int) -> str:
+    """The GL, EGL, Vulkan, and Mesa libraries the UI process has mapped."""
+    names = set()
+    try:
+        for line in open(f"/proc/{pid}/maps"):
+            match = re.search(r"/((?:libgallium|libvulkan|libGLX_mesa|libEGL_mesa|swrast|lvp)[^/\s]*)$", line.strip())
+            if match:
+                names.add(match.group(1))
+    except OSError:
+        pass
+    return ", ".join(sorted(names)) or "none"
 
 
 def mapping_growth(before: dict, after: dict, count: int = 6) -> str:
@@ -439,7 +453,7 @@ def leak_open_close(results, build, docs, cycles=30):
     """M-06: open and close the 300-page report 30 times in one window."""
     with Session(build, []) as app:
         app.wait("document.documentElement.dataset.renderState === 'empty'")
-        after, parts = [], []
+        after, parts, maps = [], [], []
         for cycle in range(cycles):
             app.command(f"open {docs['report-300']}")
             app.wait_render(timeout=60)
@@ -451,7 +465,11 @@ def leak_open_close(results, build, docs, cycles=30):
                 sample, _ = settle(app)
                 after.append(sample.summary())
                 parts.append(breakdown(sample))
-                print(f"  M-06 after close {cycle + 1}: {parts[-1]}", flush=True)
+                maps.append(dirty_by_mapping(app.pid))
+                growth_note = f"; UI process {mapping_growth(maps[0], maps[-1])}" if len(maps) > 1 else ""
+                print(f"  M-06 after close {cycle + 1}: {parts[-1]}{growth_note}", flush=True)
+                if cycle == 0:
+                    print(f"  M-06 graphics libraries of the UI process: {graphics_libraries(app.pid)}", flush=True)
         app.quit()
     first, last = after[0]["privateDirtyMiB"], after[-1]["privateDirtyMiB"]
     growth = round((last - first) / first * 100, 1)
@@ -471,7 +489,7 @@ def leak_tabs_views(results, build, docs, cycles=50, switches=50):
         app.wait("document.querySelectorAll('.tab').length === 10")
         keys = tab_ids(app)
         active = keys[-1]
-        marks, parts = [], []
+        marks, parts, maps = [], [], []
         for cycle in range(cycles):
             for key in keys:
                 if key == active:
@@ -483,7 +501,9 @@ def leak_tabs_views(results, build, docs, cycles=50, switches=50):
                 sample, _ = settle(app)
                 marks.append(sample.summary())
                 parts.append(breakdown(sample))
-                print(f"  M-07 after cycle {cycle + 1}: {parts[-1]}", flush=True)
+                maps.append(dirty_by_mapping(app.pid))
+                growth_note = f"; UI process {mapping_growth(maps[0], maps[-1])}" if len(maps) > 1 else ""
+                print(f"  M-07 after cycle {cycle + 1}: {parts[-1]}{growth_note}", flush=True)
         for switch in range(switches):
             app.js("document.getElementById('" + ("viewReading" if switch % 2 == 0 else "viewPage")
                    + "').click(); return 1")
@@ -491,7 +511,9 @@ def leak_tabs_views(results, build, docs, cycles=50, switches=50):
         sample, _ = settle(app)
         marks.append(sample.summary())
         parts.append(breakdown(sample))
-        print(f"  M-07 after {switches} view switches: {parts[-1]}", flush=True)
+        maps.append(dirty_by_mapping(app.pid))
+        print(f"  M-07 after {switches} view switches: {parts[-1]}; UI process {mapping_growth(maps[0], maps[-1])}",
+              flush=True)
         app.quit()
     first = marks[0]["privateDirtyMiB"]
     growth = round(max(marks[1]["privateDirtyMiB"], marks[2]["privateDirtyMiB"]) - first, 1)
