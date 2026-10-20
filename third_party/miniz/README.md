@@ -8,5 +8,6 @@ License: MIT (see `LICENSE`)
 `miniz.c` and `miniz.h` are the release amalgamation, copied unchanged.
 LeanDoc compiles them into `leandoc_core` with `MINIZ_NO_STDIO`,
 `MINIZ_NO_TIME`, `MINIZ_NO_ARCHIVE_WRITING_APIS`, and
-`MINIZ_NO_ZLIB_COMPATIBLE_NAMES`. The core uses the ZIP reader and the
-inflate and deflate functions; it writes its own stored ZIP.
+`MINIZ_NO_ZLIB_COMPATIBLE_NAMES`. The core uses the central directory
+reader, inflate, and CRC-32, and writes its own stored ZIP. The core tests
+also use deflate to build test archives.
