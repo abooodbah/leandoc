@@ -77,17 +77,20 @@ The extracted ZIP is portable. `LeanDoc.exe`, `WebView2Loader.dll`, and the
 the window, or pass them on the command line. Documents open as tabs in one
 window, and a later launch hands its files to that window.
 
-The optional per-user install adds Start menu, Open With, and Default Apps
-entries for `.docx`, `.dotx`, `.docm`, `.dotm`, `.doc`, `.rtf`, and `.odt`:
+The optional per-user installer adds LeanDoc to the Start menu, to Open With,
+and to Default Apps for `.docx`, `.dotx`, `.docm`, `.dotm`, `.doc`, `.rtf`, and
+`.odt`. It makes LeanDoc the default only for a type that has no default app
+yet. It never changes a default you or your organisation already chose.
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\installer\install.ps1 -ValidateOnly
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\installer\install.ps1
 ```
 
-It copies LeanDoc to `%LOCALAPPDATA%\Programs\LeanDoc` and never writes
-Windows' protected `UserChoice` value, so it never changes your default app
-for you. Remove it in Settings or with:
+It copies LeanDoc to `%LOCALAPPDATA%\Programs\LeanDoc`. Uninstalling removes
+LeanDoc's files, its Start menu and Open With entries, its WebView2 data folder
+under `%LOCALAPPDATA%\LeanDoc`, and restores any default it set. Uninstall in
+Settings or with:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\LeanDoc\uninstall.ps1"
@@ -238,9 +241,11 @@ the web runtime the operating system provides.
 - **The ZIP is bounded.** At most 256 MiB on disk, 4,096 entries, 64 MiB per
   part, 512 MiB in total, a compression-ratio limit, an XML depth limit, and
   no unsafe or duplicate entry names. Declared sizes are not trusted.
-- **Links leave only after a click.** `http`, `https`, and `mailto` links open
-  in the system handler. Nothing navigates inside the reader, and new
-  windows, downloads, and permission requests are refused.
+- **Links leave only after a click.** Web and mail links open in your browser
+  or mail app only after you click them. Mail links keep only the address,
+  subject, body, cc, and bcc. Nothing navigates inside the reader, and new
+  windows, downloads, and permission requests are refused. The right-click
+  menu inside the document offers no download or open-link items.
 
 Vulnerability reports follow [SECURITY.md](SECURITY.md).
 
