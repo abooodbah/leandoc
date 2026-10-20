@@ -596,6 +596,15 @@ jobs:
         shell: bash
         run: node tests/perf/annotate-results.mjs artifacts/perf/perf-linux.md "perf-memory Linux results" "$RUNNER_TEMP/ci.log" "^  M-0[678] "
 
+      - name: Profile the UI process's heap while idle (M-08 diagnostic)
+        if: always()
+        shell: bash
+        run: |
+          sudo apt-get install -y --no-install-recommends heaptrack gdb
+          sudo sysctl -w kernel.yama.ptrace_scope=0 || true
+          bash tests/usage/run-linux.sh python3 tests/perf/heap_profile.py --minutes 5 --out artifacts/perf || true
+          node tests/perf/annotate-results.mjs artifacts/perf/heap-profile.md "Heap profile of the idle UI process"
+
       - name: Upload performance results
         if: always()
         uses: actions/upload-artifact@v7
