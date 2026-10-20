@@ -1,9 +1,19 @@
 name: Deploy GitHub Pages
 
-# Deploys site/ by hand. Tag builds deploy it from build.yml after the release
-# is published, so this workflow exists for corrections between releases.
+# Deploys site/ when it changes on main, and by hand. Tag builds also deploy
+# it from build.yml after the release is published.
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      # The upload step takes ./site wholesale, so anything under it must
+      # redeploy, or the live page lags main.
+      - 'site/**'
+      # The deployment definition itself, so a correction deploys under its
+      # own new rules.
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 permissions:
