@@ -66,7 +66,16 @@ $extract = Join-Path ([System.IO.Path]::GetTempPath()) ('leandoc-zip-' + [Guid]:
 Expand-Archive -LiteralPath $ZipPath -DestinationPath $extract
 $extractedExe = @(Get-ChildItem -LiteralPath $extract -Recurse -Filter LeanDoc.exe)[0].FullName
 $payload = Split-Path -Parent $extractedExe
+# The first launch of a fresh copy also creates its WebView2 user data
+# folder. Wait for WebView2 processes of earlier steps to exit first; a
+# first launch that still times out is recorded and tried once more.
+[void](Wait-WebView2Idle -TimeoutSeconds 30)
 $smoke = Invoke-LeanDocSmoke -ExePath $extractedExe -DocumentPath $fixture
+if ($smoke.ExitCode -ne 0 -and $smoke.Output -match 'timed out') {
+    Write-TestNote ('first smoke from the extracted ZIP timed out after {0} ms: {1}; trying again' -f $smoke.Milliseconds, $smoke.Output)
+    [void](Wait-WebView2Idle -TimeoutSeconds 30)
+    $smoke = Invoke-LeanDocSmoke -ExePath $extractedExe -DocumentPath $fixture
+}
 Assert-Equal $smoke.ExitCode 0 ("Smoke from the extracted ZIP failed: " + $smoke.Output)
 Write-TestPass ('extracted ZIP renders the smoke fixture ({0} ms)' -f $smoke.Milliseconds)
 
