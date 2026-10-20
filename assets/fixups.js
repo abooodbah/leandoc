@@ -577,8 +577,28 @@
   // Runs on docx-preview's parsed model before it renders. Changing the model
   // is more robust than patching the generated CSS text: numbering, symbol
   // runs, and fonts are typed fields here, and the renderer escapes them.
+  // docx-preview 0.4.1 renders the children of a run with direct
+  // superscript or subscript (w:vertAlign) twice and keeps the second copy.
+  // A footnote or endnote reference counts itself on every render, so such
+  // a reference was numbered one too high and its note listed twice. The
+  // reference already renders as <sup>, so the run's own vertical alignment
+  // is dropped and its children render once.
+  function fixNoteReferenceRun(run, stats) {
+    if (!run.verticalAlign || !Array.isArray(run.children)) {
+      return;
+    }
+    var hasReference = run.children.some(function (child) {
+      return child && (child.type === "footnoteReference" || child.type === "endnoteReference");
+    });
+    if (hasReference) {
+      delete run.verticalAlign;
+      stats.noteReferences += 1;
+    }
+  }
+
   function prepareModel(doc) {
-    var stats = { bullets: 0, symbols: 0, paragraphs: 0, paired: false, bidiVisualTables: 0 };
+    var stats = { bullets: 0, symbols: 0, paragraphs: 0, paired: false, bidiVisualTables: 0,
+      noteReferences: 0 };
     if (!doc) {
       return stats;
     }
@@ -665,6 +685,7 @@
         element.cssStyle["text-align"] = logicalTextAlign(element.cssStyle["text-align"]);
       } else if (element.type === "run") {
         fixRun(element, stats);
+        fixNoteReferenceRun(element, stats);
       } else if (element.type === "symbol") {
         fixSymbolElement(element, stats);
       }

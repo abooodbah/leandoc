@@ -5,6 +5,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,19 +26,31 @@ const CONTENT_TYPES = {
 };
 const DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
+// Playwright's headless shell first: it makes no background requests of its
+// own, while a full Chrome contacts Google services and preconnects to the
+// page's origin even when every page request is routed. Full browsers stay
+// as a fallback; the recording proxy below fails the tests if they reach out.
 export function findChromium() {
   if (process.env.LEANDOC_CHROMIUM) {
     return process.env.LEANDOC_CHROMIUM;
   }
-  const playwrightRoot = "/opt/pw-browsers";
-  if (existsSync(playwrightRoot)) {
-    const builds = readdirSync(playwrightRoot)
-      .filter((name) => /^chromium-\d+$/.test(name))
-      .sort((left, right) => Number(right.split("-")[1]) - Number(left.split("-")[1]));
-    for (const build of builds) {
-      const candidate = path.join(playwrightRoot, build, "chrome-linux", "chrome");
-      if (existsSync(candidate)) {
-        return candidate;
+  const roots = [process.env.PLAYWRIGHT_BROWSERS_PATH, "/opt/pw-browsers",
+    path.join(os.homedir(), ".cache", "ms-playwright")].filter(Boolean);
+  const newest = (root, pattern) => existsSync(root)
+    ? readdirSync(root).filter((name) => pattern.test(name))
+      .sort((left, right) => Number(right.split("-").pop()) - Number(left.split("-").pop()))
+    : [];
+  for (const [pattern, relative] of [
+    [/^chromium_headless_shell-\d+$/, ["chrome-linux", "headless_shell"]],
+    [/^chromium_headless_shell-\d+$/, ["chrome-headless-shell-linux64", "chrome-headless-shell"]],
+    [/^chromium-\d+$/, ["chrome-linux", "chrome"]]
+  ]) {
+    for (const root of roots) {
+      for (const build of newest(root, pattern)) {
+        const candidate = path.join(root, build, ...relative);
+        if (existsSync(candidate)) {
+          return candidate;
+        }
       }
     }
   }
@@ -54,6 +67,29 @@ export function findChromium() {
   throw new Error("No Chromium found. Set LEANDOC_CHROMIUM to a Chromium or Chrome binary.");
 }
 
+// Every network attempt the browser makes outside page routing (background
+// services, preconnects, DNS) goes to this local proxy, which refuses it and
+// records it. The tests assert that the list stays empty.
+export const networkAttempts = [];
+let recordingProxy = null;
+
+async function startRecordingProxy() {
+  if (recordingProxy) {
+    return recordingProxy.address().port;
+  }
+  recordingProxy = net.createServer((socket) => {
+    socket.once("data", (data) => {
+      const firstLine = data.toString("latin1").split("\r\n")[0];
+      networkAttempts.push(firstLine.slice(0, 300));
+      socket.end("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+    });
+    socket.on("error", () => {});
+  });
+  await new Promise((resolve) => recordingProxy.listen(0, "127.0.0.1", resolve));
+  recordingProxy.unref();
+  return recordingProxy.address().port;
+}
+
 export function stageAssets() {
   const destination = mkdtempSync(path.join(os.tmpdir(), "leandoc-reader-assets-"));
   execFileSync(process.execPath, [path.join(repositoryRoot, "scripts", "stage-runtime-assets.mjs"), destination], {
@@ -63,9 +99,18 @@ export function stageAssets() {
 }
 
 export async function launchBrowser() {
+  const port = await startRecordingProxy();
   return chromium.launch({
     executablePath: findChromium(),
-    args: ["--disable-gpu", "--font-render-hinting=none", "--disable-lcd-text"]
+    args: [
+      "--disable-gpu", "--font-render-hinting=none", "--disable-lcd-text",
+      // Everything, loopback included, goes to the recording proxy. No host
+      // resolver rule is set: it would make attempts fail silently instead of
+      // showing them.
+      `--proxy-server=http://127.0.0.1:${port}`, "--proxy-bypass-list=<-loopback>"
+    ],
+    // The session's own proxy settings must not apply to the browser.
+    env: Object.fromEntries(Object.entries(process.env).filter(([name]) => !/_proxy$/i.test(name)))
   });
 }
 

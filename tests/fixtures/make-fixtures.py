@@ -809,6 +809,7 @@ def feature_fixtures():
     images_fixture()
     headers_footers_fixture()
     notes_fixture()
+    notes_superscript_fixture()
     hyperlinks_fixture()
     breaks_fixture()
     arabic_fixtures()
@@ -1050,6 +1051,63 @@ def notes_fixture():
            text=["Notes", "A sentence with a footnote. Another with a second footnote.",
                  "A sentence with an endnote."],
            purpose="Two footnotes and one endnote, hand-written footnotes.xml and endnotes.xml.")
+
+
+def notes_superscript_fixture():
+    # Word writes some note references with direct superscript formatting
+    # instead of the FootnoteReference style. docx-preview 0.4.1 renders such
+    # a run's children twice, which numbered the first footnote "2".
+    package = new_docx("Footnotes and endnotes with direct superscript", "", settings=settings_xml(
+        before_compat='<w:footnotePr><w:footnote w:id="-1"/><w:footnote w:id="0"/></w:footnotePr>'
+                      '<w:endnotePr><w:endnote w:id="-1"/><w:endnote w:id="0"/></w:endnotePr>'))
+
+    def notes(tag, items):
+        out = [XML_DECL, f'<w:{tag}s {NS_DECLS}>',
+               f'<w:{tag} w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:{tag}>',
+               f'<w:{tag} w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/>'
+               f'</w:r></w:p></w:{tag}>']
+        for note_id, text in items:
+            out.append(f'<w:{tag} w:id="{note_id}"><w:p><w:r><w:rPr><w:vertAlign w:val="superscript"/>'
+                       f'</w:rPr><w:{tag}Ref/></w:r>{run(" " + text)}</w:p></w:{tag}>')
+        out.append(f"</w:{tag}s>")
+        return "".join(out)
+
+    package.add("word/footnotes.xml", notes("footnote", [(1, "Footnote one, direct superscript."),
+                                                         (2, "Footnote two, styled."),
+                                                         (3, "Footnote three, direct superscript.")]),
+                CT_WML + "footnotes+xml")
+    package.rel("word/document.xml", REL + "footnotes", "footnotes.xml")
+    package.add("word/endnotes.xml", notes("endnote", [(1, "Endnote one, direct superscript."),
+                                                       (2, "Endnote two, styled.")]),
+                CT_WML + "endnotes+xml")
+    package.rel("word/document.xml", REL + "endnotes", "endnotes.xml")
+
+    def direct(kind, note_id):
+        return (f'<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr>'
+                f'<w:{kind}Reference w:id="{note_id}"/></w:r>')
+
+    def styled(kind, note_id):
+        style = "FootnoteReference" if kind == "footnote" else "EndnoteReference"
+        return (f'<w:r><w:rPr><w:rStyle w:val="{style}"/></w:rPr>'
+                f'<w:{kind}Reference w:id="{note_id}"/></w:r>')
+
+    superscript_text = '<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:t>th</w:t></w:r>'
+    body = (para("Mixed note references", "Heading1") +
+            para(run("First footnote.") + direct("footnote", 1) +
+                 run(" Second footnote.") + styled("footnote", 2) +
+                 run(" The 4") + superscript_text + run(" day.") +
+                 run(" Third footnote.") + direct("footnote", 3)) +
+            para(run("First endnote.") + direct("endnote", 1) +
+                 run(" Second endnote.") + styled("endnote", 2)))
+    package.parts["word/document.xml"] = document_xml(body)
+    write("features/notes-superscript.docx", package.build())
+    expect("features/notes-superscript.docx", "docx", rtl=False,
+           outline=[(1, "Mixed note references", 0)],
+           text=["Mixed note references",
+                 "First footnote. Second footnote. The 4th day. Third footnote.",
+                 "First endnote. Second endnote."],
+           purpose="Footnote and endnote references with direct superscript formatting mixed "
+                   "with styled ones; each must be numbered once, in order.")
 
 
 def hyperlinks_fixture():

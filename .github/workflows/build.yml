@@ -326,15 +326,33 @@ jobs:
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           npm ci --ignore-scripts --no-audit --no-fund
 
-      - name: Run reader tests
+      - name: Install the Chromium headless shell for the pinned Playwright
         shell: bash
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
-          if ! node -e "process.exit(require('./package.json').scripts?.['test:reader'] ? 0 : 1)"; then
-            echo "::notice title=Reader tests skipped::package.json has no test:reader script on this commit."
-            exit 0
-          fi
+          # The headless shell makes no background requests of its own; the
+          # tests fail on any network attempt the browser makes.
+          node node_modules/playwright-core/cli.js install --only-shell chromium
+
+      - name: Build leandoc-inspect for the core-fixture cases
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          cmake -S . -B build/inspect -DCMAKE_BUILD_TYPE=Release \
+            -DLEANDOC_BUILD_HOSTS=OFF -DBUILD_TESTING=OFF
+          cmake --build build/inspect --target leandoc-inspect --parallel
+
+      - name: Run reader tests with static reports
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           npm run test:reader
+
+      - name: Run reader tests with the core's reports and packages
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          LEANDOC_INSPECT="$GITHUB_WORKSPACE/build/inspect/tools/inspect/leandoc-inspect" npm run test:reader
 
       - name: Report the failure log as annotations
         if: failure()

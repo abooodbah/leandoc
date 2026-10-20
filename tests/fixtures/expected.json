@@ -1869,6 +1869,26 @@
     ],
     "purpose": "One of each not-displayed feature in a form docx-preview 0.4.1 does not draw: text box, equation, chart, SmartArt, and shape, for the fidelity bar."
   },
+  "features/notes-superscript.docx": {
+    "kind": "docx",
+    "ok": true,
+    "errorCode": "",
+    "features": {},
+    "rightToLeft": false,
+    "outline": [
+      [
+        1,
+        "Mixed note references",
+        0
+      ]
+    ],
+    "text": [
+      "Mixed note references",
+      "First footnote. Second footnote. The 4th day. Third footnote.",
+      "First endnote. Second endnote."
+    ],
+    "purpose": "Footnote and endnote references with direct superscript formatting mixed with styled ones; each must be numbered once, in order."
+  },
   "features/notes.docx": {
     "kind": "docx",
     "ok": true,

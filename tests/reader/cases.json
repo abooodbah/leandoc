@@ -1,6 +1,33 @@
 {
   "fixtureDir": "tests/reader/dev-fixtures",
   "reportsFile": "tests/reader/dev-fixtures/reports.json",
+  "coreFixtureDir": "tests/fixtures/features",
+  "coreExpectedFile": "tests/fixtures/expected.json",
+  "coreCases": [
+    { "file": "notes-superscript.docx", "expect": {
+      "coreText": false,
+      "text": ["First footnote.1 Second footnote.2 The 4th day. Third footnote.3", "First endnote.1 Second endnote.2"],
+      "superscripts": ["1", "2", "th", "3", "1", "2"],
+      "noteItems": ["Footnote one, direct superscript.", "Footnote two, styled.", "Footnote three, direct superscript.", "Endnote one, direct superscript.", "Endnote two, styled."] } },
+    { "file": "notes.docx", "expect": {
+      "coreText": false,
+      "text": ["A sentence with a footnote.1 Another with a second footnote.2", "A sentence with an endnote.1"],
+      "superscripts": ["1", "2", "1"],
+      "noteItems": ["First footnote text.", "Second footnote text.", "The only endnote."] } },
+    { "file": "malformed-equation.docx", "expect": { "text": ["[Equation]"], "fidelity": "1 equation that LeanDoc does not display" } },
+    { "file": "not-displayed.docx", "expect": { "fidelity": "that LeanDoc does not display" } },
+    { "file": "comments.docx", "expect": { "fidelity": "comments (hidden)" } },
+    { "file": "tracked-changes.docx", "expect": { "fidelity": "tracked changes (shown as accepted)" } },
+    { "file": "long-300-pages.docx", "expect": { "pagesAtLeast": 300 } },
+    { "file": "hyperlinks.docx", "expect": { "links": [
+      { "text": "the docs", "href": "https://example.invalid/docs" },
+      { "text": "the team", "href": "mailto:team@example.invalid" }] } },
+    { "file": "images.docx", "expect": { "imagesLoaded": 3 } },
+    { "file": "tables.docx", "expect": { "count": { "table": 1 } } },
+    { "file": "drawn-content.docx", "expect": {
+      "coreText": false,
+      "text": ["Text in a text box with a fallback.", "Text in a VML text box.", "E=mc2", "Inline:", "after.", "The end."] } }
+  ],
   "cases": [
     {
       "id": "headings",

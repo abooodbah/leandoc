@@ -29,14 +29,29 @@ The tests use `playwright-core` (pinned in `package.json`) with an existing
 Chromium. They look in this order:
 
 1. `LEANDOC_CHROMIUM`, a path to a Chromium or Chrome binary;
-2. `/opt/pw-browsers/chromium-*/chrome-linux/chrome`, newest first;
-3. `google-chrome`, `google-chrome-stable`, `chromium`, or `chromium-browser`
-   on `PATH` (GitHub's Ubuntu runners have `google-chrome`).
+2. Playwright's Chromium headless shell in `PLAYWRIGHT_BROWSERS_PATH`,
+   `/opt/pw-browsers`, or `~/.cache/ms-playwright`, newest first
+   (`node node_modules/playwright-core/cli.js install --only-shell chromium`
+   installs it, as CI does);
+3. a full Chromium in the same folders;
+4. `google-chrome`, `google-chrome-stable`, `chromium`, or `chromium-browser`
+   on `PATH`.
+
+The browser runs with every request, loopback included, sent to a local
+proxy that refuses and records it, and every test asserts that the record is
+empty. Page requests never reach it: the fake host answers them through page
+routing. A full Chrome fails this check, because it contacts Google services
+and preconnects to `app.leandoc.invalid` outside page routing; the headless
+shell makes no request of its own. This is why the earlier runs saw
+connection attempts to `app.leandoc.invalid:443` through the session proxy.
 
 ## Reports and packages
 
 Without configuration the fake host serves each fixture file unchanged and
 uses the static report from `reports.json`, merged over a default report.
+The core-fixture cases (`coreCases` in `cases.json`, every
+`tests/fixtures/features/*.docx` checked against `tests/fixtures/expected.json`)
+run only with `LEANDOC_INSPECT`; CI runs the suite once in each mode.
 
 With `LEANDOC_INSPECT` set to the `leandoc-inspect` binary, the fake host runs
 `leandoc-inspect FILE` and uses the last JSON line as the report, and runs

@@ -1,7 +1,7 @@
 // Reader tests: the staged reader in Chromium with a fake host.
 // Run: npm run test:reader (or node --test tests/reader/run-reader-tests.mjs)
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import {
@@ -9,6 +9,7 @@ import {
   READER_URL,
   launchBrowser,
   loadCases,
+  networkAttempts,
   prepareFixture,
   repositoryRoot,
   stageAssets
@@ -39,6 +40,7 @@ async function assertClean(host) {
   assert.deepEqual(host.offOrigin, [], "no request leaves the app origin");
   assert.deepEqual(host.notFound, [], "no request for a missing file");
   assert.deepEqual(host.consoleErrors, [], "no console errors");
+  assert.deepEqual(networkAttempts, [], "the browser made no network attempt of its own");
 }
 
 async function withHost(options, body) {
@@ -248,6 +250,82 @@ describe("rendering cases (RENDER-01, SEC-01 reader half)", () => {
       await openFixture(host, "arabic.docx");
       await screenshot(host, "case-arabic-reading");
     });
+  });
+});
+
+// The committed core fixtures, rendered from the core's own sanitized
+// package and report (leandoc-inspect). Without LEANDOC_INSPECT the block is
+// skipped; CI's reader job builds leandoc-inspect and sets it.
+describe("core fixtures through leandoc-inspect (RENDER-01, FIDELITY-01)", { skip: !process.env.LEANDOC_INSPECT && "LEANDOC_INSPECT is not set" }, () => {
+  // Whitespace is ignored: a paragraph split by a page break spans two pages.
+  const normalize = (text) => String(text).replace(/\s+/g, "");
+
+  test("every feature fixture renders its text, outline, direction, and fidelity bar", async () => {
+    const config = fixtures.config;
+    const directory = path.resolve(repositoryRoot, config.coreFixtureDir);
+    const expected = JSON.parse(readFileSync(path.resolve(repositoryRoot, config.coreExpectedFile), "utf8"));
+    const extras = new Map(config.coreCases.map((entry) => [entry.file, entry.expect]));
+    const files = readdirSync(directory).filter((name) => name.endsWith(".docx")).sort();
+    assert.ok(files.length >= 20, "the feature fixtures are present");
+    for (const file of files) {
+      const core = expected[`features/${file}`];
+      const extra = extras.get(file) || {};
+      await withHost({}, async (host) => {
+        const { rendered, report } = await openFixture(host, path.join(directory, file));
+        assert.equal(report.ok, true, `${file}: the core accepts it`);
+        const result = await inspect(host, extra);
+        const text = normalize(result.text);
+        // The core's text omits equation runs (m:t), which the reader draws,
+        // so a fixture with drawn equations lists its own text instead.
+        const coreText = extra.coreText === false ? [] : core.text || [];
+        for (const line of [...coreText, ...(extra.text || [])]) {
+          assert.ok(text.includes(normalize(line)), `${file}: text "${line}"`);
+        }
+        const outline = await host.page.$$eval("#outlineList a", (links) => links.map((link) => link.textContent));
+        assert.deepEqual(outline, (core.outline || []).map((entry) => entry[1]), `${file}: outline`);
+        if (core.rightToLeft) {
+          const first = (core.text || [])[0];
+          const direction = await host.page.evaluate((needle) => {
+            const p = Array.from(document.querySelectorAll("#docBody p")).find((node) => node.textContent.includes(needle));
+            return p ? getComputedStyle(p).direction : null;
+          }, first);
+          assert.equal(direction, "rtl", `${file}: the first paragraph runs right to left`);
+        }
+        const bar = await host.page.evaluate(() => ({
+          hidden: document.getElementById("fidelityBar").hidden,
+          text: document.getElementById("fidelityText").textContent
+        }));
+        assert.equal(bar.hidden, Object.keys(core.features || {}).length === 0, `${file}: fidelity bar shown only with features`);
+        if (extra.fidelity) {
+          assert.ok(bar.text.includes(extra.fidelity), `${file}: fidelity wording "${bar.text}"`);
+        }
+        if (extra.pagesAtLeast) {
+          assert.ok(rendered.pages >= extra.pagesAtLeast, `${file}: ${rendered.pages} pages`);
+        }
+        if (extra.imagesLoaded !== undefined) {
+          assert.equal(result.images, extra.imagesLoaded, `${file}: images loaded from blob URLs`);
+        }
+        for (const [selector, count] of Object.entries(extra.count || {})) {
+          assert.equal(result.counts[selector], count, `${file}: count of ${selector}`);
+        }
+        (extra.links || []).forEach((link, index) => {
+          assert.equal(result.linkHrefs[index], link.href, `${file}: link "${link.text}"`);
+        });
+        if (extra.superscripts || extra.noteItems) {
+          const notes = await host.page.evaluate(() => ({
+            sups: Array.from(document.querySelectorAll("#docBody article sup")).map((node) => node.textContent),
+            items: Array.from(document.querySelectorAll("#docBody section.docx > ol > li")).map((node) => node.textContent.trim())
+          }));
+          if (extra.superscripts) {
+            assert.deepEqual(notes.sups, extra.superscripts, `${file}: note references are numbered once, in order`);
+          }
+          if (extra.noteItems) {
+            assert.deepEqual(notes.items, extra.noteItems, `${file}: each note is listed once`);
+          }
+        }
+        assert.equal(host.ofType("renderFailed").length, 0, `${file}: no renderFailed`);
+      });
+    }
   });
 });
 
