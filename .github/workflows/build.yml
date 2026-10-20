@@ -85,6 +85,11 @@ jobs:
           path: artifacts/visual/windows/
           retention-days: 14
 
+      - name: Check the Windows screenshots (UI-01)
+        if: always()
+        shell: bash
+        run: node tests/visual/check-captures.mjs artifacts/visual/windows Windows
+
       - name: Upload Windows package
         uses: actions/upload-artifact@v7
         with:
@@ -298,6 +303,11 @@ jobs:
           path: artifacts/visual/macos/
           retention-days: 14
 
+      - name: Check the macOS screenshots (UI-01)
+        if: always()
+        shell: bash
+        run: node tests/visual/check-captures.mjs artifacts/visual/macos macOS
+
       - name: Verify macOS checksum and trust metadata
         shell: bash
         env:
@@ -373,8 +383,10 @@ jobs:
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           # The headless shell makes no background requests of its own; the
-          # tests fail on any network attempt the browser makes.
-          node node_modules/playwright-core/cli.js install --only-shell chromium
+          # tests fail on any network attempt the browser makes. The build is
+          # Chromium 141 (playwright-core 1.56.1), the one the committed pixel
+          # baselines in tests/visual/baselines/chromium-141 come from.
+          npm exec --yes --ignore-scripts --package=playwright-core@1.56.1 -- playwright-core install --only-shell chromium
 
       - name: Build leandoc-inspect for the core-fixture cases
         shell: bash
@@ -542,6 +554,11 @@ jobs:
           cat artifacts/perf/perf-linux.md >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
+      - name: Report the results as a notice
+        if: always()
+        shell: bash
+        run: node tests/perf/annotate-results.mjs artifacts/perf/perf-linux.md "perf-memory Linux results" "$RUNNER_TEMP/ci.log" "^  M-0[678] "
+
       - name: Upload performance results
         if: always()
         uses: actions/upload-artifact@v7
@@ -594,6 +611,11 @@ jobs:
       - name: Measure the launch scenarios (P-01 to P-06, M-01 to M-05)
         shell: pwsh
         run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/perf/Measure-LeanDocPerf.ps1 -ExePath ./dist/LeanDoc.exe -LeanMarkExePath "$env:LEANMARK_EXE" -Runs 10
+
+      - name: Report the results as a notice
+        if: always()
+        shell: bash
+        run: node tests/perf/annotate-results.mjs artifacts/perf-windows/perf-windows.md "perf-memory Windows results" "$RUNNER_TEMP/ci.log" "LeanMark|^  report|^  empty"
 
       - name: Upload performance results
         if: always()

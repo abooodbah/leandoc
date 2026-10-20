@@ -31,8 +31,10 @@ Chromium. They look in this order:
 1. `LEANDOC_CHROMIUM`, a path to a Chromium or Chrome binary;
 2. Playwright's Chromium headless shell in `PLAYWRIGHT_BROWSERS_PATH`,
    `/opt/pw-browsers`, or `~/.cache/ms-playwright`, newest first
-   (`node node_modules/playwright-core/cli.js install --only-shell chromium`
-   installs it, as CI does);
+   (`npm exec --ignore-scripts --package=playwright-core@1.56.1 -- playwright-core install --only-shell chromium`
+   installs Chromium 141, the build the pixel baselines in
+   `tests/visual/baselines/chromium-141` come from, as CI does; another
+   build skips the pixel comparison and writes candidates instead);
 3. a full Chromium in the same folders;
 4. `google-chrome`, `google-chrome-stable`, `chromium`, or `chromium-browser`
    on `PATH`.
