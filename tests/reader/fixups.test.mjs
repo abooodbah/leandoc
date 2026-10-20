@@ -350,7 +350,7 @@ test("Reader files contain no em dash and no banned wording", () => {
       .filter((file) => /\.(mjs|json|md|py)$/.test(file))
       .map((file) => path.join("tests", "reader", file)),
     path.join("scripts", "stage-runtime-assets.mjs"),
-    path.join("docs", "notices", "reader.md")
+    "THIRD_PARTY_NOTICES.md"
   ];
   for (const file of files) {
     const text = readFileSync(path.join(repositoryRoot, file), "utf8");
