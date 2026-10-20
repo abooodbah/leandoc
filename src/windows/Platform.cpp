@@ -7,8 +7,12 @@
 #include <filesystem>
 #include <limits>
 
+#include "TestHooks.h"
+
 namespace leandoc::windows_host {
 namespace {
+
+bool timingEnabled = false;
 
 core::OpenResult ReadFailure(const char* code, const char* message, std::uint64_t bytes = 0) {
     core::OpenResult result;
@@ -93,6 +97,46 @@ std::wstring ExecutableDirectory() {
         return L".";
     }
     return std::filesystem::path(path).parent_path().wstring();
+}
+
+void EnableTiming() {
+    timingEnabled = true;
+}
+
+bool TimingEnabled() {
+    return timingEnabled;
+}
+
+std::uint64_t MillisecondsSinceProcessStart() {
+    FILETIME creation = {};
+    FILETIME exitTime = {};
+    FILETIME kernel = {};
+    FILETIME user = {};
+    if (!GetProcessTimes(GetCurrentProcess(), &creation, &exitTime, &kernel, &user)) {
+        return 0;
+    }
+    FILETIME now = {};
+    GetSystemTimePreciseAsFileTime(&now);
+    const std::uint64_t start =
+        (static_cast<std::uint64_t>(creation.dwHighDateTime) << 32) | creation.dwLowDateTime;
+    const std::uint64_t current =
+        (static_cast<std::uint64_t>(now.dwHighDateTime) << 32) | now.dwLowDateTime;
+    return current > start ? (current - start) / 10000 : 0;
+}
+
+void TraceTiming(std::string_view event, std::string_view details) {
+    if (!timingEnabled) {
+        return;
+    }
+    HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (output == nullptr || output == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    // One unbuffered write per line, so a reader of the pipe sees each line
+    // as soon as it happens.
+    const std::string line = FormatTimingLine(event, MillisecondsSinceProcessStart(), details);
+    DWORD written = 0;
+    WriteFile(output, line.data(), static_cast<DWORD>(line.size()), &written, nullptr);
 }
 
 std::wstring LocalAppDataDirectory() {

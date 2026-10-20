@@ -145,27 +145,12 @@ void WriteStandardError(const std::string& line) {
     WriteFile(output, line.data(), static_cast<DWORD>(line.size()), &written, nullptr);
 }
 
-ULONGLONG MillisecondsSinceProcessStart() {
-    FILETIME creation = {};
-    FILETIME exitTime = {};
-    FILETIME kernel = {};
-    FILETIME user = {};
-    if (!GetProcessTimes(GetCurrentProcess(), &creation, &exitTime, &kernel, &user)) {
-        return 0;
-    }
-    FILETIME now = {};
-    GetSystemTimePreciseAsFileTime(&now);
-    const ULONGLONG start =
-        (static_cast<ULONGLONG>(creation.dwHighDateTime) << 32) | creation.dwLowDateTime;
-    const ULONGLONG current =
-        (static_cast<ULONGLONG>(now.dwHighDateTime) << 32) | now.dwLowDateTime;
-    return current > start ? (current - start) / 10000 : 0;
-}
-
 }  // namespace
 
 LeanDocApp::LeanDocApp(LaunchOptions options)
-    : pendingPaths_(std::move(options.paths)), smokeTest_(options.smokeTest) {
+    : pendingPaths_(std::move(options.paths)),
+      smokeTest_(options.smokeTest),
+      exitAfterRenderMs_(options.exitAfterRenderMs) {
     const std::wstring overrideAssets = EnvironmentValue(L"LEANDOC_ASSETS_DIR");
     assetDirectory_ = overrideAssets.empty()
                           ? (std::filesystem::path(ExecutableDirectory()) / L"assets").wstring()
@@ -260,6 +245,7 @@ bool LeanDocApp::CreateMainWindow(int showCommand) {
     ApplyWindowTheme();
     ShowWindow(window_, smokeTest_ ? SW_SHOWNOACTIVATE : showCommand);
     UpdateWindow(window_);
+    TraceTiming("window-visible");
     return true;
 }
 
@@ -306,6 +292,9 @@ LRESULT LeanDocApp::HandleWindowMessage(UINT message, WPARAM wParam, LPARAM lPar
                 PollActiveTab();
             } else if (wParam == kSmokeTimer) {
                 CompleteSmoke(false, "timed out before the reader reported a rendered document");
+            } else if (wParam == kExitAfterRenderTimer) {
+                KillTimer(window_, kExitAfterRenderTimer);
+                DestroyWindow(window_);
             }
             return 0;
         case WM_COPYDATA:
@@ -332,6 +321,7 @@ LRESULT LeanDocApp::HandleWindowMessage(UINT message, WPARAM wParam, LPARAM lPar
         case WM_DESTROY:
             KillTimer(window_, kFilePollTimer);
             KillTimer(window_, kSmokeTimer);
+            KillTimer(window_, kExitAfterRenderTimer);
             if (controller_ != nullptr) {
                 controller_->Close();
             }
@@ -783,7 +773,14 @@ void LeanDocApp::ShowActiveTab(bool automaticReload) {
     // The stamp is taken before the read, so an edit that lands mid-read
     // shows up as a newer stamp on the next poll rather than being missed.
     const FileStamp stamp = ReadStamp(tab->path);
+    if (TimingEnabled()) {
+        TraceTiming("document-requested", "tab=" + std::to_string(tab->id) +
+                                              " generation=" +
+                                              std::to_string(tab->generation + 1));
+    }
+    const ULONGLONG coreStart = GetTickCount64();
     core::OpenResult result = OpenDocumentWithSharing(tab->path);
+    lastCoreMs_ = GetTickCount64() - coreStart;
     if (automaticReload && !result.ok && result.errorCode == "read-failed") {
         SendStatus(
             "The file is still changing or cannot be read. Keeping the last complete view.",
@@ -874,6 +871,12 @@ void LeanDocApp::HandlePackageRequest(ICoreWebView2WebResourceRequestedEventArgs
         package_.size() > UINT_MAX) {
         respond(nullptr, 404, L"Not Found", commonHeaders);
         return;
+    }
+    if (TimingEnabled()) {
+        TraceTiming("package-served", "tab=" + std::to_string(tab) +
+                                          " generation=" + std::to_string(generation) +
+                                          " coreMs=" + std::to_string(lastCoreMs_) +
+                                          " bytes=" + std::to_string(package_.size()));
     }
     ComPtr<IStream> stream;
     stream.Attach(SHCreateMemStream(
@@ -1059,6 +1062,7 @@ void LeanDocApp::HandleWebMessage(ICoreWebView2WebMessageReceivedEventArgs* argu
     }
 
     if (*type == "ready") {
+        TraceTiming("webview-ready");
         readerReady_ = true;
         SendHost();
         SendTheme();
@@ -1139,7 +1143,19 @@ void LeanDocApp::HandleRendered(const host_json::Object& message, bool failed) {
         return;
     }
     if (!failed) {
-        RecordFirstPage(message);
+        if (TimingEnabled()) {
+            TraceTiming(
+                "rendered",
+                "tab=" + std::to_string(*tab) + " generation=" + std::to_string(*generation) +
+                    " pages=" +
+                    std::to_string(host_json::GetUnsigned(message, "pages").value_or(0)) +
+                    " readerMs=" +
+                    std::to_string(host_json::GetUnsigned(message, "ms").value_or(0)));
+        }
+        if (exitAfterRenderMs_ && !firstRenderSeen_) {
+            SetTimer(window_, kExitAfterRenderTimer, *exitAfterRenderMs_, nullptr);
+        }
+        firstRenderSeen_ = true;
     }
     if (!smokeTest_) {
         return;
@@ -1151,33 +1167,6 @@ void LeanDocApp::HandleRendered(const host_json::Object& message, bool failed) {
     }
     smokeRenderMs_ = host_json::GetUnsigned(message, "ms").value_or(0);
     StartSmokeProbe();
-}
-
-void LeanDocApp::RecordFirstPage(const host_json::Object& message) {
-    // Measure-Performance.ps1 sets LEANDOC_FIRST_PAGE_FILE to time the first
-    // page. Nothing is written unless the variable names a file.
-    if (firstPageRecorded_) {
-        return;
-    }
-    firstPageRecorded_ = true;
-    const std::wstring target = EnvironmentValue(L"LEANDOC_FIRST_PAGE_FILE");
-    if (target.empty()) {
-        return;
-    }
-    std::string line = "{\"hostMs\":";
-    line += std::to_string(MillisecondsSinceProcessStart());
-    line += ",\"readerMs\":";
-    line += std::to_string(host_json::GetUnsigned(message, "ms").value_or(0));
-    line += ",\"pages\":";
-    line += std::to_string(host_json::GetUnsigned(message, "pages").value_or(0));
-    line += "}\n";
-    HANDLE file = CreateFileW(target.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ, nullptr,
-                              OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file != INVALID_HANDLE_VALUE) {
-        DWORD written = 0;
-        WriteFile(file, line.data(), static_cast<DWORD>(line.size()), &written, nullptr);
-        CloseHandle(file);
-    }
 }
 
 void LeanDocApp::HandleLink(const std::string& href) {
@@ -1239,12 +1228,16 @@ void LeanDocApp::StartSmokeProbe() {
     static constexpr wchar_t kProbe[] = LR"JS(
 (function () {
   var origin = location.protocol + "//" + location.host + "/";
-  var pages = document.querySelectorAll("section.docx").length;
+  var root = document.documentElement;
+  var pages = Math.min(
+    document.querySelectorAll("section.docx").length,
+    parseInt(root.dataset.pages || "0", 10) || 0);
   var text = (document.body ? document.body.innerText : "").trim().length;
   var offOrigin = performance.getEntriesByType("resource").filter(function (entry) {
     return entry.name.indexOf(origin) !== 0 && !/^(blob|data):/i.test(entry.name);
   }).map(function (entry) { return entry.name; });
   return JSON.stringify({
+    state: root.dataset.renderState || "",
     pages: pages,
     text: text,
     offOrigin: offOrigin.length,
@@ -1269,7 +1262,9 @@ void LeanDocApp::StartSmokeProbe() {
                     CompleteSmoke(false, "the DOM probe returned " + outer);
                     return S_OK;
                 }
-                const bool success = host_json::GetUnsigned(values, "pages").value_or(0) >= 1 &&
+                const bool success =
+                    host_json::GetString(values, "state").value_or("") == "ready" &&
+                    host_json::GetUnsigned(values, "pages").value_or(0) >= 1 &&
                                      host_json::GetUnsigned(values, "text").value_or(0) > 0 &&
                                      host_json::GetUnsigned(values, "offOrigin").value_or(1) == 0 &&
                                      host_json::GetUnsigned(values, "csp").value_or(1) == 0;

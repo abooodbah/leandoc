@@ -4,6 +4,7 @@
 #include <wrl.h>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -18,6 +19,8 @@ namespace leandoc::windows_host {
 struct LaunchOptions {
     std::vector<std::wstring> paths;
     bool smokeTest = false;
+    // --exit-after-render=MS: close MS milliseconds after the first rendered.
+    std::optional<unsigned> exitAfterRenderMs;
 };
 
 class LeanDocApp {
@@ -57,6 +60,7 @@ private:
 
     static constexpr UINT_PTR kFilePollTimer = 1;
     static constexpr UINT_PTR kSmokeTimer = 2;
+    static constexpr UINT_PTR kExitAfterRenderTimer = 3;
     static constexpr UINT kFilePollIntervalMs = 500;
     static constexpr UINT kSmokeTimeoutMs = 18000;
     static constexpr UINT kOpenPendingMessage = WM_APP + 1;
@@ -105,7 +109,6 @@ private:
     void HandleRendered(const host_json::Object& message, bool failed);
     void HandleLink(const std::string& href);
     void OpenInEditor(unsigned tabId);
-    void RecordFirstPage(const host_json::Object& message);
 
     void StartSmokeProbe();
     void CompleteSmoke(bool success, const std::string& detail);
@@ -126,7 +129,9 @@ private:
     bool smokeProbeStarted_ = false;
     int exitCode_ = 0;
     unsigned smokeRenderMs_ = 0;
-    bool firstPageRecorded_ = false;
+    bool firstRenderSeen_ = false;
+    std::optional<unsigned> exitAfterRenderMs_;
+    std::uint64_t lastCoreMs_ = 0;
 
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> environment_;
     Microsoft::WRL::ComPtr<ICoreWebView2Controller> controller_;

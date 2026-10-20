@@ -7,6 +7,7 @@
 
 #include "App.h"
 #include "Platform.h"
+#include "TestHooks.h"
 
 using leandoc::windows_host::LaunchOptions;
 using leandoc::windows_host::LeanDocApp;
@@ -35,6 +36,17 @@ LaunchOptions ParseArguments() {
                 options.paths.assign(1, arguments[++index]);
             }
             continue;
+        }
+        if (!afterSeparator && argument == leandoc::windows_host::kTraceTimingFlag) {
+            leandoc::windows_host::EnableTiming();
+            continue;
+        }
+        if (!afterSeparator) {
+            if (const auto milliseconds =
+                    leandoc::windows_host::ParseExitAfterRender(argument)) {
+                options.exitAfterRenderMs = milliseconds;
+                continue;
+            }
         }
         if (!afterSeparator && !argument.empty() && argument.front() == L'-') {
             continue;
@@ -156,6 +168,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, wchar_t*, int showCommand) {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     LaunchOptions options = ParseArguments();
+    leandoc::windows_host::TraceTiming("process-start");
     const std::wstring executable = leandoc::windows_host::ExecutablePath();
 
     // The first launch owns this mutex for its lifetime. A later launch sends
@@ -165,7 +178,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, wchar_t*, int showCommand) {
     // it opens its own window rather than lose the file.
     HANDLE instanceMutex = nullptr;
     bool ownsMutex = false;
-    if (!options.smokeTest && !executable.empty()) {
+    // The smoke test and a timed run each start their own window, so they
+    // never hand their file to a reader the user already has open.
+    if (!options.smokeTest && !options.exitAfterRenderMs && !executable.empty()) {
         instanceMutex = CreateMutexW(nullptr, FALSE, InstanceMutexName(executable).c_str());
     }
     if (instanceMutex != nullptr) {
