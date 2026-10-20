@@ -84,6 +84,21 @@ foreach ($Extension in $Extensions) {
     }
 }
 
+# Removes a per-user key only when nothing is left in it: no values, no
+# default, and no subkeys. An install may have created it; an empty key
+# carries no setting of anyone else's.
+function Remove-EmptyUserKey {
+    param([string]$SubKey)
+    $Key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($SubKey, $false)
+    if ($null -eq $Key) { return }
+    try {
+        $Empty = $Key.ValueCount -eq 0 -and $Key.SubKeyCount -eq 0
+    } finally { $Key.Dispose() }
+    if ($Empty) {
+        [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKey($SubKey, $false)
+    }
+}
+
 foreach ($Extension in $Extensions) {
     # Remove only LeanDoc's value from the shared OpenWithProgids key.
     $OpenWith = Join-Path (Join-Path $Classes $Extension) 'OpenWithProgids'
@@ -93,12 +108,15 @@ foreach ($Extension in $Extensions) {
             Remove-ItemProperty -LiteralPath $OpenWith -Name $ProgId -Force
         }
     }
+    Remove-EmptyUserKey ('Software\Classes\' + $Extension + '\OpenWithProgids')
+    Remove-EmptyUserKey ('Software\Classes\' + $Extension)
 }
 
 $RegisteredApps = 'HKCU:\Software\RegisteredApplications'
 if ((Get-RegString $RegisteredApps $AppName) -eq $Capabilities) {
     Remove-ItemProperty -LiteralPath $RegisteredApps -Name $AppName -Force
 }
+Remove-EmptyUserKey 'Software\RegisteredApplications'
 
 # These keys use LeanDoc-specific names and are wholly app-owned. The app key
 # also holds the reader's theme, view, and recent files.
