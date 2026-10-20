@@ -900,6 +900,12 @@ body {
   outline-offset: -2px;
 }
 
+/* Focus the reader gave the document itself, after a render; Tab back to
+   the document shows the ring again. */
+.doc-scroller.quiet-focus:focus-visible {
+  outline: none;
+}
+
 .doc-body {
   min-height: 100%;
 }

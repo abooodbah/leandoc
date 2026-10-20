@@ -576,6 +576,21 @@ describe("keyboard reading and the outline (U-02, U-06)", () => {
     });
   });
 
+  test("a freshly opened document has the focus without a focus ring; Tab back shows it", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeBigDocx(3);
+      await host.openDocument({ bytes, report, fileName: "three.docx" });
+      const ring = () => host.page.evaluate(() => {
+        const node = document.activeElement;
+        return { id: node.id, outline: getComputedStyle(node).outlineStyle };
+      });
+      assert.deepEqual(await ring(), { id: "docScroller", outline: "none" });
+      await host.page.focus("#findInput");
+      await host.page.keyboard.press("Shift+Tab");
+      assert.deepEqual(await ring(), { id: "docScroller", outline: "solid" }, "keyboard focus shows the ring");
+    });
+  });
+
   test("Tab wraps around inside the page instead of leaving it (UI-06)", async () => {
     await withHost({}, async (host) => {
       const { bytes, report } = await makeBigDocx(3);

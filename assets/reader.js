@@ -732,6 +732,10 @@
     if (active && active !== document.body && active !== root) {
       return;
     }
+    // Focus given by the reader, not by the keyboard, shows no ring: WebKit
+    // and Chromium treat it as keyboard focus when nothing was clicked yet,
+    // which framed every freshly opened document in blue.
+    elements.docScroller.classList.add("quiet-focus");
     try {
       elements.docScroller.focus({ preventScroll: true });
     } catch (_error) {
@@ -1773,6 +1777,9 @@
     }
   });
   elements.docScroller.addEventListener("scroll", scheduleOutlineUpdate, { passive: true });
+  elements.docScroller.addEventListener("blur", function () {
+    elements.docScroller.classList.remove("quiet-focus");
+  });
   ["wheel", "pointerdown", "touchstart", "keydown"].forEach(function (type) {
     elements.docScroller.addEventListener(type, function () {
       if (pinnedOutline !== null) {
