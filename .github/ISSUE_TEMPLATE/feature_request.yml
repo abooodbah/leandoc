@@ -1,0 +1,48 @@
+name: Feature request
+description: Suggest a focused improvement to LeanDoc
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        LeanDoc is a focused, read-only desktop viewer for Word documents. Explain the user problem and affected platform before the proposed implementation.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: What task is difficult today, and who encounters it?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed improvement
+      description: Describe the smallest change that would solve the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe current workarounds or other approaches, if any.
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples or mockups
+      description: Add a safe sample, screenshot, or sketch if it makes the request clearer.
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing open and closed issues for this request.
+          required: true
+        - label: I considered LeanDoc's read-only, scope and its treatment of every document as untrusted input.
+          required: true

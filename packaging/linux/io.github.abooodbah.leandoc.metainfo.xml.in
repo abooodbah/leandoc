@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.abooodbah.leandoc</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>LeanDoc</name>
+  <developer id="io.github.abooodbah">
+    <name>Abdulfatah Bahbouh</name>
+  </developer>
+  <summary>Read Word documents without opening an office suite</summary>
+  <description>
+    <p>
+      LeanDoc is a focused, read-only viewer for Word documents. It opens a
+      .docx file, shows it in page view or reading view, and offers one button
+      that hands the file to a real editor.
+    </p>
+    <p>
+      LeanDoc never runs macros and never fetches remote templates or images
+      that a document points to. A quiet bar above the page lists content
+      that LeanDoc does not display, such as text boxes and equations.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.abooodbah.leandoc.desktop</launchable>
+  <url type="homepage">https://abooodbah.github.io/leandoc/</url>
+  <url type="bugtracker">https://github.com/abooodbah/leandoc/issues</url>
+  <url type="vcs-browser">https://github.com/abooodbah/leandoc</url>
+  <provides>
+    <binary>leandoc</binary>
+    <mediatype>application/vnd.openxmlformats-officedocument.wordprocessingml.document</mediatype>
+    <mediatype>application/vnd.openxmlformats-officedocument.wordprocessingml.template</mediatype>
+    <mediatype>application/vnd.ms-word.document.macroEnabled.12</mediatype>
+    <mediatype>application/vnd.ms-word.template.macroEnabled.12</mediatype>
+    <mediatype>application/msword</mediatype>
+    <mediatype>application/rtf</mediatype>
+    <mediatype>application/vnd.oasis.opendocument.text</mediatype>
+  </provides>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <releases>
+    <release version="0.1.0" date="2026-10-20">
+      <description>
+        <p>First release: page and reading views, a fidelity bar, an outline, find, tabs, and open in editor.</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1" />
+  <custom>
+    <value key="LeanDoc::BuildVersion">@PROJECT_VERSION@</value>
+  </custom>
+</component>

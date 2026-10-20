@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=LeanDoc
+GenericName=Document Viewer
+Comment=Read Word documents without opening an office suite
+Exec=leandoc %F
+Icon=io.github.abooodbah.leandoc
+Terminal=false
+StartupNotify=true
+StartupWMClass=leandoc
+Categories=Office;Viewer;WordProcessor;
+MimeType=application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.openxmlformats-officedocument.wordprocessingml.template;application/vnd.ms-word.document.macroEnabled.12;application/vnd.ms-word.template.macroEnabled.12;application/msword;application/rtf;text/rtf;application/vnd.oasis.opendocument.text;
+Keywords=Word;docx;Document;Viewer;Reader;Offline;
