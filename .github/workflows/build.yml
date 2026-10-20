@@ -72,26 +72,6 @@ jobs:
           $zip = (Get-Item release/*.zip | Select-Object -First 1).FullName
           node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/hosts/Test-WindowsLifecycle.ps1 -ZipPath $zip
 
-      - name: Observe the network endpoints of every security fixture (S-02)
-        if: always()
-        shell: pwsh
-        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/hosts/Observe-WindowsNetwork.ps1 -ExePath ./dist/LeanDoc.exe
-
-      - name: Report S-02 as a notice
-        if: always()
-        shell: bash
-        run: node tests/perf/annotate-results.mjs artifacts/network-windows/network-windows.md "S-02 Windows network observation"
-
-      - name: Run the Windows usage subset (U-01 U-04 U-07 U-08)
-        if: always()
-        shell: pwsh
-        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/usage/Test-WindowsUsage.ps1 -ExePath ./dist/LeanDoc.exe
-
-      - name: Report the Windows usage subset as a notice
-        if: always()
-        shell: bash
-        run: node tests/perf/annotate-results.mjs artifacts/usage-windows/usage-windows.md "Usage subset Windows"
-
       - name: Capture every feature fixture in the real window (UI-01)
         if: always()
         shell: pwsh
@@ -124,6 +104,53 @@ jobs:
         if: failure()
         shell: bash
         run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "Windows"
+
+  windows-usage:
+    # S-02 and the usage subset launch LeanDoc about 60 times; in the same job
+    # as the captures they exhausted the runner's desktop (later processes
+    # failed to start with 0xC0000142), so they run on a fresh runner.
+    name: Windows usage subset and network observation
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Build and stage Windows files
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./scripts/build.ps1 -Configuration Release -Platform x64
+
+      - name: Observe the network endpoints of every security fixture (S-02)
+        if: always()
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/hosts/Observe-WindowsNetwork.ps1 -ExePath ./dist/LeanDoc.exe
+
+      - name: Report S-02 as a notice
+        if: always()
+        shell: bash
+        run: node tests/perf/annotate-results.mjs artifacts/network-windows/network-windows.md "S-02 Windows network observation"
+
+      - name: Run the Windows usage subset (U-01 U-04 U-07 U-08)
+        if: always()
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/usage/Test-WindowsUsage.ps1 -ExePath ./dist/LeanDoc.exe
+
+      - name: Report the Windows usage subset as a notice
+        if: always()
+        shell: bash
+        run: node tests/perf/annotate-results.mjs artifacts/usage-windows/usage-windows.md "Usage subset Windows"
+
+      - name: Report the failure log as annotations
+        if: failure()
+        shell: bash
+        run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "Windows usage"
 
   winget-validate:
     name: winget manifests

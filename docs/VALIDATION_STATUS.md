@@ -187,7 +187,8 @@ report; LeanMark 0.3.0 112.9 MiB with README.md and 99.9 MiB with a
   (processes failing to start with 0xC0000142 after the captures once, and
   a first-launch smoke timeout in L-02 once, with WebView2 155 on the
   image); L-02 now waits for earlier WebView2 processes and retries a
-  first-run timeout once, and the result is noted in the log.
+  first-run timeout once, and S-02 and the usage subset run in their own
+  job, so no single runner launches LeanDoc about 150 times.
 - The owner signs off the three UI-01 contact sheets.
 - Published figures and the Word comparison remain the owner's laptop run
   (PERF-EXT); nothing here is a product claim.
