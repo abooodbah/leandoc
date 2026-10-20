@@ -35,10 +35,15 @@ namespace {
 constexpr wchar_t kAppHost[] = L"app.leandoc.invalid";
 constexpr wchar_t kAppOrigin[] = L"https://app.leandoc.invalid/";
 constexpr wchar_t kReaderUrl[] = L"https://app.leandoc.invalid/reader.html";
-// Packages are answered from memory through WebResourceRequested. The rest of
-// the origin is the read-only folder mapping of the assets directory.
-constexpr wchar_t kPackageFilter[] = L"https://app.leandoc.invalid/pkg/*";
+// The whole app origin is answered by the host through WebResourceRequested:
+// reader assets from the assets directory and each tab's sanitized package
+// from memory under /pkg/. A WebView2 folder mapping cannot be used for the
+// assets, because a mapped host answers every path from disk and a missing
+// file (such as /pkg/...) fails before WebResourceRequested is consulted.
+constexpr wchar_t kAppFilter[] = L"https://app.leandoc.invalid/*";
+constexpr char kAppOriginUtf8[] = "https://app.leandoc.invalid/";
 constexpr char kPackagePrefix[] = "https://app.leandoc.invalid/pkg/";
+constexpr ULONGLONG kMaximumAssetBytes = 64ull * 1024ull * 1024ull;
 constexpr wchar_t kSettingsKey[] = L"Software\\LeanDoc";
 constexpr wchar_t kDocxContentType[] =
     L"application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -132,6 +137,68 @@ bool ParsePackageUri(const std::string& uri, unsigned& tab, unsigned& generation
            ParseDecimal(rest.substr(0, first), tab) &&
            ParseDecimal(rest.substr(first + 1, second - first - 1), generation) &&
            rest.substr(second + 1) == "document.docx";
+}
+
+// The decoded asset path below the app origin, or empty when the request is
+// not a plain asset path: only letters, digits, '.', '_', '-', and '/' are
+// allowed, without empty, "." or ".." segments.
+std::string AssetPath(const std::string& uri) {
+    if (uri.size() > 512 || uri.rfind(kAppOriginUtf8, 0) != 0) {
+        return {};
+    }
+    std::string path = uri.substr(sizeof(kAppOriginUtf8) - 1);
+    const std::size_t end = path.find_first_of("?#");
+    if (end != std::string::npos) {
+        path.resize(end);
+    }
+    if (path.empty() || path.rfind("pkg/", 0) == 0) {
+        return {};
+    }
+    for (const char character : path) {
+        const bool allowed = (character >= 'a' && character <= 'z') ||
+                             (character >= 'A' && character <= 'Z') ||
+                             (character >= '0' && character <= '9') || character == '.' ||
+                             character == '_' || character == '-' || character == '/';
+        if (!allowed) {
+            return {};
+        }
+    }
+    std::size_t start = 0;
+    while (start <= path.size()) {
+        const std::size_t slash = path.find('/', start);
+        const std::string_view segment = std::string_view(path).substr(
+            start, slash == std::string::npos ? std::string::npos : slash - start);
+        if (segment.empty() || segment == "." || segment == "..") {
+            return {};
+        }
+        if (slash == std::string::npos) {
+            break;
+        }
+        start = slash + 1;
+    }
+    return path;
+}
+
+const wchar_t* AssetContentType(const std::string& path) {
+    static constexpr std::pair<const char*, const wchar_t*> kTypes[] = {
+        {".html", L"text/html; charset=utf-8"},
+        {".css", L"text/css; charset=utf-8"},
+        {".js", L"text/javascript; charset=utf-8"},
+        {".mjs", L"text/javascript; charset=utf-8"},
+        {".json", L"application/json"},
+        {".woff2", L"font/woff2"},
+        {".woff", L"font/woff"},
+        {".ttf", L"font/ttf"},
+        {".svg", L"image/svg+xml"},
+        {".png", L"image/png"},
+    };
+    for (const auto& [suffix, type] : kTypes) {
+        const std::size_t length = std::char_traits<char>::length(suffix);
+        if (path.size() > length && path.compare(path.size() - length, length, suffix) == 0) {
+            return type;
+        }
+    }
+    return nullptr;
 }
 
 void WriteStandardError(const std::string& line) {
@@ -441,12 +508,6 @@ void LeanDocApp::ConfigureWebView() {
         controller2->put_DefaultBackgroundColor(color);
     }
 
-    ComPtr<ICoreWebView2_3> webView3;
-    if (SUCCEEDED(webView_.As(&webView3))) {
-        webView3->SetVirtualHostNameToFolderMapping(
-            kAppHost, assetDirectory_.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
-    }
-
     if (smokeTest_) {
         // The smoke check counts Content Security Policy violations from the
         // first script onwards.
@@ -514,14 +575,15 @@ void LeanDocApp::ConfigureWebView() {
             .Get(),
         &token);
 
-    // The active tab's sanitized package is answered from memory. No folder
-    // of the user's is ever mapped.
-    webView_->AddWebResourceRequestedFilter(kPackageFilter, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+    // The app origin is answered by the host: assets from the assets folder
+    // and the active tab's sanitized package from memory. No folder of the
+    // user's is ever mapped, and the network is never asked.
+    webView_->AddWebResourceRequestedFilter(kAppFilter, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
     webView_->add_WebResourceRequested(
         Callback<ICoreWebView2WebResourceRequestedEventHandler>(
             [this](ICoreWebView2*, ICoreWebView2WebResourceRequestedEventArgs* arguments)
                 -> HRESULT {
-                HandlePackageRequest(arguments);
+                HandleAppRequest(arguments);
                 return S_OK;
             })
             .Get(),
@@ -836,7 +898,7 @@ void LeanDocApp::ShowActiveTab(bool automaticReload) {
     PostJson(json);
 }
 
-void LeanDocApp::HandlePackageRequest(ICoreWebView2WebResourceRequestedEventArgs* arguments) {
+void LeanDocApp::HandleAppRequest(ICoreWebView2WebResourceRequestedEventArgs* arguments) {
     if (environment_ == nullptr) {
         return;
     }
@@ -864,9 +926,18 @@ void LeanDocApp::HandlePackageRequest(ICoreWebView2WebResourceRequestedEventArgs
         }
     };
 
+    if (!isGet) {
+        respond(nullptr, 404, L"Not Found", commonHeaders);
+        return;
+    }
+    if (uri.rfind(kPackagePrefix, 0) != 0) {
+        ServeAsset(uri, respond, commonHeaders);
+        return;
+    }
+
     unsigned tab = 0;
     unsigned generation = 0;
-    if (!isGet || !ParsePackageUri(uri, tab, generation) || package_.empty() ||
+    if (!ParsePackageUri(uri, tab, generation) || package_.empty() ||
         tab != packageTab_ || generation != packageGeneration_ || tab != activeTab_ ||
         package_.size() > UINT_MAX) {
         respond(nullptr, 404, L"Not Found", commonHeaders);
@@ -887,6 +958,38 @@ void LeanDocApp::HandlePackageRequest(ICoreWebView2WebResourceRequestedEventArgs
     }
     respond(stream.Get(), 200, L"OK",
             std::wstring(L"Content-Type: ") + kDocxContentType + L"\r\n" + commonHeaders);
+}
+
+template <typename Respond>
+void LeanDocApp::ServeAsset(
+    const std::string& uri, const Respond& respond, const std::wstring& commonHeaders) {
+    const std::string relative = AssetPath(uri);
+    const wchar_t* contentType = relative.empty() ? nullptr : AssetContentType(relative);
+    if (contentType == nullptr) {
+        respond(nullptr, 404, L"Not Found", commonHeaders);
+        return;
+    }
+    std::wstring candidate = assetDirectory_;
+    if (!candidate.empty() && candidate.back() != L'\\') {
+        candidate.push_back(L'\\');
+    }
+    for (const wchar_t character : Utf8ToWide(relative)) {
+        candidate.push_back(character == L'/' ? L'\\' : character);
+    }
+    WIN32_FILE_ATTRIBUTE_DATA data = {};
+    const bool regular =
+        core::IsPathWithin(std::filesystem::path(assetDirectory_), std::filesystem::path(candidate)) &&
+        GetFileAttributesExW(candidate.c_str(), GetFileExInfoStandard, &data) &&
+        (data.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) == 0 &&
+        ((static_cast<ULONGLONG>(data.nFileSizeHigh) << 32) | data.nFileSizeLow) <= kMaximumAssetBytes;
+    ComPtr<IStream> stream;
+    if (!regular || FAILED(SHCreateStreamOnFileEx(candidate.c_str(), STGM_READ | STGM_SHARE_DENY_WRITE,
+                                                  FILE_ATTRIBUTE_NORMAL, FALSE, nullptr, &stream))) {
+        respond(nullptr, 404, L"Not Found", commonHeaders);
+        return;
+    }
+    respond(stream.Get(), 200, L"OK",
+            std::wstring(L"Content-Type: ") + contentType + L"\r\n" + commonHeaders);
 }
 
 void LeanDocApp::OpenDocumentDialog() {

@@ -93,7 +93,10 @@ private:
     void ClearPackage();
     Tab* FindTab(unsigned id);
     Tab* ActiveTab();
-    void HandlePackageRequest(ICoreWebView2WebResourceRequestedEventArgs* arguments);
+    void HandleAppRequest(ICoreWebView2WebResourceRequestedEventArgs* arguments);
+    template <typename Respond>
+    void ServeAsset(
+        const std::string& uri, const Respond& respond, const std::wstring& commonHeaders);
 
     void OpenDocumentDialog();
     void PollActiveTab();
