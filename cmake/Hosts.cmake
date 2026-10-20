@@ -1,6 +1,13 @@
 # LeanDoc native hosts, packaging, and host tests. The root CMakeLists.txt
 # includes this file after the portable core, so leandoc_core already exists.
 
+# The corpus workflow builds only leandoc-inspect, without GTK, WebKit, or
+# Node.js, by turning the hosts off.
+option(LEANDOC_BUILD_HOSTS "Build the native hosts and their packages" ON)
+if(NOT LEANDOC_BUILD_HOSTS)
+  return()
+endif()
+
 set(LEANDOC_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
 cmake_path(NORMAL_PATH LEANDOC_ROOT)
 string(REGEX REPLACE "/$" "" LEANDOC_ROOT "${LEANDOC_ROOT}")

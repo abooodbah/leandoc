@@ -1,0 +1,72 @@
+name: Corpus run
+
+# Fetches the public Apache POI and LibreOffice documents listed in
+# tests/corpus/manifest.json and runs leandoc-inspect over them. It fails on a
+# crash, a run over 10 s, or an unexpected error code. Files are never
+# committed. Weekly and on demand only, because it downloads third-party files.
+
+on:
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: corpus
+  cancel-in-progress: true
+
+jobs:
+  corpus:
+    name: leandoc-inspect over the public corpus
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Check that the corpus scripts exist
+        id: guard
+        shell: bash
+        run: |
+          if [[ -f tests/corpus/fetch-corpus.mjs && -f tests/corpus/run-corpus.mjs && -f tests/corpus/manifest.json ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Corpus run skipped::tests/corpus/ is not on this commit yet."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install build tools
+        if: steps.guard.outputs.ready == 'true'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build
+
+      - name: Build leandoc-inspect
+        if: steps.guard.outputs.ready == 'true'
+        shell: bash
+        run: |
+          cmake -S . -B build/corpus -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+            -DLEANDOC_BUILD_HOSTS=OFF
+          cmake --build build/corpus --target leandoc-inspect --parallel
+
+      - name: Fetch the corpus
+        if: steps.guard.outputs.ready == 'true'
+        shell: bash
+        run: node tests/corpus/fetch-corpus.mjs
+
+      - name: Run leandoc-inspect over the corpus
+        if: steps.guard.outputs.ready == 'true'
+        shell: bash
+        run: |
+          node tests/corpus/run-corpus.mjs \
+            --inspect build/corpus/tools/inspect/leandoc-inspect --markdown | tee corpus.md
+          cat corpus.md >> "$GITHUB_STEP_SUMMARY"
