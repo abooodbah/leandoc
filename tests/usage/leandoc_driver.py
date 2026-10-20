@@ -243,7 +243,8 @@ class Session:
                  extra_args=(), env=None, script=True, settings=None,
                  window_size=None, stderr_path=None, wrapper=()):
         self.build = build or Build.find()
-        self.documents = [str(d) for d in documents]
+        # LeanDoc runs in its own working folder, so paths are made absolute.
+        self.documents = [os.path.abspath(str(d)) for d in documents]
         self.work = Path(tempfile.mkdtemp(prefix="leandoc-session-"))
         self.config_dir = Path(config_dir) if config_dir else self.work / "config"
         self.extra_args = list(extra_args)

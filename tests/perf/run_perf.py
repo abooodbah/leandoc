@@ -567,7 +567,7 @@ def main():
         return not only or any(i in only for i in ids)
 
     build = Build.find(args.build)
-    out = Path(args.out)
+    out = Path(args.out).resolve()
     docs_dir = out / "documents"
     made = make_report.make_all(docs_dir)
     docs = dict(made)
