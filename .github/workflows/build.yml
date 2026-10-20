@@ -140,7 +140,7 @@ jobs:
     # failed to start with 0xC0000142), so they run on a fresh runner.
     name: Windows usage subset and network observation
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Check out source
@@ -158,6 +158,7 @@ jobs:
 
       - name: Observe the network endpoints of every security fixture (S-02)
         if: always()
+        timeout-minutes: 15
         shell: pwsh
         run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/hosts/Observe-WindowsNetwork.ps1 -ExePath ./dist/LeanDoc.exe
 
@@ -168,6 +169,7 @@ jobs:
 
       - name: Run the Windows usage subset (U-01 U-04 U-07 U-08)
         if: always()
+        timeout-minutes: 10
         shell: pwsh
         run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/usage/Test-WindowsUsage.ps1 -ExePath ./dist/LeanDoc.exe
 
