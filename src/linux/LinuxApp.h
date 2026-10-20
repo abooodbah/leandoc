@@ -92,6 +92,7 @@ private:
     void SaveSettings() const;
     void AddRecent(const std::filesystem::path& path);
     void ApplyWindowTheme();
+    void ApplyWindowBackground();
     std::string ThemeName() const;
     void UpdateTitle();
 
@@ -193,6 +194,7 @@ private:
 
     GtkApplication* application_ = nullptr;
     GtkWidget* window_ = nullptr;
+    GtkCssProvider* windowCss_ = nullptr;
     WebKitWebView* webView_ = nullptr;
     WebKitWebContext* webContext_ = nullptr;
     WebKitNetworkSession* networkSession_ = nullptr;

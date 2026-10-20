@@ -386,6 +386,7 @@ LinuxApp::~LinuxApp() {
     g_clear_object(&contentManager_);
     g_clear_object(&networkSession_);
     g_clear_object(&webContext_);
+    g_clear_object(&windowCss_);
 }
 
 void LinuxApp::Initialize() {
@@ -408,6 +409,13 @@ void LinuxApp::Initialize() {
         GTK_EVENT_CONTROLLER(drop), GTK_PHASE_CAPTURE);
     g_signal_connect(drop, "drop", G_CALLBACK(OnDrop), this);
     gtk_widget_add_controller(window_, GTK_EVENT_CONTROLLER(drop));
+
+    // The window is shown before the web view exists: creating the web
+    // context and starting its processes would otherwise delay the first
+    // frame (P-01). Its background matches the reader's until the web view
+    // paints.
+    ApplyWindowBackground();
+    gtk_window_present(GTK_WINDOW(window_));
 
     webContext_ = webkit_web_context_new();
     webkit_web_context_set_cache_model(webContext_, WEBKIT_CACHE_MODEL_DOCUMENT_VIEWER);
@@ -468,7 +476,6 @@ void LinuxApp::Initialize() {
     ApplyWindowTheme();
     gtk_window_set_child(GTK_WINDOW(window_), GTK_WIDGET(webView_));
     NavigateToReader();
-    gtk_window_present(GTK_WINDOW(window_));
 }
 
 void LinuxApp::ConfigureWebView() {
@@ -1155,7 +1162,23 @@ void LinuxApp::AddRecent(const std::filesystem::path& path) {
     SaveSettings();
 }
 
+void LinuxApp::ApplyWindowBackground() {
+    if (windowCss_ == nullptr) {
+        windowCss_ = gtk_css_provider_new();
+        gtk_style_context_add_provider_for_display(
+            gtk_widget_get_display(window_), GTK_STYLE_PROVIDER(windowCss_),
+            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+        gtk_widget_add_css_class(window_, "leandoc-window");
+    }
+    gtk_css_provider_load_from_string(
+        windowCss_, theme_ == ThemeMode::Dark ? "window.leandoc-window { background: #0e0d0b; }"
+                                              : "window.leandoc-window { background: #faf9f7; }");
+}
+
 void LinuxApp::ApplyWindowTheme() {
+    if (window_ != nullptr) {
+        ApplyWindowBackground();
+    }
     if (webView_ != nullptr) {
         const bool dark = theme_ == ThemeMode::Dark;
         GdkRGBA background = dark ? GdkRGBA{14 / 255.0f, 13 / 255.0f, 11 / 255.0f, 1.0f}
