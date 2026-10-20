@@ -209,10 +209,19 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         NAME leandoc-linux-fallback
         COMMAND "${LEANDOC_XVFB_RUN_EXECUTABLE}" -a
                 "$<TARGET_FILE:leandoc>" --smoke-test "${LEANDOC_FALLBACK_FIXTURE}")
-      set_tests_properties(leandoc-linux-host leandoc-linux-fallback PROPERTIES
-        ENVIRONMENT
-          "LEANDOC_ASSETS_DIR=${LEANDOC_RUNTIME_ASSETS};WEBKIT_DISABLE_COMPOSITING_MODE=1;XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/test-config"
-        TIMEOUT 40)
+      # A later launch must hand its file to the running window and exit.
+      add_test(
+        NAME leandoc-linux-single-instance
+        COMMAND "${LEANDOC_XVFB_RUN_EXECUTABLE}" -a bash
+                "${LEANDOC_ROOT}/tests/hosts/Test-LinuxSingleInstance.sh"
+                "$<TARGET_FILE:leandoc>" "${LEANDOC_SMOKE_FIXTURE}"
+                "${LEANDOC_ROOT}/tests/hosts/fixtures/second.docx")
+      set_tests_properties(
+        leandoc-linux-host leandoc-linux-fallback leandoc-linux-single-instance
+        PROPERTIES
+          ENVIRONMENT
+            "LEANDOC_ASSETS_DIR=${LEANDOC_RUNTIME_ASSETS};WEBKIT_DISABLE_COMPOSITING_MODE=1;XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/test-config;GTK_A11Y=none"
+          TIMEOUT 60)
       set_tests_properties(leandoc-linux-fallback PROPERTIES WILL_FAIL TRUE)
     endif()
   endif()
