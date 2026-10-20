@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -14,13 +15,19 @@
 
 namespace leandoc::linux_host {
 
+struct HostOptions {
+    bool smokeTest = false;
+    // --exit-after-render=MS: quit MS milliseconds after the first rendered.
+    std::optional<unsigned> exitAfterRenderMs;
+};
+
 // One LeanDoc window. Every document is a tab of it: GApplication forwards a
 // later launch's files here through the "open" signal.
 class LinuxApp final {
 public:
     static LinuxApp* Create(
         GtkApplication* application,
-        bool smokeTest,
+        const HostOptions& options,
         int* smokeExitCode);
 
     LinuxApp(const LinuxApp&) = delete;
@@ -43,7 +50,7 @@ private:
         bool shown = false;
     };
 
-    LinuxApp(GtkApplication* application, bool smokeTest, int* smokeExitCode);
+    LinuxApp(GtkApplication* application, const HostOptions& options, int* smokeExitCode);
     ~LinuxApp();
 
     void Initialize();
@@ -154,6 +161,8 @@ private:
         gpointer data);
     static gboolean OnReloadTimer(gpointer data);
     static gboolean OnSmokeTimeout(gpointer data);
+    static gboolean OnExitAfterRender(gpointer data);
+    static void OnWindowMapped(GtkWidget* widget, gpointer data);
 
     GtkApplication* application_ = nullptr;
     GtkWidget* window_ = nullptr;
@@ -183,6 +192,10 @@ private:
 
     bool readerReady_ = false;
     bool smokeTest_ = false;
+    std::optional<unsigned> exitAfterRenderMs_;
+    guint exitTimer_ = 0;
+    bool firstRenderSeen_ = false;
+    std::uint64_t lastCoreMs_ = 0;
     bool smokeComplete_ = false;
     bool smokeProbeStarted_ = false;
     int* smokeExitCode_ = nullptr;

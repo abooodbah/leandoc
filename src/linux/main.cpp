@@ -6,6 +6,8 @@
 #include <vector>
 
 #include "LinuxApp.h"
+#include "TestHooks.h"
+#include "Timing.h"
 
 namespace {
 
@@ -14,7 +16,8 @@ constexpr char kApplicationId[] = "io.github.abooodbah.leandoc";
 struct ApplicationState {
     std::vector<std::filesystem::path> documents;
     leandoc::linux_host::LinuxApp* window = nullptr;
-    bool smokeTest = false;
+    leandoc::linux_host::HostOptions options;
+    bool traceTiming = false;
     int smokeExitCode = 1;
 };
 
@@ -31,12 +34,27 @@ bool ParseArguments(int argc, char** argv, ApplicationState* state, bool* showHe
             continue;
         }
         if (!afterSeparator && argument == "--smoke-test") {
-            if (state->smokeTest || index + 1 >= argc) {
+            if (state->options.smokeTest || index + 1 >= argc) {
                 std::cerr << "--smoke-test requires exactly one document path.\n";
                 return false;
             }
-            state->smokeTest = true;
+            state->options.smokeTest = true;
             state->documents.emplace_back(argv[++index]);
+            continue;
+        }
+        if (!afterSeparator && argument == leandoc::linux_host::kTraceTimingFlag) {
+            state->traceTiming = true;
+            continue;
+        }
+        if (!afterSeparator &&
+            argument.rfind(leandoc::linux_host::kExitAfterRenderFlag, 0) == 0) {
+            const auto milliseconds = leandoc::linux_host::ParseExitAfterRender(argument);
+            if (!milliseconds) {
+                std::cerr << "--exit-after-render needs a whole number of milliseconds "
+                             "from 0 to 600000.\n";
+                return false;
+            }
+            state->options.exitAfterRenderMs = milliseconds;
             continue;
         }
         if (!afterSeparator && !argument.empty() && argument.front() == '-') {
@@ -45,7 +63,7 @@ bool ParseArguments(int argc, char** argv, ApplicationState* state, bool* showHe
         }
         state->documents.emplace_back(argument);
     }
-    if (state->smokeTest && state->documents.size() != 1) {
+    if (state->options.smokeTest && state->documents.size() != 1) {
         std::cerr << "--smoke-test accepts exactly one document path.\n";
         return false;
     }
@@ -56,7 +74,7 @@ leandoc::linux_host::LinuxApp* EnsureWindow(
     GtkApplication* application, ApplicationState* state) {
     if (state->window == nullptr) {
         state->window = leandoc::linux_host::LinuxApp::Create(
-            application, state->smokeTest, &state->smokeExitCode);
+            application, state->options, &state->smokeExitCode);
     }
     return state->window;
 }
@@ -98,14 +116,19 @@ int main(int argc, char** argv) {
     }
     if (showHelp) {
         std::cout << "Usage: leandoc [--] [DOCUMENT ...]\n"
-                  << "       leandoc --smoke-test DOCUMENT\n";
+                  << "       leandoc --smoke-test DOCUMENT\n"
+                  << "Test hooks: --trace-timing, --exit-after-render=MS\n";
         return 0;
     }
+    if (state.traceTiming) {
+        leandoc::linux_host::EnableTiming();
+        leandoc::linux_host::TraceTiming("process-start");
+    }
 
-    // The smoke test runs as its own instance so it never hands its file to a
-    // reader the user already has open.
+    // The smoke test and a timed run each start their own instance, so they
+    // never hand their file to a reader the user already has open.
     GApplicationFlags flags = G_APPLICATION_HANDLES_OPEN;
-    if (state.smokeTest) {
+    if (state.options.smokeTest || state.options.exitAfterRenderMs) {
         flags = static_cast<GApplicationFlags>(flags | G_APPLICATION_NON_UNIQUE);
     }
     GtkApplication* application = gtk_application_new(kApplicationId, flags);
@@ -165,7 +188,7 @@ int main(int argc, char** argv) {
     }
     g_object_unref(application);
 
-    if (state.smokeTest) {
+    if (state.options.smokeTest) {
         return state.smokeExitCode;
     }
     return status;

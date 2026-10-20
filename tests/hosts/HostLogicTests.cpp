@@ -3,8 +3,10 @@
 // the reader message parser. CTest runs this on every operating system.
 
 #include "linux/EditorChoice.h"
+#include "linux/TestHooks.h"
 #include "windows/EditorChoice.h"
 #include "windows/HostJson.h"
+#include "windows/TestHooks.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -208,7 +210,41 @@ void TestJson() {
 
 }  // namespace
 
+// SPEC section 5 test hooks: the flag parser rejects anything but plain
+// milliseconds, and trace lines have one fixed shape on every host.
+void TestHooks() {
+    namespace lh = leandoc::linux_host;
+    namespace wh = leandoc::windows_host;
+    Check(lh::ParseExitAfterRender("--exit-after-render=0") == 0u, "Linux accepts 0 ms");
+    Check(lh::ParseExitAfterRender("--exit-after-render=1500") == 1500u,
+          "Linux accepts 1500 ms");
+    Check(lh::ParseExitAfterRender("--exit-after-render=600000") == 600000u,
+          "Linux accepts the 600000 ms ceiling");
+    Check(!lh::ParseExitAfterRender("--exit-after-render=600001"),
+          "Linux rejects more than 600000 ms");
+    Check(!lh::ParseExitAfterRender("--exit-after-render="), "Linux rejects an empty value");
+    Check(!lh::ParseExitAfterRender("--exit-after-render=-5"), "Linux rejects a sign");
+    Check(!lh::ParseExitAfterRender("--exit-after-render=1e3"), "Linux rejects exponents");
+    Check(!lh::ParseExitAfterRender("--exit-after-renders=5"), "Linux rejects other flags");
+    Check(lh::FormatTimingLine("rendered", 812, "pages=3 readerMs=140") ==
+              "LEANDOC_TIMING rendered 812 pages=3 readerMs=140",
+          "Linux trace line shape");
+    Check(lh::FormatTimingLine("process-start", 4) == "LEANDOC_TIMING process-start 4",
+          "Linux trace line without details");
+
+    Check(wh::ParseExitAfterRender(L"--exit-after-render=250") == 250u,
+          "Windows accepts 250 ms");
+    Check(!wh::ParseExitAfterRender(L"--exit-after-render=abc"),
+          "Windows rejects letters");
+    Check(!wh::ParseExitAfterRender(L"--exit-after-render=1234567"),
+          "Windows rejects seven digits");
+    Check(wh::FormatTimingLine("package-served", 90, "coreMs=3 bytes=10") ==
+              "LEANDOC_TIMING package-served 90 coreMs=3 bytes=10\n",
+          "Windows trace line shape");
+}
+
 int main() {
+    TestHooks();
     TestWindowsEditorOrder();
     TestLinuxEditorOrder();
     TestQuoting();

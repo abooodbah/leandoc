@@ -158,7 +158,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
   add_executable(leandoc
     "${LEANDOC_ROOT}/src/linux/main.cpp"
-    "${LEANDOC_ROOT}/src/linux/LinuxApp.cpp")
+    "${LEANDOC_ROOT}/src/linux/LinuxApp.cpp"
+    "${LEANDOC_ROOT}/src/linux/Timing.cpp")
   add_dependencies(leandoc leandoc_runtime_assets)
   target_compile_features(leandoc PRIVATE cxx_std_17)
   target_compile_options(leandoc PRIVATE -Wall -Wextra -Wpedantic -Werror)
@@ -216,8 +217,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
                 "${LEANDOC_ROOT}/tests/hosts/Test-LinuxSingleInstance.sh"
                 "$<TARGET_FILE:leandoc>" "${LEANDOC_SMOKE_FIXTURE}"
                 "${LEANDOC_ROOT}/tests/hosts/fixtures/second.docx")
+      # --trace-timing and --exit-after-render, the SPEC section 5 hooks.
+      add_test(
+        NAME leandoc-linux-test-hooks
+        COMMAND "${LEANDOC_XVFB_RUN_EXECUTABLE}" -a bash
+                "${LEANDOC_ROOT}/tests/hosts/Test-LinuxTiming.sh"
+                "$<TARGET_FILE:leandoc>" "${LEANDOC_SMOKE_FIXTURE}")
       set_tests_properties(
         leandoc-linux-host leandoc-linux-fallback leandoc-linux-single-instance
+        leandoc-linux-test-hooks
         PROPERTIES
           ENVIRONMENT
             "LEANDOC_ASSETS_DIR=${LEANDOC_RUNTIME_ASSETS};WEBKIT_DISABLE_COMPOSITING_MODE=1;XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/test-config;GTK_A11Y=none"

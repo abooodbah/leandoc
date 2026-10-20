@@ -6,10 +6,13 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cstring>
 #include <optional>
 #include <string_view>
 #include <utility>
+
+#include "Timing.h"
 
 namespace leandoc::linux_host {
 namespace {
@@ -291,17 +294,19 @@ EditorCandidates DiscoverEditors() {
 
 LinuxApp* LinuxApp::Create(
     GtkApplication* application,
-    bool smokeTest,
+    const HostOptions& options,
     int* smokeExitCode) {
-    auto* instance = new LinuxApp(application, smokeTest, smokeExitCode);
+    auto* instance = new LinuxApp(application, options, smokeExitCode);
     instance->Initialize();
     return instance;
 }
 
-LinuxApp::LinuxApp(GtkApplication* application, bool smokeTest, int* smokeExitCode)
+LinuxApp::LinuxApp(
+    GtkApplication* application, const HostOptions& options, int* smokeExitCode)
     : application_(application),
       assetRoot_(ResolveAssetRoot()),
-      smokeTest_(smokeTest),
+      smokeTest_(options.smokeTest),
+      exitAfterRenderMs_(options.exitAfterRenderMs),
       smokeExitCode_(smokeExitCode) {}
 
 LinuxApp::~LinuxApp() {
@@ -310,6 +315,9 @@ LinuxApp::~LinuxApp() {
     }
     if (smokeTimeout_ != 0) {
         g_source_remove(smokeTimeout_);
+    }
+    if (exitTimer_ != 0) {
+        g_source_remove(exitTimer_);
     }
     ClearPackage();
     g_clear_object(&directoryMonitor_);
@@ -326,6 +334,9 @@ void LinuxApp::Initialize() {
     gtk_window_set_default_size(GTK_WINDOW(window_), 1120, 820);
     gtk_widget_set_size_request(window_, 640, 480);
     g_object_weak_ref(G_OBJECT(window_), OnWindowFinalized, this);
+    if (TimingEnabled()) {
+        g_signal_connect(window_, "map", G_CALLBACK(OnWindowMapped), this);
+    }
     UpdateTitle();
 
     // Dropped files open as tabs. The capture phase sees the drop before the
@@ -522,7 +533,18 @@ void LinuxApp::ShowActiveTab(bool automaticReload) {
         return;
     }
 
+    if (TimingEnabled()) {
+        TraceTiming(
+            "document-requested",
+            "tab=" + std::to_string(tab->id) +
+                " generation=" + std::to_string(tab->generation + 1));
+    }
+    const auto coreStart = std::chrono::steady_clock::now();
     core::OpenResult result = core::OpenDocumentFile(tab->path);
+    lastCoreMs_ = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - coreStart)
+            .count());
     if (automaticReload && !result.ok && result.errorCode == "read-failed") {
         SendStatus(
             "The file is still changing or cannot be read. Keeping the last "
@@ -736,6 +758,7 @@ void LinuxApp::HandleMessage(JSCValue* message) {
         return;
     }
     if (*type == "ready") {
+        TraceTiming("webview-ready");
         readerReady_ = true;
         SendHost();
         SendTheme();
@@ -806,6 +829,19 @@ void LinuxApp::HandleRendered(JSCValue* message, bool failed) {
     if (!tab || !generation || active == nullptr || *tab != active->id ||
         *generation != active->generation) {
         return;
+    }
+    if (!failed) {
+        if (TimingEnabled()) {
+            TraceTiming(
+                "rendered",
+                "tab=" + std::to_string(*tab) + " generation=" + std::to_string(*generation) +
+                    " pages=" + std::to_string(UnsignedProperty(message, "pages").value_or(0)) +
+                    " readerMs=" + std::to_string(UnsignedProperty(message, "ms").value_or(0)));
+        }
+        if (exitAfterRenderMs_ && !firstRenderSeen_) {
+            exitTimer_ = g_timeout_add(*exitAfterRenderMs_, OnExitAfterRender, this);
+        }
+        firstRenderSeen_ = true;
     }
     if (!smokeTest_) {
         return;
@@ -997,12 +1033,16 @@ void LinuxApp::StartSmokeProbe() {
     static constexpr char kProbe[] = R"JS(
 (function () {
   var origin = location.protocol + "//" + location.host + "/";
-  var pages = document.querySelectorAll("section.docx").length;
+  var root = document.documentElement;
+  var pages = Math.min(
+    document.querySelectorAll("section.docx").length,
+    parseInt(root.dataset.pages || "0", 10) || 0);
   var text = (document.body ? document.body.innerText : "").trim().length;
   var offOrigin = performance.getEntriesByType("resource").filter(function (entry) {
     return entry.name.indexOf(origin) !== 0 && !/^(blob|data):/i.test(entry.name);
   }).map(function (entry) { return entry.name; });
   return JSON.stringify({
+    state: root.dataset.renderState || "",
     pages: pages,
     text: text,
     offOrigin: offOrigin.length,
@@ -1067,6 +1107,13 @@ void LinuxApp::ServePackage(WebKitURISchemeRequest* request, std::string_view pa
         tab != packageTab_ || generation != packageGeneration_ || tab != activeTab_) {
         FinishNotFound(request);
         return;
+    }
+    if (TimingEnabled()) {
+        TraceTiming(
+            "package-served",
+            "tab=" + std::to_string(tab) + " generation=" + std::to_string(generation) +
+                " coreMs=" + std::to_string(lastCoreMs_) +
+                " bytes=" + std::to_string(g_bytes_get_size(package_)));
     }
     GInputStream* stream = g_memory_input_stream_new_from_bytes(package_);
     FinishResponse(
@@ -1334,8 +1381,10 @@ void LinuxApp::OnSmokeProbeFinished(GObject* source, GAsyncResult* result, gpoin
         parsed == nullptr ? std::nullopt : UnsignedProperty(parsed, "offOrigin");
     const auto csp = parsed == nullptr ? std::nullopt : UnsignedProperty(parsed, "csp");
     const auto textLength = parsed == nullptr ? std::nullopt : UnsignedProperty(parsed, "text");
+    const auto state = parsed == nullptr ? std::nullopt : StringProperty(parsed, "state");
     g_clear_object(&parsed);
-    const bool success = pages.value_or(0) >= 1 && textLength.value_or(0) > 0 &&
+    const bool success = state.value_or("") == "ready" && pages.value_or(0) >= 1 &&
+                         textLength.value_or(0) > 0 &&
                          offOrigin.value_or(1) == 0 && csp.value_or(1) == 0;
     app->CompleteSmoke(
         success, summary + " renderMs=" + std::to_string(app->smokeRenderMs_));
@@ -1348,6 +1397,20 @@ gboolean LinuxApp::OnReloadTimer(gpointer data) {
         app->ShowActiveTab(true);
     }
     return G_SOURCE_REMOVE;
+}
+
+gboolean LinuxApp::OnExitAfterRender(gpointer data) {
+    auto* app = static_cast<LinuxApp*>(data);
+    app->exitTimer_ = 0;
+    g_application_quit(G_APPLICATION(app->application_));
+    return G_SOURCE_REMOVE;
+}
+
+void LinuxApp::OnWindowMapped(GtkWidget* widget, gpointer) {
+    // Only the first map counts; later maps follow a minimize.
+    g_signal_handlers_disconnect_by_func(
+        widget, reinterpret_cast<gpointer>(OnWindowMapped), nullptr);
+    TraceTiming("window-visible");
 }
 
 gboolean LinuxApp::OnSmokeTimeout(gpointer data) {
