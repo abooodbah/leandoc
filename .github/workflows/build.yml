@@ -72,6 +72,16 @@ jobs:
           $zip = (Get-Item release/*.zip | Select-Object -First 1).FullName
           node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/hosts/Test-WindowsLifecycle.ps1 -ZipPath $zip
 
+      - name: Observe the network endpoints of every security fixture (S-02)
+        if: always()
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/hosts/Observe-WindowsNetwork.ps1 -ExePath ./dist/LeanDoc.exe
+
+      - name: Report S-02 as a notice
+        if: always()
+        shell: bash
+        run: node tests/perf/annotate-results.mjs artifacts/network-windows/network-windows.md "S-02 Windows network observation"
+
       - name: Capture every feature fixture in the real window (UI-01)
         if: always()
         shell: pwsh
