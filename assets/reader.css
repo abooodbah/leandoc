@@ -1,6 +1,0 @@
-/* TEMPORARY stub reader for host development. Stream B replaces it. */
-body { margin: 0; font: 15px/1.5 system-ui, sans-serif; background: #ece8e1; color: #1a1917; }
-#bar { padding: 10px 16px; background: #faf9f7; border-bottom: 1px solid #d5cfc3; }
-#main { padding: 24px; }
-.docx-wrapper { display: flex; justify-content: center; }
-section.docx { background: #fff; width: 560px; min-height: 360px; padding: 48px; box-shadow: 0 1px 4px rgba(0, 0, 0, .2); }
