@@ -86,15 +86,17 @@ try {
                         $bitmap = New-Object System.Drawing.Bitmap $width, $height
                         $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
                         $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
+                        if ($theme -ne 'light') { break }
+                        # GetPixel is slow from PowerShell: a coarse grid is enough.
                         $sum = 0.0; $count = 0
-                        for ($y = 5; $y -lt $height; $y += 20) {
-                            for ($x = 5; $x -lt $width; $x += 20) {
+                        for ($y = 5; $y -lt $height; $y += 64) {
+                            for ($x = 5; $x -lt $width; $x += 64) {
                                 $pixel = $bitmap.GetPixel($x, $y)
                                 $sum += 0.2126 * $pixel.R + 0.7152 * $pixel.G + 0.0722 * $pixel.B
                                 $count++
                             }
                         }
-                        if ($theme -ne 'light' -or $count -eq 0 -or ($sum / $count) -ge 100 -or $attempt -eq 3) { break }
+                        if ($count -eq 0 -or ($sum / $count) -ge 100 -or $attempt -eq 3) { break }
                         Write-Warning ('{0} {1}-{2}: capture {3} was dark (mean {4:N0}); taking it again' -f $fixture.Name, $view, $theme, $attempt, ($sum / $count))
                         $graphics.Dispose()
                         $bitmap.Dispose()
