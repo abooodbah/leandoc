@@ -362,7 +362,7 @@
   }
 
   // The core's paragraph index: every w:p under the body in document order,
-  // table cells included, text box content excluded.
+  // table cells included, text box content and mc:Fallback content excluded.
   function coreParagraphIndexes(body) {
     var indexes = new Map();
     var next = 0;
@@ -370,7 +370,7 @@
       var children = element.children || [];
       for (var index = 0; index < children.length; index += 1) {
         var child = children[index];
-        if (child.localName === "txbxContent") {
+        if (child.localName === "txbxContent" || child.localName === "Fallback") {
           continue;
         }
         if (child.localName === "p") {

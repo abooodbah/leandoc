@@ -813,6 +813,7 @@ def feature_fixtures():
     breaks_fixture()
     arabic_fixtures()
     not_displayed_fixture()
+    malformed_equation_fixture()
     drawn_content_fixture()
     tracked_changes_fixture()
     comments_fixture()
@@ -1221,7 +1222,7 @@ def not_displayed_fixture():
     expect("features/not-displayed.docx", "docx", rtl=False,
            features={"text-box": 1, "equation": 1, "chart": 1, "smartart": 1, "shape": 1},
            outline=[(1, "Content LeanDoc does not display", 0)],
-           text=["Content LeanDoc does not display", "A text box:", "", "A chart:",
+           text=["Content LeanDoc does not display", "A text box:", "[Equation]", "A chart:",
                  "A SmartArt graphic:", "A shape:", "The end."],
            purpose="One of each not-displayed feature in a form docx-preview 0.4.1 does not "
                    "draw: text box, equation, chart, SmartArt, and shape, for the fidelity bar.")
@@ -1261,6 +1262,26 @@ def wps_rectangle(docpr_id):
         '</a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="4472C4"/>'
         '</a:solidFill></wps:spPr><wps:bodyPr/></wps:wsp></a:graphicData></a:graphic></wp:inline>'
         '</w:drawing>')
+
+
+def malformed_equation_fixture():
+    # docx-preview 0.4.1 throws on a delimiter without m:dPr, which would blank
+    # the whole document. The core replaces such an equation with a marker.
+    package = new_docx("Malformed equation", "")
+    equation = ('<m:oMath><m:d><m:e><m:r><m:t>a+b</m:t></m:r></m:e></m:d></m:oMath>')
+    body = (para("Malformed equation", "Heading1") +
+            para("Text before the equation.") +
+            para(equation) +
+            para("Text after the equation."))
+    package.parts["word/document.xml"] = document_xml(body)
+    write("features/malformed-equation.docx", package.build())
+    expect("features/malformed-equation.docx", "docx", rtl=False,
+           features={"equation": 1},
+           outline=[(1, "Malformed equation", 0)],
+           text=["Malformed equation", "Text before the equation.", "[Equation]",
+                 "Text after the equation."],
+           purpose="An equation docx-preview 0.4.1 throws on (m:d without m:dPr). The "
+                   "document must still render, with a marker where the equation was.")
 
 
 def drawn_content_fixture():

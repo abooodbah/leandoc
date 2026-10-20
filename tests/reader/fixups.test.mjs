@@ -156,6 +156,20 @@ test("Body paragraphs pair with the core's indexes, skipping what docx-preview s
   assert.equal(Fixups.coreParagraphIndexes(body).has(textBoxParagraph), false);
 });
 
+test("Paragraphs inside mc:Fallback are skipped, as the core skips them", () => {
+  const before = el("p");
+  const fallbackParagraph = el("p");
+  const after = el("p");
+  const body = el("body", [
+    before,
+    el("AlternateContent", [el("Choice", [el("p")]), el("Fallback", [fallbackParagraph])]),
+    after
+  ]);
+  const indexes = Fixups.coreParagraphIndexes(body);
+  assert.equal(indexes.has(fallbackParagraph), false);
+  assert.equal(indexes.get(before), 0);
+});
+
 test("Without XML the model order is used", () => {
   const model = { children: [{ type: "paragraph" }, { type: "paragraph", className: "x" }] };
   const result = Fixups.annotateBody(model, null);

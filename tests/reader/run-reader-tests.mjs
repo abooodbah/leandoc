@@ -146,8 +146,11 @@ async function inspect(host, expect) {
       return anchor ? anchor.getAttribute("href") : null;
     });
     result.blocked = (expectation.blockedLinks || []).map((text) => {
+      // The core unwraps unsafe hyperlinks to plain runs; the static dev reports
+      // keep them as links the reader must neutralise. Either way the text must
+      // not be a working link. Its presence is checked by expect.text.
       const anchor = Array.from(body.querySelectorAll("a")).find((a) => a.textContent.includes(text));
-      return anchor ? anchor.hasAttribute("href") : "missing";
+      return anchor ? anchor.hasAttribute("href") : false;
     });
     return result;
   }, expect);

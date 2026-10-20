@@ -1795,6 +1795,29 @@
     ],
     "purpose": "300 pages built with python-docx: headings every page, a page break after each, for the 500 ms open budget."
   },
+  "features/malformed-equation.docx": {
+    "kind": "docx",
+    "ok": true,
+    "errorCode": "",
+    "features": {
+      "equation": 1
+    },
+    "rightToLeft": false,
+    "outline": [
+      [
+        1,
+        "Malformed equation",
+        0
+      ]
+    ],
+    "text": [
+      "Malformed equation",
+      "Text before the equation.",
+      "[Equation]",
+      "Text after the equation."
+    ],
+    "purpose": "An equation docx-preview 0.4.1 throws on (m:d without m:dPr). The document must still render, with a marker where the equation was."
+  },
   "features/mixed-direction.docx": {
     "kind": "docx",
     "ok": true,
@@ -1838,7 +1861,7 @@
     "text": [
       "Content LeanDoc does not display",
       "A text box:",
-      "",
+      "[Equation]",
       "A chart:",
       "A SmartArt graphic:",
       "A shape:",

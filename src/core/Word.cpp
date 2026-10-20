@@ -219,8 +219,11 @@ bool IsDrawnMathElement(const char* local) {
 
 class Analyzer final {
 public:
-    Analyzer(const ExternalIds& externalIds, FeatureTally& tally)
-        : externalIds_(externalIds), tally_(tally) {}
+    Analyzer(
+        const ExternalIds& externalIds,
+        FeatureTally& tally,
+        std::vector<pugi::xml_node>& undrawnMath)
+        : externalIds_(externalIds), tally_(tally), undrawnMath_(undrawnMath) {}
 
     void Run(pugi::xml_document& document) {
         if (pugi::xml_node root = document.document_element()) {
@@ -595,6 +598,7 @@ private:
                     if (mathDepth_ == 0 &&
                         !(IsMathPlacementDrawn() && IsMathDrawn(element))) {
                         tally_.Add(Feature::Equation);
+                        undrawnMath_.push_back(element);
                     }
                     enteredMath = true;
                 }
@@ -632,6 +636,7 @@ private:
 
     const ExternalIds& externalIds_;
     FeatureTally& tally_;
+    std::vector<pugi::xml_node>& undrawnMath_;
     NsScope scope_;
     std::vector<Frame> fields_;
     std::vector<QName> ancestors_;  // the current element is last
@@ -1414,12 +1419,30 @@ std::uint32_t CountIn(NsScope& scope, pugi::xml_node element, Ns ns, const char*
 
 }  // namespace
 
+constexpr const char* kUndrawnMathNamespace =
+    "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
 void AnalyzeStory(
     pugi::xml_document& document,
     const ExternalIds& externalIds,
     FeatureTally& tally) {
-    Analyzer analyzer(externalIds, tally);
+    std::vector<pugi::xml_node> undrawnMath;
+    Analyzer analyzer(externalIds, tally, undrawnMath);
     analyzer.Run(document);
+    // An equation the reader cannot draw is reported in the fidelity bar and
+    // replaced by a visible marker. Some malformed OMML makes docx-preview throw,
+    // which would otherwise blank the whole document. The run declares its own
+    // namespace so it is valid whatever prefix the part uses.
+    for (pugi::xml_node math : undrawnMath) {
+        pugi::xml_node parent = math.parent();
+        if (!parent) {
+            continue;
+        }
+        pugi::xml_node run = parent.insert_child_before("w:r", math);
+        run.append_attribute("xmlns:w") = kUndrawnMathNamespace;
+        run.append_child("w:t").text() = "[Equation]";
+        parent.remove_child(math);
+    }
 }
 
 std::uint32_t CountElements(pugi::xml_document& document, Ns ns, const char* local) {
