@@ -329,11 +329,12 @@ def in_window(results, build, docs, runs):
         app.wait_render()
         keys = tab_ids(app)
         switch = []
+        # The 3-page tab is active; the 300-page tab is in the background.
         for _ in range(runs):
-            click_tab(app, keys[1])
-            app.wait_render()
             click_tab(app, keys[0])
             switch.append(app.wait_render(timeout=60).ms)
+            click_tab(app, keys[1])
+            app.wait_render()
         value = median(switch)
         results.measure("P-07", value, "ms", "< 1500", value < 1500,
                         "tab switch back to the 300-page background tab", switch)

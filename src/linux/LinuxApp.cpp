@@ -31,6 +31,11 @@ constexpr std::uint64_t kMaximumAssetBytes = 64ull * 1024ull * 1024ull;
 constexpr std::size_t kMaximumMessageBytes = 65536;
 constexpr std::size_t kMaximumRecent = 10;
 constexpr std::size_t kMaximumTabs = 64;
+// Memory pressure for the web process: release at a third of this limit
+// (conservative) and collect harder at half (strict), WebKit's default
+// shares. See Initialize().
+constexpr guint kWebProcessMemoryLimitMiB = 300;
+constexpr double kMemoryPressurePollSeconds = 5.0;
 
 #ifndef LEANDOC_INSTALL_ASSETS_DIR
 #define LEANDOC_INSTALL_ASSETS_DIR "/usr/share/leandoc/assets"
@@ -417,7 +422,18 @@ void LinuxApp::Initialize() {
     ApplyWindowBackground();
     gtk_window_present(GTK_WINDOW(window_));
 
-    webContext_ = webkit_web_context_new();
+    // A closed or replaced document leaves its parse and layout garbage in
+    // the web process until JavaScriptCore next collects, which an idle
+    // reader never triggers: opening and closing a 300-page report thirty
+    // times grew the tree by a fifth (M-06). WebKit's memory pressure handler
+    // releases caches and collects when the web process passes a share of
+    // this limit, checked every few seconds. Nothing is ever killed.
+    WebKitMemoryPressureSettings* pressure = webkit_memory_pressure_settings_new();
+    webkit_memory_pressure_settings_set_memory_limit(pressure, kWebProcessMemoryLimitMiB);
+    webkit_memory_pressure_settings_set_poll_interval(pressure, kMemoryPressurePollSeconds);
+    webContext_ = WEBKIT_WEB_CONTEXT(g_object_new(
+        WEBKIT_TYPE_WEB_CONTEXT, "memory-pressure-settings", pressure, nullptr));
+    webkit_memory_pressure_settings_free(pressure);
     webkit_web_context_set_cache_model(webContext_, WEBKIT_CACHE_MODEL_DOCUMENT_VIEWER);
     webkit_web_context_register_uri_scheme(webContext_, kScheme, OnScheme, this, nullptr);
     WebKitSecurityManager* security = webkit_web_context_get_security_manager(webContext_);
