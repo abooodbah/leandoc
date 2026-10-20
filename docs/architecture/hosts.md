@@ -39,7 +39,7 @@ Every answer carries `Cache-Control: no-store` and
 | Host | Origin | Mechanism |
 | --- | --- | --- |
 | Windows | `https://app.leandoc.invalid/` | `WebResourceRequested` with the filter `https://app.leandoc.invalid/*` answers both the assets (from the `assets` folder next to the executable) and the packages (from memory). |
-| Linux | `leandoc://app/` | A custom URI scheme registered as local and secure on a private `WebKitWebContext`. CORS answers name only `leandoc://app`. |
+| Linux | `leandoc://app/` | A custom URI scheme registered as secure on a private `WebKitWebContext`. It is not registered as local: WebKit loads no blob: URL from a local origin, and docx-preview serves every image as one. CORS answers name only `leandoc://app`. |
 | macOS | `leandoc://app/` | A `WKURLSchemeHandler` per window. CORS answers name only `leandoc://app`. |
 
 The package is same-origin with the reader on all three hosts, so the

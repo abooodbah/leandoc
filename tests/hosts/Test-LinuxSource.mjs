@@ -24,7 +24,6 @@ for (const [guard, reason] of [
   [/webkit_web_context_register_uri_scheme\(webContext_, kScheme/, "one leandoc: scheme serves the app"],
   [/kReaderUrl\[\] = "leandoc:\/\/app\/reader\.html"/, "the reader origin is leandoc://app"],
   [/kPackagePrefix\[\] = "leandoc:\/\/app\/pkg\/"/, "packages are same-origin with the reader"],
-  [/webkit_security_manager_register_uri_scheme_as_local/, "the scheme must be local"],
   [/webkit_security_manager_register_uri_scheme_as_secure/, "the scheme must be secure"],
   [/"Access-Control-Allow-Origin", kAppOrigin/, "CORS answers name only the app origin"],
   [/"X-Content-Type-Options", "nosniff"/, "responses must not be sniffed"],
@@ -64,6 +63,8 @@ for (const [guard, reason] of [
   assert.match(host, guard, `Linux host guard is missing: ${reason}`);
 }
 
+assert.doesNotMatch(host, /webkit_security_manager_register_uri_scheme_as_local/,
+  "a local scheme cannot load blob: URLs, so every image would be an empty frame");
 assert.doesNotMatch(host, /register_uri_scheme_as_cors_enabled/,
   "the scheme does not need to be CORS-enabled; answers name the app origin");
 assert.doesNotMatch(host, /Access-Control-Allow-Origin", "\*"/,

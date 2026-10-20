@@ -12,7 +12,9 @@
    then the document shows the renderer-stopped page.
 4. A file name that is not valid UTF-8 opens, shows in the recent list, and
    opens again from there; a settings file with such a path keeps its list.
-5. The keyboard keeps working: after Ctrl+Tab (which GTK uses to move the
+5. Every picture of images.docx loads (WebKit refused blob: images from a
+   local scheme, so each one was an empty frame).
+6. The keyboard keeps working: after Ctrl+Tab (which GTK uses to move the
    focus into a hidden widget) and after Tab past the last control, the
    next keys still reach the page.
 """
@@ -172,6 +174,18 @@ def non_utf8_names(build):
         shutil.rmtree(work, ignore_errors=True)
 
 
+def images(build):
+    fixture = ROOT / "tests" / "fixtures" / "features" / "images.docx"
+    with Session(build, [fixture]) as app:
+        app.wait_render()
+        sizes = app.js("""const all = [...document.querySelectorAll('#docBody img')];
+            await Promise.all(all.map((i) => i.decode().catch(() => null)));
+            return all.map((i) => [i.naturalWidth, i.naturalHeight]);""")
+    check(len(sizes) == 3 and all(w > 0 and h > 0 for w, h in sizes),
+          f"every picture loads: {sizes}")
+    print(f"images: {sizes}", flush=True)
+
+
 def keyboard_focus(build):
     features = ROOT / "tests" / "fixtures" / "features"
     with Session(build, [features / "tables.docx", features / "notes.docx"]) as app:
@@ -209,7 +223,7 @@ def keyboard_focus(build):
 def main():
     build = Build.find(sys.argv[1] if len(sys.argv) > 1 else None)
     os.environ.setdefault("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
-    for step in (fallbacks, context_menu, crash_cap, non_utf8_names, keyboard_focus):
+    for step in (fallbacks, context_menu, crash_cap, non_utf8_names, images, keyboard_focus):
         wait_for_no_leftovers()
         try:
             step(build)

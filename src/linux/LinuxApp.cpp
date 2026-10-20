@@ -440,7 +440,10 @@ void LinuxApp::Initialize() {
     webkit_web_context_set_cache_model(webContext_, WEBKIT_CACHE_MODEL_DOCUMENT_VIEWER);
     webkit_web_context_register_uri_scheme(webContext_, kScheme, OnScheme, this, nullptr);
     WebKitSecurityManager* security = webkit_web_context_get_security_manager(webContext_);
-    webkit_security_manager_register_uri_scheme_as_local(security, kScheme);
+    // Not registered as a local scheme: WebKit refuses to load blob: URLs
+    // from a local origin, and docx-preview serves every image as a blob:
+    // URL, so each picture showed as an empty frame. A local origin could
+    // also read file: URLs, which the reader never needs.
     webkit_security_manager_register_uri_scheme_as_secure(security, kScheme);
 
     networkSession_ = webkit_network_session_new_ephemeral();
