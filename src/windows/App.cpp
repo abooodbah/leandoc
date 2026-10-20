@@ -552,8 +552,15 @@ void LeanDocApp::ConfigureWebView() {
                     wchar_t path[32768] = {};
                     DWORD length = static_cast<DWORD>(std::size(path));
                     if (SUCCEEDED(PathCreateFromUrlW(uri.c_str(), path, &length, 0))) {
-                        pendingPaths_.emplace_back(path);
-                        PostMessageW(window_, kOpenPendingMessage, 0, 0);
+                        if (core::IsSupportedDocumentPath(std::filesystem::path(path))) {
+                            pendingPaths_.emplace_back(path);
+                            PostMessageW(window_, kOpenPendingMessage, 0, 0);
+                        } else {
+                            SendStatus(
+                                "LeanDoc opens .docx, .dotx, .docm, .dotm, .doc, .rtf, and .odt "
+                                "files.",
+                                "warning");
+                        }
                     }
                 }
                 return S_OK;

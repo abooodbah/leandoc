@@ -1209,7 +1209,13 @@ gboolean LinuxApp::OnDecidePolicy(
         if (uri != nullptr && g_ascii_strncasecmp(uri, "file:", 5) == 0) {
             char* path = g_filename_from_uri(uri, nullptr, nullptr);
             if (path != nullptr) {
-                app->OpenPaths({std::filesystem::path(path)});
+                if (core::IsSupportedDocumentPath(path)) {
+                    app->OpenPaths({std::filesystem::path(path)});
+                } else {
+                    app->SendStatus(
+                        "LeanDoc opens .docx, .dotx, .docm, .dotm, .doc, .rtf, and .odt files.",
+                        "warning");
+                }
                 g_free(path);
             }
         }
@@ -1296,7 +1302,8 @@ gboolean LinuxApp::OnDrop(GtkDropTarget*, const GValue* value, double, double, g
     }
     g_slist_free(files);
     if (paths.empty()) {
-        app->SendStatus("LeanDoc opens .docx, .dotx, .docm, .dotm, .doc, .rtf, and .odt files.");
+        app->SendStatus(
+            "LeanDoc opens .docx, .dotx, .docm, .dotm, .doc, .rtf, and .odt files.", "warning");
         return FALSE;
     }
     app->OpenPaths(paths);
