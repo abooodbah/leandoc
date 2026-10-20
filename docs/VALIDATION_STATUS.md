@@ -1,10 +1,11 @@
 # Validation status
 
 **Status date:** 2026-10-20<br>
-**Scope:** LeanDoc 0.1.0 candidate, branch `test/v0.1` (phase 3 of the
-[execution plan](EXECUTION_PLAN.md)); the Linux session, GitHub Actions
-runners for Windows, macOS, and Linux, and the reader in headless Chromium<br>
-**Current public release:** none
+**Scope:** LeanDoc 0.1.0, tested on branch `test/v0.1` (phase 3 of the
+[execution plan](EXECUTION_PLAN.md)) and published from `main`; the Linux
+session, GitHub Actions runners for Windows, macOS, and Linux, and the reader
+in headless Chromium<br>
+**Current public release:** LeanDoc 0.1.0
 
 This page records the result of every ID in the [test plan](TEST_PLAN.md),
 with the evidence rules of [ACCEPTANCE.md](ACCEPTANCE.md). The defects found
@@ -12,6 +13,21 @@ and how each was fixed are in the [test report](TEST_REPORT.md). Every
 figure below is a test-gate figure from a cloud session or a CI runner. None
 of them is a product claim: published figures come only from the owner's
 laptop run of `tests/owner/`.
+
+## v0.1.0 publication
+
+LeanDoc 0.1.0 is published on
+[GitHub Releases](https://github.com/abooodbah/leandoc/releases/tag/v0.1.0).
+
+| Check | Result |
+| --- | --- |
+| Release pull request | [#1](https://github.com/abooodbah/leandoc/pull/1) merged as `2c447c1`; every product job passed on its push run. Failed jobs on the other run were runner faults: a lost runner, a frozen Windows job, process starts failing with 0xC0000142, and an unrelated AppX value in L-02. |
+| Tag | Annotated `v0.1.0` on `8907e2c` (`main` after [#2](https://github.com/abooodbah/leandoc/pull/2) added the tag workflow), tagger Abdulfatah Bahbouh, created by **Tag a release** because the build session cannot push tags. |
+| Tag build | Run 39463574042: Windows, Linux, macOS, reader, release engineering, winget, usage, screenshots, and L-01 passed; the release was published. The tag's website job was refused by the `github-pages` environment, which does not allow tags; the site had already deployed from `main` (run 39458403150), and the tag job is removed after the release. |
+| Assets | Seven files: the Windows ZIP, Linux `.deb`, and macOS universal preview ZIP, each with a `.sha256`, and the macOS `.metadata.json`. |
+| Checksums | Each downloaded asset passed `sha256sum -c` against its sidecar, and each sidecar matches the digest GitHub reports for the asset. Windows ZIP `3af57596...e7cd5`, `.deb` `ebf146f8...5d971c`, macOS ZIP `bc2beab1...6ee8`. |
+| Public package | The published `.deb` installed with APT on Ubuntu 24.04 with its declared GTK 4 and WebKitGTK 6.0 dependencies; the installed `/usr/bin/leandoc` passed `--smoke-test` on the tables, Arabic, and malformed-equation fixtures with no CSP violation and no off-origin request. The Windows ZIP holds `LeanDoc.exe`, `tools/leandoc-inspect.exe`, the installer, the reader assets, `LICENSE`, and `THIRD_PARTY_NOTICES.md`, under the folder the winget manifest names. |
+| winget | Manifests filled with the published ZIP's SHA-256 and checked against the live asset (`scripts/Update-WingetManifest.mjs --check`); pushed to the owner's fork, branch `abooodbah.LeanDoc-0.1.0`, for the owner to open as a pull request to `microsoft/winget-pkgs`. |
 
 ## Test state
 
