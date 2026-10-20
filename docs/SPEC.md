@@ -289,6 +289,15 @@ Common to all hosts:
   macOS `NSUserDefaults`. Nothing else is written.
 - `--smoke-test FILE` renders FILE, waits for `rendered`, checks the DOM, and
   exits 0 or 1 within 20 s, as LeanMark does.
+- Test hooks for the [test plan](TEST_PLAN.md), inert without their flags:
+  `--trace-timing` prints `LEANDOC_TIMING <event> <ms since process start>`
+  to stdout, flushed per line, for `process-start`, `window-visible`,
+  `webview-ready`, `document-requested`, `package-served` (with core ms and
+  bytes), and `rendered` (with pages and the reader's ms).
+  `--exit-after-render=MS` quits cleanly MS milliseconds after the first
+  `rendered`, so a harness can sample memory first. Web runtime processes stay
+  descendants of the LeanDoc process where the platform allows, and
+  `docs/architecture/hosts.md` describes the process tree on each platform.
 - WebView2: re-measure LeanMark's browser arguments rather than copying them;
   keep tracking prevention off and one user-data folder per install with
   identical environment options.
