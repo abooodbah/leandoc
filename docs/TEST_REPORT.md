@@ -305,16 +305,20 @@ Every defect above except D-26 is fixed. D-26 is open, with its analysis below. 
   attached to the idle UI process on the runner recorded only a few KiB of
   allocations while the heap's private dirty memory rose from 91 to
   182 MiB: existing heap pages became resident without new allocations.
-  The likely cause is the runner kernel's transparent huge pages
-  (khugepaged filling 2 MiB ranges of the heap); the session's kernel uses
-  `madvise` and shows no growth. `tests/perf/heap_profile.py` records the
-  THP mode and compares the idle heap with THP disabled for the tree.
+  The cause is the runner kernel's transparent huge pages, confirmed by
+  `tests/perf/heap_profile.py` on the runner (THP `always`, khugepaged
+  `max_ptes_none` 511): idle, the heap's AnonHugePages rose from 16 to
+  180 MiB and its private dirty memory from 90 to 183 MiB in two minutes;
+  with THP disabled for the process tree (`prctl(PR_SET_THP_DISABLE)`) it
+  stayed at 88.8 MiB for five minutes. The session's kernel uses `madvise`
+  and shows no growth.
 - Handling now: M-06 to M-08 are advisory on the shared CI runner
   (recorded, not failing the job) and remain gates in the session run.
-- What closes it: the THP comparison from `heap_profile.py` on the runner
-  (if THP is the cause, either `prctl(PR_SET_THP_DISABLE)` in the host, with
-  care not to pass it on to editors LeanDoc launches, or an attribution to
-  the runner kernel); for the web process, an owner decision
+- What closes it: for the UI process, an owner decision between
+  `prctl(PR_SET_THP_DISABLE)` in the Linux host (inherited by the WebKit
+  processes; it must be reset for editors and links LeanDoc launches) and
+  recording THP `always` systems as outside LeanDoc's control; for the web
+  process, an owner decision
   that the leak checks gate on a rising trend (samples after 10, 20, and 30
   closes; after 50 and 200 view switches), which levels off here.
 

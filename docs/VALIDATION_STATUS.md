@@ -148,10 +148,11 @@ the Linux figures:
   98.5 MiB through M-06 to M-08). heaptrack attached to the idle UI process
   on the runner saw only a few KiB of allocations while the heap's private
   dirty memory rose from 91 to 182 MiB, so the growth is pages of the
-  existing heap becoming resident, not new allocations; the likely cause is
-  the runner kernel's transparent huge pages (the session's kernel uses
-  `madvise`). The perf job runs `tests/perf/heap_profile.py`, which records
-  the THP mode and compares the idle heap with THP disabled for the tree.
+  existing heap becoming resident, not new allocations. The cause is the
+  runner kernel's transparent huge pages (`always`): `tests/perf/heap_profile.py`
+  showed the idle heap's AnonHugePages rise from 16 to 180 MiB with THP on,
+  and the heap stay at 88.8 MiB for five minutes with THP disabled for the
+  process tree. The session's kernel uses `madvise`.
 
 Same Windows runner, same method (private bytes of the tree): LeanDoc 89.3
 MiB empty, 101.2 MiB with a 3-page report, 178.1 MiB with a 300-page
