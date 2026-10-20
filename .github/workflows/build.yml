@@ -587,7 +587,7 @@ jobs:
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           status=0
-          bash tests/usage/run-linux.sh python3 tests/perf/run_perf.py --runs 10 --out artifacts/perf || status=$?
+          bash tests/usage/run-linux.sh python3 tests/perf/run_perf.py --runs 10 --advisory-leak-checks --out artifacts/perf || status=$?
           cat artifacts/perf/perf-linux.md >> "$GITHUB_STEP_SUMMARY"
           exit $status
 

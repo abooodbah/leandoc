@@ -180,10 +180,18 @@ class Results:
     def add_launch(self, scenario, record):
         self.launches.setdefault(scenario, []).append(record)
 
+    # With --advisory-leak-checks (the shared CI runner), M-06 to M-08 are
+    # recorded with the result they would have had instead of failing the
+    # run: their samples move with WebKit's collection timing and with the
+    # runner image (docs/VALIDATION_STATUS.md, D-26).
+    advisory: set = set()
+
     def measure(self, test_id, value, unit, budget, passed, note="", samples=None, extra=None):
+        result = "pass" if passed else ("fail" if passed is False else "recorded")
+        if test_id in self.advisory and result != "recorded":
+            result = f"advisory ({result})"
         self.measures[test_id] = {
-            "value": value, "unit": unit, "budget": budget,
-            "result": "pass" if passed else ("fail" if passed is False else "recorded"),
+            "value": value, "unit": unit, "budget": budget, "result": result,
             "note": note, "samples": samples or [], **(extra or {})}
 
 
@@ -644,6 +652,8 @@ def main():
     parser.add_argument("--runs", type=int, default=10)
     parser.add_argument("--only", default="")
     parser.add_argument("--idle-minutes", type=float, default=10)
+    parser.add_argument("--advisory-leak-checks", action="store_true",
+                        help="record M-06 to M-08 without failing the run (shared CI runner)")
     args = parser.parse_args()
     only = {item.strip() for item in args.only.split(",") if item.strip()}
 
@@ -671,6 +681,8 @@ def main():
             "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "tag": RUN_TAG,
             "loadavgStart": loadavg()}
     results = Results()
+    if args.advisory_leak_checks:
+        results.advisory = {"M-06", "M-07", "M-08"}
     print(f"LeanDoc perf on {meta['machine']['cpu']} (load {meta['loadavgStart']})", flush=True)
 
     m01 = m02 = None

@@ -301,11 +301,20 @@ Every defect above except D-26 is fixed. D-26 is open, with its analysis below. 
   (150 MiB on the others, 149 MiB in the session) the UI process's main
   heap grows by live allocations: +75 MiB over the M-07 tab cycles, +94 MiB
   in minutes 2 to 4 of M-08 at 0.19 s of CPU in ten minutes. The heap trim
-  of D-27 does not release it, and the session does not show it. The perf
-  job runs `tests/perf/heap_profile.py` (heaptrack attached to the idle UI
-  process) to name the allocation site.
-- What closes it: the heaptrack result for the runner growth, then a fix or
-  an attribution outside LeanDoc; for the web process, an owner decision
+  of D-27 does not release it, and the session does not show it. heaptrack
+  attached to the idle UI process on the runner recorded only a few KiB of
+  allocations while the heap's private dirty memory rose from 91 to
+  182 MiB: existing heap pages became resident without new allocations.
+  The likely cause is the runner kernel's transparent huge pages
+  (khugepaged filling 2 MiB ranges of the heap); the session's kernel uses
+  `madvise` and shows no growth. `tests/perf/heap_profile.py` records the
+  THP mode and compares the idle heap with THP disabled for the tree.
+- Handling now: M-06 to M-08 are advisory on the shared CI runner
+  (recorded, not failing the job) and remain gates in the session run.
+- What closes it: the THP comparison from `heap_profile.py` on the runner
+  (if THP is the cause, either `prctl(PR_SET_THP_DISABLE)` in the host, with
+  care not to pass it on to editors LeanDoc launches, or an attribution to
+  the runner kernel); for the web process, an owner decision
   that the leak checks gate on a rising trend (samples after 10, 20, and 30
   closes; after 50 and 200 view switches), which levels off here.
 
