@@ -90,7 +90,10 @@ struct OutlineEntry {
     unsigned level = 1;  // 1..9, from the paragraph's effective outline level
     std::string text;    // plain text, whitespace collapsed, at most 200 bytes
     // Zero-based index among the body's w:p elements in document order,
-    // counting paragraphs inside table cells. The reader uses it to find the
+    // counting paragraphs inside table cells. Paragraphs inside text box
+    // content (w:txbxContent) and inside mc:Fallback are not counted, because
+    // docx-preview does not render text boxes. The count is taken on the
+    // sanitized package the reader receives. The reader uses it to find the
     // rendered paragraph.
     std::uint32_t paragraphIndex = 0;
 };
@@ -102,6 +105,9 @@ struct DocumentProperties {
 };
 
 struct OpenResult {
+    // True when the core read the file without an error. Recognised kinds the
+    // reader does not render (legacy-doc, encrypted-ooxml, rtf, odt) are ok
+    // with an empty package; not-a-document is never ok.
     bool ok = false;
     // Stable error code for hosts and tests: "too-large", "not-a-zip",
     // "corrupt-zip", "too-many-entries", "part-too-large",
