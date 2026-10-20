@@ -242,10 +242,10 @@ Host to reader:
 | `tabs` | `tabs` [{`id`, `name`, `path`}], `active` |
 | `document` | `tab`, `generation`, `fileName`, `displayPath`, `packageUrl`, `report` (the `ReportToJson` object) |
 | `fallback` | `tab`, `fileName`, `displayPath`, `report` |
-| `empty` | `recent` [{`path`, `name`}] |
+| `empty` | `recent` [{`path`, `name`, optional opaque `id`}] |
 | `status` | `message`, `tone` (`info`, `warning`, `error`) |
 
-Reader to host: `ready`, `open`, `openRecent` {`path`}, `clearRecent`,
+Reader to host: `ready`, `open`, `openRecent` {`path`, `id` when the host gave one}, `clearRecent`,
 `openInEditor` {`tab`}, `link` {`href`}, `setTheme` {`theme`}, `setView`
 {`view`}, `selectTab` {`id`}, `closeTab` {`id`}, `reload`, `rendered` {`tab`,
 `generation`, `pages`, `ms`}, `renderFailed` {`tab`, `generation`, `message`}.

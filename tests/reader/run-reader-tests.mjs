@@ -443,6 +443,12 @@ describe("fallback pages and empty state (VIEW-01)", () => {
     });
     await withHost({ theme: "dark", colorScheme: "dark" }, async (host) => {
       await host.send({ type: "empty", recent: [{ path: "/home/reader/Notes.docx", name: "Notes.docx" }] });
+      // A host that names entries by opaque id (Linux) gets the id back.
+      await host.send({ type: "empty", recent: [{ id: "4", path: "/home/reader/Caf\ufffd.docx", name: "Caf\ufffd.docx" }] });
+      const byId = host.waitFor((message) => message.type === "openRecent");
+      await host.page.locator(".recent-item").first().click();
+      assert.deepEqual(await byId, { type: "openRecent", path: "/home/reader/Caf\ufffd.docx", id: "4" });
+      await host.send({ type: "empty", recent: [{ path: "/home/reader/Notes.docx", name: "Notes.docx" }] });
       await screenshot(host, "empty-state-dark");
     });
   });

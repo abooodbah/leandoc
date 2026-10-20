@@ -30,7 +30,7 @@ settings="$config/leandoc/settings.ini"
 wait_for_recent() {
   local expected=$1
   for _ in $(seq 1 150); do
-    if [[ -f $settings ]] && grep -qF "Recent=${expected};" "$settings"; then
+    if [[ -f $settings ]] && grep -qF "Recent=file://${expected};" "$settings"; then
       return 0
     fi
     sleep 0.1

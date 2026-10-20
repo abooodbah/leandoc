@@ -124,7 +124,7 @@ which switches the view without posting `setView`), `tabs`, `document`
 (`report.outline[].paragraph`, also read as `paragraphIndex`), `fallback`,
 `empty` (`recent`), `status`.
 
-Reader to host: `ready`, `open`, `openRecent` {`path`}, `clearRecent`,
+Reader to host: `ready`, `open`, `openRecent` {`path`, `id` when the host gave one}, `clearRecent`,
 `openInEditor` {`tab`}, `link` {`href`} (only `http:`, `https:`, `mailto:`),
 `setTheme` {`theme`}, `setView` {`view`}, `selectTab` {`id`}, `closeTab`
 {`id`}, `reload` (F5, Ctrl+R), `rendered` {`tab`, `generation`, `pages`,

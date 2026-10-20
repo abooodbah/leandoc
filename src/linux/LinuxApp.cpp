@@ -223,6 +223,27 @@ bool DecodeAppPath(const char* uri, std::string& decodedPath) {
     return true;
 }
 
+// Splits a GKeyFile list value on unescaped ';' and undoes "\;" and "\\".
+std::vector<std::string> SplitKeyFileList(std::string_view raw) {
+    std::vector<std::string> entries;
+    std::string current;
+    for (std::size_t index = 0; index < raw.size(); ++index) {
+        const char character = raw[index];
+        if (character == '\\' && index + 1 < raw.size()) {
+            current.push_back(raw[++index]);
+        } else if (character == ';') {
+            entries.push_back(current);
+            current.clear();
+        } else {
+            current.push_back(character);
+        }
+    }
+    if (!current.empty()) {
+        entries.push_back(current);
+    }
+    return entries;
+}
+
 // Reads one string property of a reader message, bounded in length.
 std::optional<std::string> StringProperty(JSCValue* object, const char* name) {
     JSCValue* value = jsc_value_object_get_property(object, name);
@@ -290,6 +311,31 @@ EditorCandidates DiscoverEditors() {
         g_object_unref(fallback);
     }
     return candidates;
+}
+
+// The default application for the file's own content type, or nothing when
+// there is none or it is LeanDoc itself.
+GAppInfo* DefaultAppForFile(const std::filesystem::path& path) {
+    GFile* file = g_file_new_for_path(path.c_str());
+    GFileInfo* info = g_file_query_info(
+        file, G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE, G_FILE_QUERY_INFO_NONE, nullptr, nullptr);
+    g_object_unref(file);
+    char* contentType = nullptr;
+    if (info != nullptr) {
+        const char* type = g_file_info_get_content_type(info);
+        contentType = type == nullptr ? nullptr : g_strdup(type);
+        g_object_unref(info);
+    }
+    if (contentType == nullptr) {
+        contentType = g_content_type_guess(path.c_str(), nullptr, 0, nullptr);
+    }
+    GAppInfo* app = contentType == nullptr ? nullptr
+                                           : g_app_info_get_default_for_type(contentType, FALSE);
+    g_free(contentType);
+    if (app != nullptr && g_strcmp0(g_app_info_get_id(app), kSelfDesktopId) == 0) {
+        g_clear_object(&app);
+    }
+    return app;
 }
 
 }  // namespace
@@ -589,6 +635,9 @@ void LinuxApp::ShowActiveTab(bool automaticReload) {
 
     ++tab->generation;
     tab->shown = true;
+    if (editor_.kind == EditorKind::Default) {
+        SendHost();
+    }
     WatchActiveTab();
     UpdateTitle();
     if (!smokeTest_) {
@@ -717,7 +766,17 @@ void LinuxApp::OpenInEditor(unsigned tabId) {
 void LinuxApp::LaunchEditor(const std::filesystem::path& path) {
     GError* error = nullptr;
     bool launched = false;
-    if (editor_.kind == EditorKind::Web) {
+    EditorKind kind = editor_.kind;
+    GAppInfo* defaultApp = nullptr;
+    if (kind == EditorKind::Default) {
+        // The default handler is looked up for this file's own type (an
+        // .odt or .rtf may have another default than .docx), never LeanDoc.
+        defaultApp = DefaultAppForFile(path);
+        if (defaultApp == nullptr) {
+            kind = EditorKind::Web;
+        }
+    }
+    if (kind == EditorKind::Web) {
         launched = g_app_info_launch_default_for_uri(editor_.target.c_str(), nullptr, &error);
         g_clear_error(&error);
         if (launched) {
@@ -731,7 +790,17 @@ void LinuxApp::LaunchEditor(const std::filesystem::path& path) {
         return;
     }
 
-    if (editor_.targetIsDesktopId) {
+    if (defaultApp != nullptr) {
+        GFile* file = g_file_new_for_path(path.c_str());
+        GList* files = g_list_append(nullptr, file);
+        GdkAppLaunchContext* context =
+            gdk_display_get_app_launch_context(gtk_widget_get_display(window_));
+        launched = g_app_info_launch(defaultApp, files, G_APP_LAUNCH_CONTEXT(context), &error);
+        g_object_unref(context);
+        g_list_free(files);
+        g_object_unref(file);
+        g_object_unref(defaultApp);
+    } else if (editor_.targetIsDesktopId) {
         GDesktopAppInfo* info = g_desktop_app_info_new(editor_.target.c_str());
         if (info != nullptr) {
             GFile* file = g_file_new_for_path(path.c_str());
@@ -799,9 +868,13 @@ void LinuxApp::HandleMessage(JSCValue* message) {
     } else if (*type == "open") {
         OpenDocumentDialog();
     } else if (*type == "openRecent") {
-        const auto path = StringProperty(message, "path");
-        if (path && std::find(recent_.begin(), recent_.end(), *path) != recent_.end()) {
-            OpenPaths({std::filesystem::path(*path)});
+        // The reader names a recent file by the opaque id it was given, so
+        // a path that is not valid UTF-8 still opens. Only paths in the
+        // recent list can be opened this way.
+        const auto id = StringProperty(message, "id");
+        unsigned index = 0;
+        if (id && (*id == "0" || ParseUnsigned(*id, index)) && index < recent_.size()) {
+            OpenPaths({std::filesystem::path(recent_[index])});
         }
     } else if (*type == "clearRecent") {
         recent_.clear();
@@ -909,18 +982,42 @@ void LinuxApp::SendJson(const std::string& json) {
     script += kPrefix;
     script += json;
     script += "}));";
+    // WebKit drops a script that is not valid UTF-8, which would leave the
+    // reader without the message. Every name is a display name already;
+    // this is the last guard.
+    if (!g_utf8_validate(script.data(), static_cast<gssize>(script.size()), nullptr)) {
+        char* valid = g_utf8_make_valid(script.data(), static_cast<gssize>(script.size()));
+        script = valid;
+        g_free(valid);
+    }
     webkit_web_view_evaluate_javascript(
         webView_, script.c_str(), static_cast<gssize>(script.size()), nullptr,
         kReaderUrl, nullptr, nullptr, nullptr);
 }
 
 void LinuxApp::SendHost() {
+    // With no LibreOffice the editor is the default handler, which can
+    // differ per file type, so the label follows the active file.
+    EditorKind kind = editor_.kind;
+    std::string label = editor_.label;
+    const Tab* tab = ActiveTab();
+    if (kind == EditorKind::Default && tab != nullptr) {
+        if (GAppInfo* app = DefaultAppForFile(tab->path)) {
+            const char* name = g_app_info_get_display_name(app);
+            label = name == nullptr || name[0] == '\0' ? std::string("Open with default app")
+                                                        : std::string("Open in ") + name;
+            g_object_unref(app);
+        } else {
+            kind = EditorKind::Web;
+            label = "Open Word for the web";
+        }
+    }
     std::string json = "{\"type\":\"host\",\"platform\":\"linux\",\"version\":\"";
     json += LEANDOC_VERSION;
     json += "\",\"editor\":{\"kind\":\"";
-    json += EditorKindName(editor_.kind);
+    json += EditorKindName(kind);
     json += "\",\"label\":\"";
-    AppendJson(json, editor_.label);
+    AppendJson(json, label);
     json += "\"},\"tabs\":true}";
     SendJson(json);
 }
@@ -948,10 +1045,14 @@ void LinuxApp::SendTabs() {
 }
 
 void LinuxApp::SendEmpty() {
+    // Paths are shown by their display names (valid UTF-8 whatever the
+    // file system bytes) and opened back by index.
     std::string json = "{\"type\":\"empty\",\"recent\":[";
     for (std::size_t index = 0; index < recent_.size(); ++index) {
-        json += index == 0 ? "{\"path\":\"" : ",{\"path\":\"";
-        AppendJson(json, recent_[index]);
+        json += index == 0 ? "{\"id\":\"" : ",{\"id\":\"";
+        json += std::to_string(index);
+        json += "\",\"path\":\"";
+        AppendJson(json, DisplayName(std::filesystem::path(recent_[index])));
         json += "\",\"name\":\"";
         AppendJson(json, DisplayName(std::filesystem::path(recent_[index]).filename()));
         json += "\"}";
@@ -987,15 +1088,27 @@ void LinuxApp::LoadSettings() {
         view_ = g_strcmp0(view, "reading") == 0 ? "reading" : "page";
         g_free(view);
     }
-    gsize count = 0;
-    if (char** recent =
-            g_key_file_get_string_list(settings, "Reader", "Recent", &count, nullptr)) {
-        for (gsize index = 0; index < count && recent_.size() < kMaximumRecent; ++index) {
-            if (recent[index][0] == '/') {
-                recent_.emplace_back(recent[index]);
+    // Recent paths are stored as file URIs, which are ASCII whatever the
+    // file name bytes. Older settings stored plain paths; both are read.
+    // The raw value is split here because GKeyFile refuses a whole list
+    // when one entry is not valid UTF-8.
+    if (char* raw = g_key_file_get_value(settings, "Reader", "Recent", nullptr)) {
+        for (const std::string& entry : SplitKeyFileList(raw)) {
+            if (recent_.size() >= kMaximumRecent) {
+                break;
+            }
+            if (entry.rfind("file://", 0) == 0) {
+                if (char* path = g_filename_from_uri(entry.c_str(), nullptr, nullptr)) {
+                    if (path[0] == '/') {
+                        recent_.emplace_back(path);
+                    }
+                    g_free(path);
+                }
+            } else if (!entry.empty() && entry[0] == '/') {
+                recent_.emplace_back(entry);
             }
         }
-        g_strfreev(recent);
+        g_free(raw);
     }
     g_key_file_unref(settings);
 }
@@ -1011,9 +1124,16 @@ void LinuxApp::SaveSettings() const {
     GKeyFile* settings = g_key_file_new();
     g_key_file_set_string(settings, "Reader", "Theme", ThemeName().c_str());
     g_key_file_set_string(settings, "Reader", "View", view_.c_str());
-    std::vector<const char*> recent;
+    std::vector<std::string> uris;
     for (const auto& path : recent_) {
-        recent.push_back(path.c_str());
+        if (char* uri = g_filename_to_uri(path.c_str(), nullptr, nullptr)) {
+            uris.emplace_back(uri);
+            g_free(uri);
+        }
+    }
+    std::vector<const char*> recent;
+    for (const auto& uri : uris) {
+        recent.push_back(uri.c_str());
     }
     g_key_file_set_string_list(settings, "Reader", "Recent", recent.data(), recent.size());
     gsize length = 0;

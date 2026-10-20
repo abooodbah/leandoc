@@ -307,6 +307,11 @@
       button.type = "button";
       button.className = "recent-item";
       button.dataset.path = path;
+      // A host may name entries by an opaque id (Linux does, so a file name
+      // that is not valid UTF-8 still opens); it is posted back as given.
+      if (entry.id !== undefined && entry.id !== null && String(entry.id) !== "") {
+        button.dataset.recentId = String(entry.id);
+      }
       button.setAttribute("aria-label", "Open " + name + ", " + path);
       var nameNode = document.createElement("span");
       nameNode.className = "recent-name";
@@ -1548,7 +1553,11 @@
   elements.recentList.addEventListener("click", function (event) {
     var button = event.target && event.target.closest ? event.target.closest(".recent-item") : null;
     if (button) {
-      post({ type: "openRecent", path: button.dataset.path });
+      var message = { type: "openRecent", path: button.dataset.path };
+      if (button.dataset.recentId !== undefined) {
+        message.id = button.dataset.recentId;
+      }
+      post(message);
     }
   });
   elements.clearRecent.addEventListener("click", function () {
