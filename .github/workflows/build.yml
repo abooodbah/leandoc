@@ -82,6 +82,16 @@ jobs:
         shell: bash
         run: node tests/perf/annotate-results.mjs artifacts/network-windows/network-windows.md "S-02 Windows network observation"
 
+      - name: Run the Windows usage subset (U-01 U-04 U-07 U-08)
+        if: always()
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/usage/Test-WindowsUsage.ps1 -ExePath ./dist/LeanDoc.exe
+
+      - name: Report the Windows usage subset as a notice
+        if: always()
+        shell: bash
+        run: node tests/perf/annotate-results.mjs artifacts/usage-windows/usage-windows.md "Usage subset Windows"
+
       - name: Capture every feature fixture in the real window (UI-01)
         if: always()
         shell: pwsh
@@ -317,6 +327,18 @@ jobs:
         if: always()
         shell: bash
         run: node tests/visual/check-captures.mjs artifacts/visual/macos macOS
+
+      - name: Run the macOS usage subset (U-01 U-07 U-08)
+        if: always()
+        shell: bash
+        run: |
+          app=$(find build/macos -name LeanDoc.app -type d -path '*Release*' | head -1)
+          bash tests/usage/test-macos-usage.sh "$app" artifacts/usage-macos
+
+      - name: Report the macOS usage subset as a notice
+        if: always()
+        shell: bash
+        run: node tests/perf/annotate-results.mjs artifacts/usage-macos/usage-macos.md "Usage subset macOS"
 
       - name: Verify macOS checksum and trust metadata
         shell: bash
