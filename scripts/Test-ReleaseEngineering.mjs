@@ -154,7 +154,7 @@ check(workflow.includes("--notes-file") && workflow.includes("docs/releases/${LE
 check(!workflow.includes("\t"), "build.yml must not contain tabs");
 
 const documented = [];
-for (const file of ["README.md", notesPath, "installer/README.md"]) {
+for (const file of ["README.md", notesPath, "installer/README.md", "site/index.html"]) {
   if (!exists(file)) {
     continue;
   }
@@ -168,8 +168,35 @@ for (const [file, name] of documented) {
     artifacts.some((artifact) => artifact.replace(/\.(zip|deb)$/, "") === normalized),
     `${file} names ${name}, which the workflow does not create`);
 }
-if (!exists("README.md") || !read("README.md").includes("LeanDoc-v")) {
-  notes.push("README.md names no release artifacts yet; skipped the README artifact check.");
+
+// --- README and site version pins --------------------------------------------------
+
+const downloadBase = `https://github.com/abooodbah/leandoc/releases/download/${tag}/`;
+const downloadable = artifacts.filter((name) => /\.(zip|deb)$/.test(name));
+const readme = read("README.md");
+for (const artifact of downloadable) {
+  check(readme.includes(`${downloadBase}${artifact}`), `README.md must link ${downloadBase}${artifact}`);
+}
+check(readme.includes(`https://github.com/abooodbah/leandoc/releases/tag/${tag}`),
+  `README.md must link the ${tag} release page`);
+for (const match of readme.matchAll(/releases\/(?:download|tag)\/(v[^/)\s]+)/g)) {
+  check(match[1] === tag, `README.md links release ${match[1]}; package.json is ${version}`);
+}
+check(readme.includes("winget install abooodbah.LeanDoc"), "README.md must give the winget command");
+
+if (exists("site/index.html")) {
+  const site = read("site/index.html");
+  const structured = site.match(/"softwareVersion":\s*"([^"]+)"/);
+  check(structured && structured[1] === version,
+    `site/index.html JSON-LD softwareVersion must be ${version}`);
+  for (const artifact of downloadable) {
+    check(site.includes(`href="${downloadBase}${artifact}"`), `site/index.html must link ${downloadBase}${artifact}`);
+  }
+  for (const match of site.matchAll(/\bv(\d+\.\d+\.\d+)\b/g)) {
+    check(match[1] === version, `site/index.html names v${match[1]}; package.json is ${version}`);
+  }
+} else {
+  check(!releaseMode, "a release must ship site/index.html");
 }
 
 // --- Notices --------------------------------------------------------------------
