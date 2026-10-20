@@ -3,6 +3,19 @@
 All notable LeanDoc changes are recorded here. The project follows semantic
 versioning.
 
+## [0.1.1] - 2026-10-20
+
+### Fixed
+
+- Page view showed a document with no page breaks as a single page as tall as
+  its text. Documents written by python-docx, pandoc, and other generators carry
+  no page break and none of the page markers Word saves, and the renderer
+  starts pages only at those. Each page is now measured against its height and
+  bottom margin, and what does not fit moves to a new page with the same size,
+  margins, header, and footer. Tables split between rows, a heading stays with
+  the text after it, and notes go to the last page. A 938-paragraph paper now
+  shows as 42 pages instead of one.
+
 ## [0.1.0] - 2026-10-20
 
 ### Added
