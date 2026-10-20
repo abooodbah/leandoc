@@ -336,6 +336,16 @@ def deterministic_zip(raw: bytes) -> bytes:
     return output.getvalue()
 
 
+def without_parts(data: bytes, drop) -> bytes:
+    source = zipfile.ZipFile(io.BytesIO(data))
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as target:
+        for info in source.infolist():
+            if not drop(info.filename):
+                target.writestr(info, source.read(info.filename))
+    return output.getvalue()
+
+
 def local(element) -> str:
     return etree.QName(element).localname
 
@@ -435,6 +445,13 @@ def main() -> None:
         (output / name).write_bytes(data)
         reports[name] = static_report(data)
         print(f"wrote {name} ({len(data)} bytes)")
+        if name == "images.docx":
+            # The same document with its picture part removed: the image
+            # relationship points at nothing.
+            missing = without_parts(data, lambda part: part.startswith("word/media/"))
+            (output / "missing-image.docx").write_bytes(missing)
+            reports["missing-image.docx"] = static_report(missing)
+            print(f"wrote missing-image.docx ({len(missing)} bytes)")
     (output / "reports.json").write_text(
         json.dumps(reports, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 

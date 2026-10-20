@@ -213,6 +213,20 @@ test("prepareModel fixes numbering, runs, symbols, styles, and theme fonts", () 
   assert.equal(stats.symbols, 2);
 });
 
+test("Images resolve only to blob or data URLs", async () => {
+  const doc = {
+    loadDocumentImage: async (id) => (id === "ok" ? "blob:https://app.leandoc.invalid/1" : null),
+    loadNumberingImage: async () => { throw new Error("missing"); },
+    loadFont: async () => "blob:font"
+  };
+  Fixups.guardResources(doc);
+  assert.equal(await doc.loadDocumentImage("ok"), "blob:https://app.leandoc.invalid/1");
+  assert.equal(await doc.loadDocumentImage("gone"), Fixups.EMPTY_IMAGE);
+  assert.equal(await doc.loadNumberingImage("x"), Fixups.EMPTY_IMAGE);
+  assert.equal(await doc.loadFont("x"), null);
+  assert.equal(await doc.loadAltChunk("x"), "");
+});
+
 test("Lists join with commas and 'and'", () => {
   assert.equal(Wording.joinList([]), "");
   assert.equal(Wording.joinList(["a"]), "a");
@@ -262,6 +276,17 @@ test("Editor labels read as an action", () => {
   assert.equal(Wording.editorActionLabel("Open in Pages"), "Open in Pages");
   assert.equal(Wording.editorActionLabel(""), "");
   assert.equal(Wording.editorActionLabel(undefined), "");
+});
+
+test("The reader's Content Security Policy is exactly SPEC section 4.4", () => {
+  const spec = readFileSync(path.join(repositoryRoot, "docs", "SPEC.md"), "utf8");
+  const block = /### 4\.4 Content Security Policy\s+```text\n([\s\S]*?)```/.exec(spec);
+  assert.ok(block, "SPEC.md has the policy block");
+  const expected = block[1].replace(/\s+/g, " ").trim();
+  const html = readFileSync(path.join(repositoryRoot, "assets", "reader.html"), "utf8");
+  const meta = /http-equiv="Content-Security-Policy"\s+content="([^"]+)"/.exec(html);
+  assert.ok(meta, "reader.html has the policy meta element");
+  assert.equal(meta[1], expected);
 });
 
 test("Reader files contain no em dash and no banned wording", () => {

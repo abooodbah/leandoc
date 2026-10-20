@@ -37,6 +37,7 @@ after(async () => {
 async function assertClean(host) {
   assert.deepEqual(await host.cspViolations(), [], "no Content Security Policy violations");
   assert.deepEqual(host.offOrigin, [], "no request leaves the app origin");
+  assert.deepEqual(host.notFound, [], "no request for a missing file");
   assert.deepEqual(host.consoleErrors, [], "no console errors");
 }
 
@@ -357,7 +358,24 @@ describe("fallback pages and empty state (VIEW-01)", () => {
       assert.equal(message.tab, 3);
       assert.equal(message.generation, 7);
       assert.equal(await host.page.isVisible("#stateEditorButton"), true);
+      assert.equal(await host.page.getAttribute("html", "data-render-state"), "failed");
       host.consoleErrors = host.consoleErrors.filter((text) => !text.includes("404"));
+      host.notFound = [];
+    });
+  });
+
+  test("a package docx-preview cannot read posts renderFailed", async () => {
+    await withHost({}, async (host) => {
+      const failed = host.waitFor((message) => message.type === "renderFailed");
+      await host.openDocument({
+        tab: 1, generation: 3, bytes: Buffer.from("PK\u0003\u0004 this is not a zip file"),
+        report: { ok: true, kind: "docx", features: [], outline: [] }, fileName: "broken.docx", wait: false
+      });
+      const message = await failed;
+      assert.equal(message.generation, 3);
+      assert.ok(message.message.length > 0);
+      assert.equal(await host.page.textContent("#stateTitle"), "broken.docx");
+      assert.equal(host.ofType("rendered").length, 0);
     });
   });
 
@@ -572,6 +590,41 @@ describe("chrome interactions (VIEW-01)", () => {
       await host.page.keyboard.press("Control+0");
       assert.equal(await host.page.getAttribute("html", "data-zoom-mode"), "auto");
       assert.equal(await label(), "100%");
+    });
+  });
+
+  test("zoom falls back to a transform where CSS zoom is missing", async () => {
+    const initScript = "(() => { const supports = CSS.supports.bind(CSS); CSS.supports = (property, value) => property === \"zoom\" ? false : supports(property, value); })();";
+    await withHost({ initScript }, async (host) => {
+      await openFixture(host, "headings.docx");
+      assert.equal(await host.page.evaluate(() => CSS.supports("zoom", "2")), false);
+      const measure = () => host.page.evaluate(() => {
+        const scroller = document.getElementById("docScroller");
+        const page = document.querySelector("#docBody section.docx").getBoundingClientRect();
+        const box = scroller.getBoundingClientRect();
+        return {
+          width: page.width,
+          left: page.left - box.left,
+          right: box.right - page.right,
+          scrollWidth: scroller.scrollWidth,
+          scrollHeight: scroller.scrollHeight
+        };
+      });
+      const base = await measure();
+      for (let index = 0; index < 3; index += 1) {
+        await host.page.click("#zoomIn");
+      }
+      const large = await measure();
+      assert.equal(await host.page.textContent("#zoomValue"), "150%");
+      assert.ok(Math.abs(large.width - base.width * 1.5) < 2, "page is scaled");
+      assert.ok(large.scrollWidth >= large.width, "the scaled page can be scrolled to");
+      assert.ok(large.scrollHeight > base.scrollHeight * 1.4, "scroll height follows the scale");
+      for (let index = 0; index < 8; index += 1) {
+        await host.page.click("#zoomOut", { force: true }).catch(() => {});
+      }
+      const small = await measure();
+      assert.ok(Math.abs(small.width - base.width * 0.5) < 2, "page is scaled down");
+      assert.ok(Math.abs(small.left - small.right) < 4, "a small page stays centred");
     });
   });
 

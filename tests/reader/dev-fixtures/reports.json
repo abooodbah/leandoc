@@ -158,5 +158,25 @@
       "creator": "LeanDoc tests",
       "rightToLeft": false
     }
+  },
+  "missing-image.docx": {
+    "ok": true,
+    "errorCode": "",
+    "errorMessage": "",
+    "kind": "docx",
+    "sourceBytes": 37002,
+    "features": [],
+    "outline": [
+      {
+        "level": 1,
+        "text": "Inline image",
+        "paragraph": 0
+      }
+    ],
+    "properties": {
+      "title": "Images",
+      "creator": "LeanDoc tests",
+      "rightToLeft": false
+    }
   }
 }

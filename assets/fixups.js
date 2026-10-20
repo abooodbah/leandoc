@@ -491,6 +491,44 @@
     }
   }
 
+  var EMPTY_IMAGE = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+  // Images resolve only to blob: or data: URLs. A relationship whose target
+  // is missing from the package would otherwise leave src="null", which the
+  // web runtime requests from the app origin. Fonts and imported HTML chunks
+  // are never loaded.
+  function guardResources(doc) {
+    if (!doc || doc.leandocGuarded) {
+      return;
+    }
+    doc.leandocGuarded = true;
+    ["loadDocumentImage", "loadNumberingImage"].forEach(function (name) {
+      var original = doc[name];
+      if (typeof original !== "function") {
+        return;
+      }
+      doc[name] = function () {
+        var pending;
+        try {
+          pending = Promise.resolve(original.apply(doc, arguments));
+        } catch (_error) {
+          pending = Promise.resolve(null);
+        }
+        return pending.then(function (url) {
+          return typeof url === "string" && /^(blob:|data:image\/)/.test(url) ? url : EMPTY_IMAGE;
+        }, function () {
+          return EMPTY_IMAGE;
+        });
+      };
+    });
+    doc.loadFont = function () {
+      return Promise.resolve(null);
+    };
+    doc.loadAltChunk = function () {
+      return Promise.resolve("");
+    };
+  }
+
   // Runs on docx-preview's parsed model before it renders. Changing the model
   // is more robust than patching the generated CSS text: numbering, symbol
   // runs, and fonts are typed fields here, and the renderer escapes them.
@@ -499,6 +537,7 @@
     if (!doc) {
       return stats;
     }
+    guardResources(doc);
     var numberings = doc.numberingPart && doc.numberingPart.domNumberings;
     (numberings || []).forEach(function (numbering) {
       numbering.format = mapNumberFormat(numbering.format);
@@ -617,6 +656,8 @@
     classifyHref: classifyHref,
     normalizeText: normalizeText,
     annotateBody: annotateBody,
+    guardResources: guardResources,
+    EMPTY_IMAGE: EMPTY_IMAGE,
     coreParagraphIndexes: coreParagraphIndexes,
     prepareModel: prepareModel
   });

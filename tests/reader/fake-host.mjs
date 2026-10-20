@@ -102,6 +102,7 @@ export class FakeHost {
     this.messages = [];
     this.offOrigin = [];
     this.requests = [];
+    this.notFound = [];
     this.packages = new Map();
     this.waiters = [];
     this.consoleErrors = [];
@@ -131,6 +132,9 @@ export class FakeHost {
     host.context = context;
     await page.exposeBinding("__leandocPost", (_source, text) => host.receive(text));
     await page.addInitScript(INIT_SCRIPT);
+    if (settings.initScript) {
+      await page.addInitScript(settings.initScript);
+    }
     page.on("console", (message) => {
       if (message.type() === "error") {
         host.consoleErrors.push(message.text());
@@ -169,6 +173,7 @@ export class FakeHost {
     if (url.pathname.startsWith("/pkg/")) {
       const entry = this.packages.get(url.pathname);
       if (!entry) {
+        this.notFound.push(url.href);
         return route.fulfill({ status: 404, body: "" });
       }
       if (entry.delay) {
@@ -179,6 +184,7 @@ export class FakeHost {
     const relative = decodeURIComponent(url.pathname).replace(/^\/+/, "");
     const file = path.resolve(this.assetsDirectory, relative);
     if (!file.startsWith(this.assetsDirectory + path.sep) || !existsSync(file) || !statSync(file).isFile()) {
+      this.notFound.push(url.href);
       return route.fulfill({ status: 404, body: "" });
     }
     return route.fulfill({

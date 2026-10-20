@@ -74,7 +74,7 @@
   var announcedDocuments = new Set();
   var zoomMode = "auto";
   var zoomFactor = 1;
-  var supportsZoom = "zoom" in document.body.style;
+  var supportsZoom = !!(window.CSS && CSS.supports && CSS.supports("zoom", "2"));
   var outlineEntries = [];
   var currentOutlineIndex = -1;
   var search = { matches: [], index: -1, marks: false };
@@ -1015,14 +1015,15 @@
     var ratio = keepPosition ? scrollRatio() : 0;
     var wrapper = elements.docBody.querySelector(".docx-wrapper");
     if (wrapper) {
+      var identity = Math.abs(factor - 1) < 0.001;
       if (supportsZoom) {
-        wrapper.style.zoom = Math.abs(factor - 1) < 0.001 ? "" : String(factor);
+        wrapper.style.zoom = identity ? "" : String(factor);
       } else {
-        // Without CSS zoom: scale and reserve the scaled size.
-        wrapper.style.transformOrigin = "0 0";
-        wrapper.style.transform = Math.abs(factor - 1) < 0.001 ? "" : "scale(" + factor + ")";
-        elements.docBody.style.width = wrapper.offsetWidth * factor + "px";
-        elements.docBody.style.height = wrapper.offsetHeight * factor + "px";
+        // Without CSS zoom: scale, and reserve the scaled size for scrolling.
+        wrapper.style.transformOrigin = factor < 1 ? "50% 0" : "0 0";
+        wrapper.style.transform = identity ? "" : "scale(" + factor + ")";
+        elements.docBody.style.width = identity || factor < 1 ? "" : wrapper.offsetWidth * factor + "px";
+        elements.docBody.style.height = identity ? "" : wrapper.offsetHeight * factor + "px";
       }
     }
     updateZoomLabel(factor);

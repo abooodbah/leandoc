@@ -80,6 +80,15 @@
         "count": { "img": 1 },
         "imagesLoaded": 1
       }
+    },
+    {
+      "id": "missing-image",
+      "file": "missing-image.docx",
+      "expect": {
+        "text": ["Figure 1. A generated test picture."],
+        "count": { "img": 1 },
+        "imagesLoaded": 0
+      }
     }
   ],
   "fidelity": [
