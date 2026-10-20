@@ -23,6 +23,6 @@ ReleaseDate: 2026-10-20
 Installers:
 - Architecture: x64
   InstallerUrl: https://github.com/abooodbah/leandoc/releases/download/v0.1.0/LeanDoc-v0.1.0-windows-x64.zip
-  InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+  InstallerSha256: 3AF57596F8F4E30C1DEB709D8061295FACA19755AA213C370F2FD947F8AD199E
 ManifestType: installer
 ManifestVersion: 1.12.0

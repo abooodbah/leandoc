@@ -94,8 +94,9 @@ Reader tests run in Chromium with a fake host: `npm run test:reader`.
 Merge the version bump, the changelog entry, and `docs/releases/v<version>.md`
 to `main`. Then either push an annotated `v<version>` tag on that commit, or run
 the **Tag a release** workflow from the Actions tab with the version number.
-Either route runs the full build on the tag, publishes the GitHub Release with
-every asset and its `.sha256` file, and redeploys the website.
+Either route runs the full build on the tag and publishes the GitHub Release
+with every asset and its `.sha256` file. The website deploys from `main` when
+the release pull request merges.
 
 ## Submit a pull request
 

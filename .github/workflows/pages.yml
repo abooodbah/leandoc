@@ -1,7 +1,8 @@
 name: Deploy GitHub Pages
 
-# Deploys site/ when it changes on main, and by hand. Tag builds also deploy
-# it from build.yml after the release is published.
+# Deploys site/ when it changes on main, and by hand. A release reaches main
+# through its release pull request, so the site is deployed from main, which
+# the github-pages environment allows; a tag may not deploy there.
 
 on:
   push:

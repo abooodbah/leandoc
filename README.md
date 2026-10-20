@@ -293,15 +293,19 @@ in [docs/architecture/hosts.md](docs/architecture/hosts.md).
 
 ## Measured footprint
 
-Package sizes, measured from built packages of the 0.1.0 code. The system web
-runtime is part of the operating system and is not counted; it uses its own
-memory and disk.
+Package sizes of the published v0.1.0 release assets. The system web runtime is
+part of the operating system and is not counted; it uses its own memory and
+disk.
 
-| Package | Size | Measured from |
-| --- | ---: | --- |
-| Linux `.deb` | 547 KiB (560,288 bytes); installs 1.08 MiB of files | `scripts/package-linux.sh` on Ubuntu 24.04, commit `ac314a9` |
-| Windows ZIP | 883 KiB (904,460 bytes) with its checksum | the CI artifact that holds the ZIP and its `.sha256`, commit `8b2a133` |
-| macOS universal ZIP | 728 KiB (745,503 bytes) with its checksum and metadata | the CI artifact that holds the ZIP, its `.sha256`, and its metadata, commit `8b2a133` |
+| Package | Download | Unpacked |
+| --- | ---: | ---: |
+| Windows ZIP | 907 KiB (928,322 bytes) | 1.76 MiB in 23 files (1,844,954 bytes) |
+| Linux `.deb` | 568 KiB (581,680 bytes) | 1.09 MiB installed (1,144,059 bytes) |
+| macOS universal ZIP | 750 KiB (767,584 bytes) | 1.64 MiB in 29 files (1,720,373 bytes) |
+
+Sizes are from the files on the
+[v0.1.0 release](https://github.com/abooodbah/leandoc/releases/tag/v0.1.0),
+read on 2026-10-20.
 
 Measured figures will be added after a run on a reference Windows machine; the method is in [tests/owner/README.md](tests/owner/README.md).
 
