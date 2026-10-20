@@ -174,17 +174,17 @@ if (!exists("README.md") || !read("README.md").includes("LeanDoc-v")) {
 
 // --- Notices --------------------------------------------------------------------
 
+check(exists("THIRD_PARTY_NOTICES.md"), "THIRD_PARTY_NOTICES.md is missing");
+check(!exists("docs/notices"), "docs/notices/ was merged into THIRD_PARTY_NOTICES.md; remove it");
 if (exists("THIRD_PARTY_NOTICES.md")) {
   const notices = read("THIRD_PARTY_NOTICES.md");
   for (const required of ["docx-preview", "JSZip", "IBM Plex", "miniz", "pugixml", "WebView2"]) {
     check(notices.includes(required), `THIRD_PARTY_NOTICES.md must cover ${required}`);
   }
-} else {
-  check(!releaseMode, "a release must ship THIRD_PARTY_NOTICES.md");
-  notes.push("THIRD_PARTY_NOTICES.md is not written yet; checked docs/notices/hosts.md only.");
-  const hostNotices = read("docs/notices/hosts.md");
-  check(hostNotices.includes("Microsoft WebView2 SDK and Loader 1.0.4078.44"),
-    "docs/notices/hosts.md must cover the WebView2 SDK and loader");
+  check(notices.includes("Microsoft WebView2 SDK and Loader 1.0.4078.44"),
+    "THIRD_PARTY_NOTICES.md must cover the WebView2 SDK and loader 1.0.4078.44");
+  check(notices.includes("Apache License") && notices.includes("END OF TERMS AND CONDITIONS"),
+    "THIRD_PARTY_NOTICES.md must carry the full Apache License 2.0 for docx-preview");
 }
 
 // --- Writing rules over tracked text files ---------------------------------------

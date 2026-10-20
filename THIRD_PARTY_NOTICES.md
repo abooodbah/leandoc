@@ -1,24 +1,91 @@
-# Reader third-party notices
+# Third-party notices
 
-Rows and texts for the reader's shipped files, to be merged into
-`THIRD_PARTY_NOTICES.md`. Every file below is copied unmodified from the npm
-package pinned in `package-lock.json` by `scripts/stage-runtime-assets.mjs`.
-`playwright-core` is a test-only dev dependency and is not shipped.
+LeanDoc is MIT licensed. Its distribution also contains the components below.
+Their licenses apply to those components only.
 
-| Component | Version | Licence | Shipped as | Source |
+| Component | Version | License | Shipped as | Source |
 | --- | --- | --- | --- | --- |
-| docx-preview | 0.4.1 | Apache-2.0 | `vendor/docx-preview.min.js` | https://github.com/VolodymyrBaydalka/docxjs |
-| JSZip | 3.10.2 | MIT (dual MIT or GPLv3; LeanDoc uses it under MIT) | `vendor/jszip.min.js` | https://github.com/Stuk/jszip |
-| pako (bundled in JSZip) | 1.0.11 | MIT and Zlib | inside `vendor/jszip.min.js` | https://github.com/nodeca/pako |
-| lie (bundled in JSZip) | 3.3.0 | MIT | inside `vendor/jszip.min.js` | https://github.com/calvinmetcalf/lie |
-| immediate (bundled in JSZip) | 3.0.6 | MIT | inside `vendor/jszip.min.js` | https://github.com/calvinmetcalf/immediate |
-| setimmediate (bundled in JSZip) | 1.0.5 | MIT | inside `vendor/jszip.min.js` | https://github.com/YuzuJS/setImmediate |
-| IBM Plex Sans | @fontsource/ibm-plex-sans 5.3.0 | OFL-1.1 | `fonts/ibm-plex-sans-latin-{400,500,600}-normal.woff2` | https://github.com/IBM/plex |
-| IBM Plex Serif | @fontsource/ibm-plex-serif 5.3.0 | OFL-1.1 | `fonts/ibm-plex-serif-latin-600-normal.woff2` | https://github.com/IBM/plex |
-| IBM Plex Mono | @fontsource/ibm-plex-mono 5.3.0 | OFL-1.1 | `fonts/ibm-plex-mono-latin-400-normal.woff2` | https://github.com/IBM/plex |
-| IBM Plex Sans Arabic | @fontsource/ibm-plex-sans-arabic 5.3.0 | OFL-1.1 | `fonts/ibm-plex-sans-arabic-arabic-{400,600}-normal.woff2` | https://github.com/IBM/plex |
+| miniz | 3.1.2 | MIT | compiled into the core of every build | https://github.com/richgel999/miniz |
+| pugixml | 1.16 | MIT | compiled into the core of every build | https://github.com/zeux/pugixml |
+| docx-preview | 0.4.1 | Apache-2.0 | `assets/vendor/docx-preview.min.js` | https://github.com/VolodymyrBaydalka/docxjs |
+| JSZip | 3.10.2 | MIT (dual MIT or GPLv3; LeanDoc uses it under MIT) | `assets/vendor/jszip.min.js` | https://github.com/Stuk/jszip |
+| pako (bundled in JSZip) | 1.0.11 | MIT and Zlib | inside `assets/vendor/jszip.min.js` | https://github.com/nodeca/pako |
+| lie (bundled in JSZip) | 3.3.0 | MIT | inside `assets/vendor/jszip.min.js` | https://github.com/calvinmetcalf/lie |
+| immediate (bundled in JSZip) | 3.0.6 | MIT | inside `assets/vendor/jszip.min.js` | https://github.com/calvinmetcalf/immediate |
+| setimmediate (bundled in JSZip) | 1.0.5 | MIT | inside `assets/vendor/jszip.min.js` | https://github.com/YuzuJS/setImmediate |
+| IBM Plex Sans | @fontsource/ibm-plex-sans 5.3.0 | OFL-1.1 | `assets/fonts/ibm-plex-sans-latin-{400,500,600}-normal.woff2` | https://github.com/IBM/plex |
+| IBM Plex Serif | @fontsource/ibm-plex-serif 5.3.0 | OFL-1.1 | `assets/fonts/ibm-plex-serif-latin-600-normal.woff2` | https://github.com/IBM/plex |
+| IBM Plex Mono | @fontsource/ibm-plex-mono 5.3.0 | OFL-1.1 | `assets/fonts/ibm-plex-mono-latin-400-normal.woff2` | https://github.com/IBM/plex |
+| IBM Plex Sans Arabic | @fontsource/ibm-plex-sans-arabic 5.3.0 | OFL-1.1 | `assets/fonts/ibm-plex-sans-arabic-arabic-{400,600}-normal.woff2` | https://github.com/IBM/plex |
+| Microsoft WebView2 SDK and Loader | 1.0.4078.44 | BSD-3-Clause style (Microsoft) | `WebView2Loader.dll` in the Windows ZIP only | https://www.nuget.org/packages/Microsoft.Web.WebView2 |
 
-## docx-preview (Apache-2.0)
+The reader files are copied unmodified from the npm packages pinned in
+`package-lock.json` by `scripts/stage-runtime-assets.mjs`. `playwright-core`
+is a test-only development dependency and is not shipped. The Linux and macOS
+hosts link only system libraries (GTK 4, WebKitGTK 6.0, GLib, AppKit, WebKit),
+which LeanDoc does not ship. The Microsoft Edge WebView2 Runtime is part of
+Windows or installed by the user and is not shipped either.
+
+## miniz 3.1.2
+
+Source: https://github.com/richgel999/miniz
+License: MIT
+
+Copyright 2013-2014 RAD Game Tools and Valve Software
+Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
+
+All Rights Reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+## pugixml 1.16
+
+Source: https://github.com/zeux/pugixml
+License: MIT
+
+Copyright (c) 2006-2026 Arseny Kapoulkine
+
+Permission is hereby granted, free of charge, to any person
+obtaining a copy of this software and associated documentation
+files (the "Software"), to deal in the Software without
+restriction, including without limitation the rights to use,
+copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+
+## docx-preview 0.4.1
+
+Source: https://github.com/VolodymyrBaydalka/docxjs
+License: Apache-2.0
 
 Copyright Volodymyr Baydalka.
 
@@ -246,7 +313,10 @@ The licence grants no trademark rights (section 6) and comes without warranty
    limitations under the License.
 ```
 
-## JSZip (MIT)
+## JSZip 3.10.2
+
+Source: https://github.com/Stuk/jszip
+License: MIT
 
 JSZip is dual licensed under MIT or GPLv3. LeanDoc uses it under the MIT
 licence.
@@ -273,7 +343,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-## pako, bundled in JSZip (MIT and Zlib)
+## pako 1.0.11, bundled in JSZip
+
+Source: https://github.com/nodeca/pako
+License: MIT and Zlib
 
 ```text
 (The MIT License)
@@ -322,7 +395,10 @@ freely, subject to the following restrictions:
 3. This notice may not be removed or altered from any source distribution.
 ```
 
-## lie, bundled in JSZip (MIT)
+## lie 3.3.0, bundled in JSZip
+
+Source: https://github.com/calvinmetcalf/lie
+License: MIT
 
 ```text
 Copyright (c) 2014-2018 Calvin Metcalf, Jordan Harband
@@ -334,7 +410,10 @@ The above copyright notice and this permission notice shall be included in all c
 **THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.**
 ```
 
-## immediate, bundled in JSZip (MIT)
+## immediate 3.0.6, bundled in JSZip
+
+Source: https://github.com/calvinmetcalf/immediate
+License: MIT
 
 ```text
 Copyright (c) 2012 Barnesandnoble.com, llc, Donavon West, Domenic Denicola, Brian Cavalier
@@ -359,7 +438,10 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-## setimmediate, bundled in JSZip (MIT)
+## setimmediate 1.0.5, bundled in JSZip
+
+Source: https://github.com/YuzuJS/setImmediate
+License: MIT
 
 ```text
 Copyright (c) 2012 Barnesandnoble.com, llc, Donavon West, and Domenic Denicola
@@ -384,7 +466,10 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-## IBM Plex Sans, Serif, Mono, and Sans Arabic (OFL-1.1)
+## IBM Plex Sans, Serif, Mono, and Sans Arabic
+
+Source packages: https://fontsource.org/fonts/ibm-plex-sans
+License: SIL Open Font License 1.1
 
 Copyright IBM Corp.: 2017 for IBM Plex Mono, 2019 for IBM Plex Sans and IBM
 Plex Sans Arabic, 2020 for IBM Plex Serif, as each Fontsource package's
@@ -484,3 +569,67 @@ DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
 ```
+
+## Microsoft WebView2 SDK and Loader 1.0.4078.44
+
+Source package: https://www.nuget.org/packages/Microsoft.Web.WebView2
+License: BSD-3-Clause style (Microsoft)
+Copyright (C) Microsoft Corporation. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+- Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+- Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+- The name of Microsoft Corporation, or the names of its contributors may not
+  be used to endorse or promote products derived from this software without
+  specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+
+The WebView2 package NOTICE also attributes Antlr3.Runtime 3.5.2-rc1 and
+StringTemplate4 4.0.9-rc1:
+
+Copyright (c) 2011 The ANTLR Project. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+3. Neither the name of the copyright holder nor the names of its contributors
+   may be used to endorse or promote products derived from this software
+   without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR "AS IS" AND ANY EXPRESS OR IMPLIED
+WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
+IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+
+The build downloads the NuGet package from nuget.org and checks its SHA-256
+(`dc4d1d9168df26b830398303e50210b6e1729f6ce5a7ac69d2c766852f489962`) in
+`scripts/Get-WebView2Sdk.ps1` before it extracts anything. The Microsoft Edge
+WebView2 Runtime itself is part of Windows or installed by the user and is
+not shipped.

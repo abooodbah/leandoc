@@ -18,20 +18,12 @@ configure_file(
   "${LEANDOC_GENERATED_DIR}/leandoc-version.h"
   @ONLY)
 
-# Shipped notices. The release uses the root THIRD_PARTY_NOTICES.md; until it
-# exists the per-stream notice sections in docs/notices/ are joined instead.
+# Shipped notices: the root THIRD_PARTY_NOTICES.md, copied into every package.
 set(LEANDOC_NOTICES_FILE "${LEANDOC_GENERATED_DIR}/THIRD_PARTY_NOTICES.md")
-if(EXISTS "${LEANDOC_ROOT}/THIRD_PARTY_NOTICES.md")
-  configure_file("${LEANDOC_ROOT}/THIRD_PARTY_NOTICES.md" "${LEANDOC_NOTICES_FILE}" COPYONLY)
-else()
-  file(GLOB LEANDOC_NOTICE_PARTS CONFIGURE_DEPENDS "${LEANDOC_ROOT}/docs/notices/*.md")
-  list(SORT LEANDOC_NOTICE_PARTS)
-  file(WRITE "${LEANDOC_NOTICES_FILE}" "# Third-party notices\n\n")
-  foreach(part IN LISTS LEANDOC_NOTICE_PARTS)
-    file(READ "${part}" LEANDOC_NOTICE_TEXT)
-    file(APPEND "${LEANDOC_NOTICES_FILE}" "${LEANDOC_NOTICE_TEXT}\n")
-  endforeach()
+if(NOT EXISTS "${LEANDOC_ROOT}/THIRD_PARTY_NOTICES.md")
+  message(FATAL_ERROR "THIRD_PARTY_NOTICES.md is missing from the source root.")
 endif()
+configure_file("${LEANDOC_ROOT}/THIRD_PARTY_NOTICES.md" "${LEANDOC_NOTICES_FILE}" COPYONLY)
 
 find_program(LEANDOC_NODE_EXECUTABLE NAMES node nodejs)
 if(NOT LEANDOC_NODE_EXECUTABLE)
