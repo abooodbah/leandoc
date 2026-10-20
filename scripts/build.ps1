@@ -157,13 +157,7 @@ foreach ($installerName in @('install.ps1', 'uninstall.ps1')) {
     Copy-RequiredFile -Source (Join-Path $repoRoot ('installer\' + $installerName)) `
         -Destination (Join-Path $distDirectory ('installer\' + $installerName))
 }
-$notices = Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md'
-if (-not (Test-Path -LiteralPath $notices -PathType Leaf)) {
-    # Until the root file exists, CMake joins docs/notices/*.md.
-    $notices = Join-Path $BuildDirectory 'generated\THIRD_PARTY_NOTICES.md'
-    Write-Warning 'THIRD_PARTY_NOTICES.md is missing; staging the notices joined from docs/notices.'
-}
-Copy-RequiredFile -Source $notices -Destination (Join-Path $distDirectory 'THIRD_PARTY_NOTICES.md')
+Copy-RequiredFile -Source (Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md') -Destination (Join-Path $distDirectory 'THIRD_PARTY_NOTICES.md')
 
 $stagedFiles = @(Get-ChildItem -LiteralPath $distDirectory -Recurse -File)
 $stagedBytes = ($stagedFiles | Measure-Object -Property Length -Sum).Sum
