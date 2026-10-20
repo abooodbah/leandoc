@@ -1877,6 +1877,11 @@ void LinuxApp::OnWebProcessTerminated(
         app->recoveriesInWindow_ = 0;
     }
     ++app->recoveriesInWindow_;
+    if (app->testScript_) {
+        std::printf("LEANDOC_EVENT web-process-terminated recoveries=%u\n",
+                    app->recoveriesInWindow_);
+        std::fflush(stdout);
+    }
     if (app->recoveriesInWindow_ > 4) {
         return;
     }
@@ -1884,11 +1889,6 @@ void LinuxApp::OnWebProcessTerminated(
         if (Tab* tab = app->ActiveTab()) {
             tab->rendererStopped = true;
         }
-    }
-    if (app->testScript_) {
-        std::printf("LEANDOC_EVENT web-process-terminated recoveries=%u\n",
-                    app->recoveriesInWindow_);
-        std::fflush(stdout);
     }
     app->NavigateToReader();
 }
