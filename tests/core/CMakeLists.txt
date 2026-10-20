@@ -35,6 +35,8 @@ if(LEANDOC_ENABLE_FUZZ)
   if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     message(FATAL_ERROR "LEANDOC_ENABLE_FUZZ needs Clang")
   endif()
+  # Coverage feedback needs the core itself instrumented, not only the harness.
+  target_compile_options(leandoc_core PRIVATE -fsanitize=fuzzer-no-link)
   add_executable(leandoc_fuzz_open FuzzOpen.cpp)
   target_compile_features(leandoc_fuzz_open PRIVATE cxx_std_17)
   target_compile_options(leandoc_fuzz_open PRIVATE -fsanitize=fuzzer)
