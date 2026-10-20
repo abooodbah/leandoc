@@ -1,4 +1,5 @@
 #include <gtk/gtk.h>
+#include <sys/prctl.h>
 
 #include <filesystem>
 #include <iostream>
@@ -121,6 +122,12 @@ void ForgetWindow(GtkApplication*, GtkWindow*, gpointer data) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    // With transparent huge pages set to "always", the idle UI heap grew from
+    // about 90 to 183 MiB on CI runners (TEST_REPORT D-26). A document viewer
+    // gains nothing from huge pages, so they are turned off for this process
+    // and the WebKit processes it starts, which inherit the setting.
+    prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0);
+
     ApplicationState state;
     bool showHelp = false;
     if (!ParseArguments(argc, argv, &state, &showHelp)) {

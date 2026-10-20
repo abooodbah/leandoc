@@ -174,8 +174,9 @@ The 0.1.0 score is not yet recorded.
 
 ## What it does not do
 
-- Text boxes, equations, charts, and SmartArt are not displayed. The fidelity
-  bar names them and offers the editor.
+- Charts, SmartArt, and most text boxes are not displayed. Most equations
+  display; the forms LeanDoc cannot draw show an "[Equation]" marker. The
+  fidelity bar names everything that is not displayed and offers the editor.
 - `.doc` (Word 97 to 2003) files are not rendered. They get a fallback page.
 - Pages break only where the document saved a page break or has an explicit
   break, so page numbers can differ from Word's.

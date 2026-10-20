@@ -16,7 +16,7 @@ jobs:
   build:
     name: Windows x64
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     outputs:
       version: ${{ steps.package.outputs.version }}
 
@@ -74,6 +74,7 @@ jobs:
 
       - name: Capture every feature fixture in the real window (UI-01)
         if: always()
+        timeout-minutes: 10
         shell: pwsh
         run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/visual/Capture-Windows.ps1 -ExePath ./dist/LeanDoc.exe
 

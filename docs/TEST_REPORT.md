@@ -40,10 +40,10 @@ ignores them; CI uploads them as artifacts).
 | D-23 | 2 | Reader, Linux | After Tab past the last control, or Ctrl+Tab on Linux, no key reached the page until a click | 7575fdf | `linux_regressions.py` (keyboard focus), reader test "Tab wraps around", UI-06 |
 | D-24 | 1 | Linux | Every picture showed as an empty frame | a27bf73 | `linux_regressions.py` (images), `Test-LinuxSource.mjs` |
 | D-25 | 3 | Reader | Every freshly opened document was framed by the blue keyboard-focus ring | 3e2d7cc | reader test "without a focus ring" |
-| D-26 | 2 | Linux | The leak checks M-06 to M-08 pass in some runs and fail in others (web process garbage; live UI heap growth on some runner images) | open | M-06 to M-08 in `tests/perf/run_perf.py`, `tests/perf/heap_profile.py` |
+| D-26 | 2 | Linux | The leak checks M-06 to M-08 pass in some runs and fail in others (web process garbage; live UI heap growth on some runner images) | mitigated, release exception | M-06 to M-08 in `tests/perf/run_perf.py`, `tests/perf/heap_profile.py` |
 | D-27 | 2 | Linux | The UI process kept about 20 MiB of freed heap after reading documents | 64535ea | M-06 to M-08, `Test-LinuxSource.mjs` |
 
-Every defect above except D-26 is fixed. D-26 is open, with its analysis below. Known gaps that remain are listed at the end.
+Every defect above except D-26 is fixed. D-26 is mitigated and carried as a written release exception, with its analysis and decision below. Known gaps that remain are listed at the end.
 
 ## Details
 
@@ -277,7 +277,7 @@ Every defect above except D-26 is fixed. D-26 is open, with its analysis below. 
   hides the ring until the document area loses the focus; Tab back to it
   shows the ring.
 
-### D-26: Linux leak checks disagree between runs (severity 2, open)
+### D-26: Linux leak checks disagree between runs (severity 2, mitigated)
 
 - Checks: M-06 (open and close the 300-page report 30 times), M-07 (cycle
   ten tabs 50 times, then 50 view switches), M-08 (idle ten minutes).
@@ -322,6 +322,18 @@ Every defect above except D-26 is fixed. D-26 is open, with its analysis below. 
   that the leak checks gate on a rising trend (samples after 10, 20, and 30
   closes; after 50 and 200 view switches), which levels off here.
 
+
+- Decision, 2026-10-20: the Linux host turns transparent huge pages off for
+  itself and the WebKit processes it starts (`prctl(PR_SET_THP_DISABLE)` at
+  start-up in `src/linux/main.cpp`; `/proc/<pid>/status` shows
+  `THP_enabled: 0` for `leandoc`, `WebKitNetworkProcess`, and
+  `WebKitWebProcess`). This removes the UI heap growth measured on runner
+  images with huge pages set to `always`. The web process's uncollected
+  garbage is WebKit's own collection timing, not memory LeanDoc keeps, and
+  WebKitGTK offers no call to collect on demand. M-06 to M-08 therefore stay
+  recorded as advisory on shared runners and keep gating in the session run.
+  The 0.1.0 release notes carry this as a written exception that narrows the
+  memory claim: no long-session memory figure is published.
 ### D-27: freed heap kept by the Linux UI process (severity 2)
 
 - Found while analysing D-26: the UI process's main heap held about 20 MiB

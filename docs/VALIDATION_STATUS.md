@@ -181,8 +181,10 @@ report; LeanMark 0.3.0 112.9 MiB with README.md and 99.9 MiB with a
 
 ## Open items
 
-- D-26 (the Linux leak checks M-06 to M-08) is open and advisory on the
-  shared runner; the test report gives the analysis and what closes it.
+- D-26 (the Linux leak checks M-06 to M-08) is mitigated: the Linux host now
+  turns transparent huge pages off for its process tree. The checks stay
+  advisory on the shared runner and are a written exception in the 0.1.0
+  release notes; the test report gives the analysis and the decision.
 - The Windows CI job had two infrastructure failures on the last runs
   (processes failing to start with 0xC0000142 after the captures once, and
   a first-launch smoke timeout in L-02 once, with WebView2 155 on the
