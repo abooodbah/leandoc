@@ -41,9 +41,13 @@ before(async () => {
 });
 
 after(async () => {
+  const version = browser?.version?.() ?? "";
   await browser?.close();
   if (summary.length) {
-    console.log(`# UI states (Chromium ${browser?.version?.() ?? ""}):\n# ` + summary.join("\n# "));
+    console.log(`# UI states (Chromium ${version}):\n# ` + summary.join("\n# "));
+    // CI reports this file as a notice (the job log is not readable there).
+    writeFileSync(path.join(repositoryRoot, "artifacts", "ui-baselines", "summary.txt"),
+      `Chromium ${version}\n${summary.join("\n")}\n`);
   }
 });
 

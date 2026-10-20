@@ -408,6 +408,11 @@ jobs:
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           LEANDOC_INSPECT="$GITHUB_WORKSPACE/build/inspect/tools/inspect/leandoc-inspect" npm run test:reader
 
+      - name: Report the chrome states (UI-03, UI-07) as a notice
+        if: always()
+        shell: bash
+        run: node tests/perf/annotate-results.mjs artifacts/ui-baselines/summary.txt "UI-03 and UI-07 chrome states"
+
       - name: Upload the chrome-state screenshots and baseline candidates
         if: always()
         uses: actions/upload-artifact@v7
