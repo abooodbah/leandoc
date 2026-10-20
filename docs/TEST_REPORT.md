@@ -40,8 +40,9 @@ ignores them; CI uploads them as artifacts).
 | D-23 | 2 | Reader, Linux | After Tab past the last control, or Ctrl+Tab on Linux, no key reached the page until a click | 7575fdf | `linux_regressions.py` (keyboard focus), reader test "Tab wraps around", UI-06 |
 | D-24 | 1 | Linux | Every picture showed as an empty frame | a27bf73 | `linux_regressions.py` (images), `Test-LinuxSource.mjs` |
 | D-25 | 3 | Reader | Every freshly opened document was framed by the blue keyboard-focus ring | 3e2d7cc | reader test "without a focus ring" |
+| D-26 | 2 | Linux runner | M-07 missed its budget on the CI runner: 23.8, 31.3, and 66.7 MiB in three runs (15 allowed); 7.9 MiB in the session | open | M-07 in `tests/perf/run_perf.py` |
 
-Every defect above is fixed. Known gaps that remain are listed at the end.
+Every defect above except D-26 is fixed. D-26 is open, with its analysis below. Known gaps that remain are listed at the end.
 
 ## Details
 
@@ -275,10 +276,51 @@ Every defect above is fixed. Known gaps that remain are listed at the end.
   hides the ring until the document area loses the focus; Tab back to it
   shows the ring.
 
+### D-26: M-07 growth on the Linux runner (severity 2, open)
+
+- Steps: ten 3-page reports as tabs; cycle through all of them 50 times,
+  then switch between page and reading view 50 times (M-07). The budget is
+  growth under 15 MiB from the first cycle to the last.
+- Actual: on the CI runner (AMD EPYC, WebKitGTK 2.52.6) the tree grew 23.8,
+  31.3, and 66.7 MiB in three runs; in the session 7.9 MiB. The tab cycles
+  themselves do not grow (175.8 to 177.1 MiB on the runner); the growth
+  comes during the view switches, in the WebKit web process (44.8 to
+  68.3 MiB) and in sample-to-sample variation of the UI process (about 7 MiB
+  under Mesa's software GL).
+- Analysis: it is not memory the reader keeps. In Chromium with forced
+  garbage collection, 160 view switches leave the JavaScript heap at 3.4 MiB
+  (3.1 after the first 10) with a constant 314 DOM nodes and 65 listeners.
+  On the Linux host the web process levels off: 35, 44, 53, 58, and 60 MiB
+  after 2, 10, 26, 50, and 100 switches, and 64 to 66 MiB after 100 to 200.
+  A lower WebKit memory-pressure threshold (15 percent of the limit) changed
+  nothing, so this is the size WebKit's heap settles at after repeated
+  re-renders, not garbage it would release under pressure.
+- What closes it: either an owner decision that M-07 measures a leak as
+  growth that keeps rising (for example after 50 against after 200
+  switches, which levels off here), or a reader change that re-renders less
+  on a view switch (for example keeping both views' DOM for small
+  documents), measured on the runner.
+
 ## Known gaps
 
 - PAGE fields ignore section page-number restarts.
 - On Linux, `--test-script` exists only in the GTK host; the Windows and
   macOS layers run the launch scenarios and smoke subsets only.
 - Window-visible time under Xvfb includes Mesa's software GL start-up
-  (about 125 ms of the 231 ms median); a desktop with a GPU does not pay it.
+  (about 125 ms of the session medians, which ranged from 231 to 295 ms
+  between runs on the same build); a desktop with a GPU does not pay it. An
+  interleaved run of the build before this phase's changes and the final
+  build gave 264 and 257 ms, so the spread is the session, not the code.
+- LibreOffice side-by-side (UI-02) differences that remain: a theme colour
+  with `w:themeShade` ("Accent 6, darker") shows the base accent; text box
+  contents are drawn in the flow with tight line spacing where LibreOffice
+  floats the boxes; tracked changes show as accepted (by design, named in
+  the fidelity bar); not-displayed content (chart, SmartArt, shape) is
+  omitted (by design, named in the fidelity bar).
+- The Windows and macOS screenshots are CI artifacts, and artifact
+  downloads are blocked in the test session, so they were reviewed through
+  the capture check's statistics and text thumbnails in the job notices,
+  not as images. A person still has to sign off the three contact sheets
+  (UI-01).
+- M-04 on the Windows runner is 294.1 MiB over M-01 against a 300 MiB
+  budget: it passes with little margin.
