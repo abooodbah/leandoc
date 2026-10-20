@@ -550,6 +550,23 @@ void LinuxApp::ShowActiveTab(bool automaticReload) {
         return;
     }
 
+    if (tab->rendererStopped) {
+        ClearPackage();
+        UpdateTitle();
+        std::string json = "{\"type\":\"fallback\",\"tab\":";
+        json += std::to_string(tab->id);
+        json += ",\"generation\":";
+        json += std::to_string(tab->generation);
+        json += ",\"fileName\":\"";
+        AppendJson(json, tab->name);
+        json += "\",\"displayPath\":\"";
+        AppendJson(json, DisplayName(tab->path));
+        json += "\",\"report\":{\"ok\":false,\"kind\":\"docx\",\"errorCode\":"
+                "\"renderer-stopped\",\"errorMessage\":\"\",\"features\":[],\"outline\":[]}}";
+        SendJson(json);
+        return;
+    }
+
     if (TimingEnabled()) {
         TraceTiming(
             "document-requested",
@@ -823,7 +840,10 @@ void LinuxApp::HandleMessage(JSCValue* message) {
             CloseTab(*id);
         }
     } else if (*type == "reload") {
-        if (ActiveTab() != nullptr) {
+        if (Tab* tab = ActiveTab()) {
+            // A reload asks for the document again, even after the renderer
+            // stopped on it.
+            tab->rendererStopped = false;
             ShowActiveTab(false);
         }
     }
@@ -1683,6 +1703,30 @@ void LinuxApp::OnWebProcessTerminated(
     if (app->smokeTest_) {
         app->CompleteSmoke(false, "The WebKit web process exited.");
         return;
+    }
+    // One window holds every tab, so the reader is reloaded, but only a few
+    // times a minute: a document that keeps crashing the renderer must not
+    // trap the window in a reload loop. After three recoveries the active
+    // tab shows an error page instead of the document; after one more the
+    // window stays as it is.
+    const auto now = std::chrono::steady_clock::now();
+    if (app->recoveriesInWindow_ == 0 || now - app->recoveryWindowStart_ > std::chrono::minutes(1)) {
+        app->recoveryWindowStart_ = now;
+        app->recoveriesInWindow_ = 0;
+    }
+    ++app->recoveriesInWindow_;
+    if (app->recoveriesInWindow_ > 4) {
+        return;
+    }
+    if (app->recoveriesInWindow_ == 4) {
+        if (Tab* tab = app->ActiveTab()) {
+            tab->rendererStopped = true;
+        }
+    }
+    if (app->testScript_) {
+        std::printf("LEANDOC_EVENT web-process-terminated recoveries=%u\n",
+                    app->recoveriesInWindow_);
+        std::fflush(stdout);
     }
     app->NavigateToReader();
 }

@@ -159,7 +159,8 @@
     "xml-doctype": "This document contains a document type declaration, which LeanDoc refuses to read.",
     "xml-malformed": "This document contains malformed XML and cannot be read.",
     "xml-too-deep": "This document is nested more deeply than LeanDoc reads.",
-    "read-failed": "LeanDoc could not read this file."
+    "read-failed": "LeanDoc could not read this file.",
+    "renderer-stopped": "LeanDoc's renderer stopped several times while showing this document. Press F5 to try again."
   };
 
   // A fallback page: a short title and one sentence on what the file is and

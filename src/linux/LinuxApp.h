@@ -52,6 +52,9 @@ private:
         std::string name;
         unsigned generation = 0;
         bool shown = false;
+        // Set when the web process kept stopping while this tab was shown;
+        // the tab then shows an error page until the user reloads it.
+        bool rendererStopped = false;
     };
 
     LinuxApp(GtkApplication* application, const HostOptions& options, int* smokeExitCode);
@@ -208,6 +211,11 @@ private:
 
     GFileMonitor* directoryMonitor_ = nullptr;
     guint reloadTimer_ = 0;
+
+    // Web process recoveries in the current minute (at most three reloads,
+    // as on Windows; then the active tab shows an error page).
+    std::chrono::steady_clock::time_point recoveryWindowStart_;
+    unsigned recoveriesInWindow_ = 0;
 
     ThemeMode theme_ = ThemeMode::System;
     std::string view_ = "page";

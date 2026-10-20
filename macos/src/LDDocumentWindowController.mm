@@ -148,6 +148,11 @@ static BOOL LDIsAllowedMenuItem(NSMenuItem *item) {
     void (^_smokeCompletion)(BOOL, NSString *);
     BOOL _smokeRendered;
     NSUInteger _smokeRenderMs;
+    // Web content recoveries in the current minute: at most three reloads,
+    // as on Windows and Linux, then an error page for this document.
+    NSTimeInterval _recoveryWindowStart;
+    NSUInteger _recoveriesInWindow;
+    BOOL _rendererStopped;
 }
 @end
 
@@ -333,6 +338,20 @@ static BOOL LDIsAllowedMenuItem(NSMenuItem *item) {
         return;
     }
     NSDictionary<NSString *, id> *payload = [self.leanDocDocument readerPayload];
+    if (_rendererStopped && [payload[@"type"] isEqualToString:@"document"]) {
+        NSMutableDictionary<NSString *, id> *stopped = [payload mutableCopy];
+        stopped[@"type"] = @"fallback";
+        [stopped removeObjectForKey:@"packageUrl"];
+        stopped[@"report"] = @{
+            @"ok" : @NO,
+            @"kind" : @"docx",
+            @"errorCode" : @"renderer-stopped",
+            @"errorMessage" : @"",
+            @"features" : @[],
+            @"outline" : @[],
+        };
+        payload = stopped;
+    }
     [self deliver:payload];
     if (_smokeCompletion != nil && ![payload[@"type"] isEqualToString:@"document"]) {
         [self finishSmoke:NO detail:@"the smoke fixture did not produce a renderable package"];
@@ -413,6 +432,9 @@ static BOOL LDIsAllowedMenuItem(NSMenuItem *item) {
             [NSUserDefaults.standardUserDefaults setObject:view forKey:LDViewKey];
         }
     } else if ([type isEqualToString:@"reload"]) {
+        // A reload asks for the document again, even after the renderer
+        // stopped on it.
+        _rendererStopped = NO;
         [self.leanDocDocument reloadFromDisk];
     }
     // selectTab and closeTab do not arrive: macOS uses system window tabs.
@@ -602,7 +624,23 @@ static BOOL LDIsAllowedMenuItem(NSMenuItem *item) {
         [self finishSmoke:NO detail:@"the WebKit web content process exited"];
         return;
     }
-    [self.leanDocDocument reloadFromDisk];
+    // A document that keeps crashing the web content process must not trap
+    // the window in a reload loop: three recoveries a minute, then an error
+    // page for this document, then the window stays as it is.
+    const NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    if (_recoveriesInWindow == 0 || now - _recoveryWindowStart > 60.0) {
+        _recoveryWindowStart = now;
+        _recoveriesInWindow = 0;
+    }
+    _recoveriesInWindow += 1;
+    if (_recoveriesInWindow > 4) {
+        return;
+    }
+    if (_recoveriesInWindow == 4) {
+        _rendererStopped = YES;
+    } else {
+        [self.leanDocDocument reloadFromDisk];
+    }
     [self loadReader];
 }
 

@@ -68,6 +68,12 @@ constexpr wchar_t kBrowserArgumentsWithGpu[] =
     L"--disable-sync --no-first-run --disk-cache-size=1048576 "
     L"--media-cache-size=1048576 --enable-features=NetworkServiceInProcess2";
 
+bool EqualsInsensitive(std::wstring_view value, std::wstring_view expected) {
+    return value.size() == expected.size() &&
+           CompareStringOrdinal(value.data(), static_cast<int>(value.size()), expected.data(),
+                                static_cast<int>(expected.size()), TRUE) == CSTR_EQUAL;
+}
+
 bool StartsWithInsensitive(std::wstring_view value, std::wstring_view prefix) {
     if (value.size() < prefix.size()) {
         return false;
@@ -610,8 +616,9 @@ void LeanDocApp::ConfigureWebView() {
                 arguments->get_Uri(&rawUri);
                 const std::wstring uri = rawUri == nullptr ? L"" : rawUri;
                 CoTaskMemFree(rawUri);
-                if (StartsWithInsensitive(uri, kAppOrigin) ||
-                    StartsWithInsensitive(uri, L"about:blank")) {
+                // Only the reader page itself, as on Linux and macOS.
+                if (EqualsInsensitive(uri, kReaderUrl) ||
+                    EqualsInsensitive(uri, L"about:blank")) {
                     return S_OK;
                 }
                 arguments->put_Cancel(TRUE);

@@ -74,7 +74,8 @@ function Test-StaticInvariants {
         'get_Source\(&rawSource\)',
         'add_ContextMenuRequested',
         'FilterContextMenu\(items\.Get\(\)\)',
-        'NormalizeExternalLink\(rawHref\)'
+        'NormalizeExternalLink\(rawHref\)',
+        'EqualsInsensitive\(uri, kReaderUrl\)'
     )) { Assert-Match $app $guard "WebView2 guard is missing: $guard" }
     Assert-Match $app '(?s)add_DownloadStarting.*?put_Cancel\(TRUE\)' 'WebView2 downloads must be cancelled.'
     Assert-Match $app 'SetCurrentProcessExplicitAppUserModelID\(L"LeanDoc\.Reader"\)' 'The AppUserModelID must stay stable.'

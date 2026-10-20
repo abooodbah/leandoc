@@ -96,6 +96,8 @@ def main() -> int:
         "@interface LDReaderWebView : WKWebView",
         "- (void)willOpenMenu:(NSMenu *)menu withEvent:(NSEvent *)event",
         "[[LDReaderWebView alloc] initWithFrame",
+        "_recoveriesInWindow > 4",
+        "@\"renderer-stopped\"",
         "securitypolicyviolation",
         "generation.unsignedIntegerValue != document.generation",
         "LDTraceTiming(@\"webview-ready\"",
