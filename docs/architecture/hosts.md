@@ -258,6 +258,13 @@ Memory figures count the whole tree, as LeanMark does.
   sandboxes, `WebKitWebProcess` and `xdg-dbus-proxy`. All are descendants of
   `leandoc`. The desktop portal services (`xdg-desktop-portal` and friends)
   are D-Bus activated, shared with other apps, and not part of the tree.
+  Two settings keep the tree from holding memory it no longer uses: the web
+  context's memory pressure settings (a 300 MiB limit, checked every 5 s)
+  make WebKit release caches and collect in the web process, and 3 s after a
+  document is shown or its package dropped, the UI process calls glibc's
+  `malloc_trim(0)` once, which returns the heap pages that reading and
+  sanitizing freed (about 20 MiB in the session). Neither runs on a timer
+  while nothing happens.
 - macOS: WebKit runs its `com.apple.WebKit.WebContent`, `.Networking`, and
   `.GPU` XPC services under `launchd`, not as children of `LeanDoc`. A
   harness must attribute them by their responsible process

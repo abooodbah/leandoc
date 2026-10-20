@@ -48,6 +48,7 @@ for (const [guard, reason] of [
   [/g_signal_connect\(webView_, "context-menu", G_CALLBACK\(OnContextMenu\)/, "the context menu is filtered"],
   [/recoveriesInWindow_ > 4/, "renderer recoveries are capped"],
   [/"notify::focus-widget"/, "the keyboard focus returns to the web view"],
+  [/malloc_trim\(0\)/, "freed heap pages go back to the system after a document is shown or dropped"],
   [/g_filename_to_uri\(path\.c_str\(\)/, "recent paths are stored as file URIs"],
   [/DefaultAppForFile\(path\)/, "the default editor is looked up per file type"],
   [/g_subprocess_newv\(argv/, "editors start with an argument vector"],

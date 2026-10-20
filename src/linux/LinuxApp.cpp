@@ -2,6 +2,9 @@
 
 #include <gio/gdesktopappinfo.h>
 #include <gio/gio.h>
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -36,6 +39,7 @@ constexpr std::size_t kMaximumTabs = 64;
 // shares. See Initialize().
 constexpr guint kWebProcessMemoryLimitMiB = 300;
 constexpr double kMemoryPressurePollSeconds = 5.0;
+constexpr guint kHeapTrimDelaySeconds = 3;
 
 #ifndef LEANDOC_INSTALL_ASSETS_DIR
 #define LEANDOC_INSTALL_ASSETS_DIR "/usr/share/leandoc/assets"
@@ -382,6 +386,9 @@ LinuxApp::~LinuxApp() {
     if (focusRestore_ != 0) {
         g_source_remove(focusRestore_);
     }
+    if (heapTrimTimer_ != 0) {
+        g_source_remove(heapTrimTimer_);
+    }
     if (scriptCancel_ != nullptr) {
         // Pending script reads and evaluations finish as cancelled and never
         // touch this object again.
@@ -643,9 +650,33 @@ void LinuxApp::ClearPackage() {
     if (package_ != nullptr) {
         g_bytes_unref(package_);
         package_ = nullptr;
+        ScheduleHeapTrim();
     }
     packageTab_ = 0;
     packageGeneration_ = 0;
+}
+
+// Reading and sanitizing a document allocates and frees tens of MiB on the
+// main heap. glibc keeps freed pages below the top of the heap, so on some
+// systems the UI process kept 25 to 35 MiB it no longer used (M-06 to M-08 on
+// the CI runner). A few seconds after a document is shown or dropped, the
+// free pages go back to the system. One timer, never periodic.
+void LinuxApp::ScheduleHeapTrim() {
+#if defined(__GLIBC__)
+    if (heapTrimTimer_ != 0) {
+        g_source_remove(heapTrimTimer_);
+    }
+    heapTrimTimer_ = g_timeout_add_seconds(kHeapTrimDelaySeconds, OnHeapTrim, this);
+#endif
+}
+
+gboolean LinuxApp::OnHeapTrim(gpointer data) {
+    auto* self = static_cast<LinuxApp*>(data);
+    self->heapTrimTimer_ = 0;
+#if defined(__GLIBC__)
+    malloc_trim(0);
+#endif
+    return G_SOURCE_REMOVE;
 }
 
 void LinuxApp::ShowActiveTab(bool automaticReload) {
@@ -927,6 +958,7 @@ void LinuxApp::HandleMessage(JSCValue* message) {
     }
     if (*type == "rendered" || *type == "renderFailed") {
         HandleRendered(message, *type == "renderFailed");
+        ScheduleHeapTrim();
     } else if (*type == "open") {
         OpenDocumentDialog();
     } else if (*type == "openRecent") {

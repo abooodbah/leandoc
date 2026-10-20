@@ -71,6 +71,7 @@ private:
     void CloseTab(unsigned id);
     void ShowActiveTab(bool automaticReload);
     void ClearPackage();
+    void ScheduleHeapTrim();
     void WatchActiveTab();
     void ScheduleReload();
 
@@ -193,11 +194,13 @@ private:
     static void OnWindowMapped(GtkWidget* widget, gpointer data);
     static void OnFocusWidgetChanged(GObject* object, GParamSpec* spec, gpointer data);
     static gboolean OnRestoreFocus(gpointer data);
+    static gboolean OnHeapTrim(gpointer data);
 
     GtkApplication* application_ = nullptr;
     GtkWidget* window_ = nullptr;
     GtkCssProvider* windowCss_ = nullptr;
     guint focusRestore_ = 0;
+    guint heapTrimTimer_ = 0;
     WebKitWebView* webView_ = nullptr;
     WebKitWebContext* webContext_ = nullptr;
     WebKitNetworkSession* networkSession_ = nullptr;

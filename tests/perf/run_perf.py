@@ -56,8 +56,11 @@ def median(values):
     return round(statistics.median(values), 1) if values else None
 
 
-def settle(app: Session, minimum: float = 3.0, maximum: float = 12.0):
-    """Samples every 0.5 s until three samples agree within 1.5 MiB."""
+def settle(app: Session, minimum: float = 5.0, maximum: float = 14.0):
+    """Samples every 0.5 s until three samples agree within 1.5 MiB.
+
+    The first 5 s cover the Linux host's heap trim, 3 s after a document is
+    shown or dropped, so every sample is taken after it."""
     start = time.monotonic()
     samples = []
     while True:
@@ -568,7 +571,7 @@ def security_peak(results, build, runs, m02_records):
             wait_for_no_leftovers()
             with Session(build, [fixtures / name]) as app:
                 app.wait("document.documentElement.dataset.renderState === 'fallback'")
-                sample, _ = settle(app, minimum=2.0)
+                sample, _ = settle(app)
                 peaks.append(round(vm_hwm_kib(app.pid) / 1024, 1))
                 dirty.append(sample.private_dirty_mib)
                 app.quit()
