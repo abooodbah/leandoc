@@ -2,22 +2,25 @@
 // the useful part of it into GitHub annotations, which stay readable through
 // the REST API (check-runs/<job>/annotations) where raw logs may not be.
 //
-//   node scripts/ci-log.mjs run <log-file> -- <command> [arguments...]
+//   node scripts/ci-log.mjs run <log-file> [--timeout SECONDS] -- <command> [arguments...]
 //   node scripts/ci-log.mjs annotate <log-file> [title]
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 
 const [mode, logFile, ...rest] = process.argv.slice(2);
 
 function usage() {
-  console.error("Usage: ci-log.mjs run <log> -- <command> [args...] | annotate <log> [title]");
+  console.error("Usage: ci-log.mjs run <log> [--timeout SECONDS] -- <command> [args...] | annotate <log> [title]");
   process.exit(2);
 }
 
 if (mode === "run") {
   const separator = rest.indexOf("--");
   const command = separator === -1 ? rest : rest.slice(separator + 1);
-  if (!logFile || command.length === 0) {
+  const options = separator === -1 ? [] : rest.slice(0, separator);
+  const timeoutIndex = options.indexOf("--timeout");
+  const timeoutSeconds = timeoutIndex === -1 ? 0 : Number(options[timeoutIndex + 1]);
+  if (!logFile || command.length === 0 || !(timeoutSeconds >= 0)) {
     usage();
   }
   appendFileSync(logFile, `\n### ${command.join(" ")}\n`);
@@ -36,7 +39,26 @@ if (mode === "run") {
     console.error(`ci-log: could not start ${command[0]}: ${error.message}`);
     process.exit(127);
   });
+  // A step timeout does not always stop a Windows process that is stuck in a
+  // native call, so the wrapper ends the whole tree itself and says where.
+  let timedOut = false;
+  if (timeoutSeconds > 0) {
+    setTimeout(() => {
+      timedOut = true;
+      const message = `\nci-log: timed out after ${timeoutSeconds} s; stopping ${command[0]} and its process tree\n`;
+      appendFileSync(logFile, message);
+      console.error(message.trim());
+      if (process.platform === "win32") {
+        spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "inherit" });
+      } else {
+        child.kill("SIGKILL");
+      }
+    }, timeoutSeconds * 1000).unref();
+  }
   child.on("close", (code, signal) => {
+    if (timedOut) {
+      process.exit(124);
+    }
     if (code !== 0) {
       appendFileSync(logFile, `\nci-log: exit ${code ?? signal}\n`);
     }

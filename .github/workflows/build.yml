@@ -118,7 +118,7 @@ jobs:
       - name: Capture every feature fixture in the real window (UI-01)
         timeout-minutes: 10
         shell: pwsh
-        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/visual/Capture-Windows.ps1 -ExePath ./dist/LeanDoc.exe -Themes ${{ matrix.theme }} -Views ${{ matrix.view }}
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" --timeout 540 -- pwsh -NoProfile -File ./tests/visual/Capture-Windows.ps1 -ExePath ./dist/LeanDoc.exe -Themes ${{ matrix.theme }} -Views ${{ matrix.view }}
 
       - name: Upload Windows screenshots
         if: always()
@@ -186,7 +186,7 @@ jobs:
         if: always()
         timeout-minutes: 15
         shell: pwsh
-        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/hosts/Observe-WindowsNetwork.ps1 -ExePath ./dist/LeanDoc.exe
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" --timeout 720 -- pwsh -NoProfile -File ./tests/hosts/Observe-WindowsNetwork.ps1 -ExePath ./dist/LeanDoc.exe
 
       - name: Report S-02 as a notice
         if: always()
@@ -197,7 +197,7 @@ jobs:
         if: always()
         timeout-minutes: 10
         shell: pwsh
-        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/usage/Test-WindowsUsage.ps1 -ExePath ./dist/LeanDoc.exe
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" --timeout 480 -- pwsh -NoProfile -File ./tests/usage/Test-WindowsUsage.ps1 -ExePath ./dist/LeanDoc.exe
 
       - name: Report the Windows usage subset as a notice
         if: always()

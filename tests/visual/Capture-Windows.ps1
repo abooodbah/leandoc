@@ -50,6 +50,7 @@ foreach ($left in @(Get-LeanDocProcessesByPath -ExePath $ExePath)) {
 }
 $saved = Get-ItemProperty -LiteralPath $settingsKey -ErrorAction SilentlyContinue
 
+$failures = [System.Collections.Generic.List[string]]::new()
 try {
     foreach ($theme in $Themes) {
         foreach ($view in $Views) {
@@ -64,6 +65,7 @@ try {
                 $info.UseShellExecute = $false
                 $info.RedirectStandardOutput = $true
                 $process = [System.Diagnostics.Process]::Start($info)
+                $timing = [System.Collections.Generic.List[string]]::new()
                 try {
                     $deadline = [DateTime]::UtcNow.AddSeconds(40)
                     $rendered = $false
@@ -75,6 +77,7 @@ try {
                         if (-not $read.Wait($left)) { break }
                         $line = $read.Result
                         if ($null -eq $line) { break }
+                        $timing.Add($line)
                         $rendered = $line -like 'LEANDOC_TIMING rendered *'
                     }
                     if (-not $rendered) { Write-Warning ('{0}: no rendered message' -f $fixture.Name); continue }
@@ -113,6 +116,14 @@ try {
                     $graphics.Dispose()
                     $bitmap.Dispose()
                     Write-Host ('captured {0}' -f (Split-Path -Leaf $path))
+                } catch {
+                    # Keep going so one fixture's failure names itself and the
+                    # rest are still captured; the count check below fails.
+                    $process.Refresh()
+                    $exit = if ($process.HasExited) { 'exit code {0}' -f $process.ExitCode } else { 'still running' }
+                    $failures.Add(('{0} {1}-{2}: {3} ({4}; last timing: {5})' -f $fixture.Name, $view, $theme,
+                        $_.Exception.Message, $exit, (($timing | Select-Object -Last 2) -join ' | ')))
+                    Write-Host ('FAILED {0}' -f $failures[$failures.Count - 1])
                 } finally {
                     Stop-LeanDocTestProcessTree -RootProcess $process
                 }
@@ -128,4 +139,5 @@ try {
 }
 $count = @(Get-ChildItem -LiteralPath $out -Filter *.png).Count
 Write-Output ('{0} Windows screenshots in {1}' -f $count, $out)
+foreach ($failure in $failures) { Write-Output ('Not captured: {0}' -f $failure) }
 if ($count -lt $fixtures.Count * $Themes.Count * $Views.Count) { throw 'Some fixtures were not captured.' }
