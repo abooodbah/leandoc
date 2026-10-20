@@ -15,9 +15,9 @@ Updated: 2026-10-20
 
 ## In progress
 
-- Phase 1: stream B (reader) done on `stream/b-reader`; stream A (core)
-  running on `stream/a-core`. Stream C (hosts, packaging, CI) was stopped
-  before it committed anything and needs to be restarted.
+- Phase 1: stream B (reader) done on `stream/b-reader`. Streams A (core,
+  `stream/a-core`) and C (hosts, packaging, CI, `stream/c-hosts`) resumed
+  from their pushed work after a session restart.
 
 ## Remaining
 
@@ -28,4 +28,5 @@ Updated: 2026-10-20
 
 ## Open questions for the owner
 
-- None blocking. Owner-run measurements are listed in the execution plan.
+- None blocking. On 2026-10-20 the owner delegated all remaining choices and
+  asked that the work continue to release with him as the sole author. Owner-run measurements are listed in the execution plan.

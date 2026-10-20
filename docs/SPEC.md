@@ -26,6 +26,13 @@ not trust.
 | Shared host library | Out of scope. Host code is copied from LeanMark and adapted. |
 | Platforms | Windows x64, Linux x86-64 (.deb), macOS universal preview, as LeanMark. |
 
+Name check, 2026-10-20: `leandoc` is unused on npm, PyPI, and crates.io
+(HTTP 404). A web search found "LeanDocs", a document feature inside the
+LeanScaper web platform, and `leandocument`, a Ruby gem last released in
+2012; neither is a desktop document viewer. The winget ID `abooodbah.LeanDoc`
+is scoped to the publisher. Flathub and Homebrew were not reachable from the
+build session and are not used for 0.1.
+
 ### Never
 
 Editing, saving, macros, mail merge, network fetches, telemetry, accounts,
