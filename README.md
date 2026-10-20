@@ -214,7 +214,7 @@ this order:
 1. Microsoft Word.
 2. LibreOffice.
 3. Pages (macOS only).
-4. The system's default app for `.docx`, when that is not LeanDoc.
+4. The system's default app for the document's file type, when that is not LeanDoc.
 5. Word for the web in your browser. It cannot receive the file, so LeanDoc
    says the file must be uploaded there.
 

@@ -21,23 +21,28 @@ Updated: 2026-10-20
   equations the reader cannot draw become an [Equation] marker instead of
   blanking the document; reader and core pair outline paragraphs the same way.
 
+- Stream C (hosts, packaging, CI) merged; CI green on Windows, Linux, macOS.
+- README, site, THIRD_PARTY_NOTICES.md, and docs/FIDELITY.md merged.
+- Security review: 9 findings, all fixed (TEST_REPORT D-01 to D-07, D-19).
+- Phase 3 testing done: 27 defects found, 26 fixed, D-26 mitigated and
+  carried as a written release exception. Results in
+  docs/VALIDATION_STATUS.md and docs/TEST_REPORT.md.
+
 ## In progress
 
-- Phase 1: stream C (hosts, packaging, CI) on `stream/hosts`.
+- Phase 5 and 6: pull request to `main`, CI, and the v0.1.0 release.
 
 ## Remaining
 
-- Phase 2 integration review; phase 3 thorough testing of usage, UI,
-  performance, and memory ([docs/TEST_PLAN.md](docs/TEST_PLAN.md)); phase 4
-  README and site; phase 5 CI on three platforms and release candidate check;
-  phase 6 v0.1.0 release; phase 7 winget and companion PRs.
+- Phase 7: winget pull request (owner opens it from his fork) and companion
+  links in LeanMark and LeanRows.
+- Owner-run measurements: tests/owner/Measure-Performance.ps1 and
+  Compare-WithWord.ps1, then publish figures; UI-01 contact sheet sign-off;
+  person-scored fidelity rubric (docs/FIDELITY.md).
 
 ## Owner actions
 
-- Delete the branch `stream/c-hosts` on GitHub
-  (https://github.com/abooodbah/leandoc/branches). One commit on it carried the
-  wrong author. It is dropped locally and never merged; the corrected history is
-  `stream/hosts`. The build session's git proxy refuses branch deletion.
+- Done 2026-10-20: the owner deleted `stream/c-hosts`.
 
 ## Open questions for the owner
 
