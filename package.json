@@ -9,7 +9,7 @@
   },
   "scripts": {
     "stage-assets": "node scripts/stage-runtime-assets.mjs",
-    "test:reader": "node --test --test-concurrency=1 tests/reader/fixups.test.mjs tests/reader/run-reader-tests.mjs"
+    "test:reader": "node --test --test-concurrency=1 tests/reader/fixups.test.mjs tests/reader/run-reader-tests.mjs tests/reader/ui-checks.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "5.3.0",

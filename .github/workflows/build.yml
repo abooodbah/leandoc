@@ -368,6 +368,16 @@ jobs:
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           LEANDOC_INSPECT="$GITHUB_WORKSPACE/build/inspect/tools/inspect/leandoc-inspect" npm run test:reader
 
+      - name: Upload the chrome-state screenshots and baseline candidates
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reader-ui
+          path: |
+            artifacts/ui-baselines/
+            artifacts/reader-screenshots/
+          retention-days: 14
+
       - name: Report the failure log as annotations
         if: failure()
         shell: bash
