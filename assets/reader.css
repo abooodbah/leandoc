@@ -326,7 +326,18 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  unicode-bidi: plaintext;
+}
+
+/* File names and paths read left to right in the interface, as in Explorer
+   and Finder, so "تقرير.docx" keeps its extension on the right. Each name is
+   isolated so its Arabic or Hebrew part still reads right to left. */
+.file-copy strong,
+.file-copy span,
+.tab-label,
+.recent-name,
+.recent-path {
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 
 .file-copy strong {
@@ -641,7 +652,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  unicode-bidi: plaintext;
 }
 
 .tab-close {
@@ -1133,7 +1143,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  unicode-bidi: plaintext;
 }
 
 .recent-name {

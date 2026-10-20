@@ -411,6 +411,21 @@ describe("fallback pages and empty state (VIEW-01)", () => {
       });
       assert.equal(await host.page.textContent("#stateTitle"), "Read Word documents without opening an office suite.");
       assert.equal(await host.page.locator(".recent-item").count(), 3);
+      // An Arabic file name keeps its extension on the right, as in Explorer.
+      const arabicName = host.page.locator(".recent-name").nth(1);
+      assert.equal(await arabicName.evaluate((node) => getComputedStyle(node).direction), "ltr");
+      const parts = await arabicName.evaluate((node) => {
+        const range = document.createRange();
+        const text = node.firstChild;
+        const extensionStart = text.textContent.indexOf(".docx");
+        range.setStart(text, 0);
+        range.setEnd(text, extensionStart);
+        const stem = range.getBoundingClientRect();
+        range.setStart(text, extensionStart);
+        range.setEnd(text, text.textContent.length);
+        return { stemLeft: stem.left, extensionLeft: range.getBoundingClientRect().left };
+      });
+      assert.ok(parts.extensionLeft > parts.stemLeft, "extension is drawn to the right of the Arabic name");
       await screenshot(host, "empty-state-light");
       const recent = host.waitFor((message) => message.type === "openRecent");
       await host.page.locator(".recent-item").nth(1).click();
