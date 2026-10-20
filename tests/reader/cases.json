@@ -23,6 +23,9 @@
       { "text": "the docs", "href": "https://example.invalid/docs" },
       { "text": "the team", "href": "mailto:team@example.invalid" }] } },
     { "file": "images.docx", "expect": { "imagesLoaded": 3 } },
+    { "file": "headers-footers.docx", "expect": {
+      "headers": ["First page header", "Even page header", "Odd page header", "Even page header"],
+      "footers": ["First page footer | page 1", "Even page footer | page 2", "Odd page footer | page 3", "Even page footer | page 4"] } },
     { "file": "tables.docx", "expect": { "count": { "table": 1 } } },
     { "file": "drawn-content.docx", "expect": {
       "coreText": false,

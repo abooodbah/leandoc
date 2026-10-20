@@ -596,9 +596,81 @@
     }
   }
 
+  // PAGE, NUMPAGES, and SECTIONPAGES fields differ on every page, but
+  // docx-preview shows the result Word cached once, and it renders the same
+  // header and footer model on every page, so every footer read "page 1".
+  // Their result text becomes a marker that the reader replaces with the
+  // page's own number once the pages exist (reader.js numberPageFields).
+  var PAGE_FIELD_START = "\ue000";
+  var PAGE_FIELD_END = "\ue001";
+
+  function pageFieldKeyword(instruction) {
+    var match = /^\s*([A-Za-z]+)/.exec(instruction || "");
+    var word = match ? match[1].toUpperCase() : "";
+    return word === "PAGE" || word === "NUMPAGES" || word === "SECTIONPAGES" ? word : "";
+  }
+
+  function paragraphRuns(paragraph) {
+    var runs = [];
+    eachModelElement(paragraph.children || [], function (element) {
+      if (element.type === "run") {
+        runs.push(element);
+      }
+    });
+    return runs;
+  }
+
+  function markPageFields(paragraph, stats) {
+    var fields = [];
+    paragraphRuns(paragraph).forEach(function (run) {
+      var children = Array.isArray(run.children) ? run.children : [];
+      if (run.fieldRun) {
+        children.forEach(function (child) {
+          if (child.type === "complexField" && child.charType === "begin") {
+            fields.push({ instruction: "", result: false, marked: false });
+          } else if (child.type === "complexField" && child.charType === "separate" && fields.length) {
+            fields[fields.length - 1].result = true;
+          } else if (child.type === "complexField" && child.charType === "end") {
+            fields.pop();
+          } else if (child.type === "instruction" && fields.length) {
+            fields[fields.length - 1].instruction += child.text || "";
+          }
+        });
+        return;
+      }
+      var field = fields[fields.length - 1];
+      var keyword = field && field.result ? pageFieldKeyword(field.instruction) : "";
+      if (!keyword) {
+        return;
+      }
+      children.forEach(function (child) {
+        if (child.type !== "text") {
+          return;
+        }
+        if (field.marked) {
+          child.text = "";
+          return;
+        }
+        child.text = PAGE_FIELD_START + keyword + ":" + String(child.text || "") + PAGE_FIELD_END;
+        field.marked = true;
+        stats.pageFields += 1;
+      });
+    });
+  }
+
+  // Replaces each marker in `text` with the number for its page; the cached
+  // value stays when a number is unknown.
+  function fillPageFields(text, pageNumber, pageCount) {
+    return String(text).replace(/\ue000(PAGE|NUMPAGES|SECTIONPAGES):([^\ue001]*)\ue001/g,
+      function (_match, keyword, cached) {
+        var value = keyword === "PAGE" ? pageNumber : pageCount;
+        return value > 0 ? String(value) : cached;
+      });
+  }
+
   function prepareModel(doc) {
     var stats = { bullets: 0, symbols: 0, paragraphs: 0, paired: false, bidiVisualTables: 0,
-      noteReferences: 0 };
+      noteReferences: 0, pageFields: 0 };
     if (!doc) {
       return stats;
     }
@@ -680,9 +752,11 @@
       }
     });
     eachModelElement(roots, function (element) {
-      if (element.type === "paragraph" && element.cssStyle &&
-          element.cssStyle["text-align"]) {
-        element.cssStyle["text-align"] = logicalTextAlign(element.cssStyle["text-align"]);
+      if (element.type === "paragraph") {
+        if (element.cssStyle && element.cssStyle["text-align"]) {
+          element.cssStyle["text-align"] = logicalTextAlign(element.cssStyle["text-align"]);
+        }
+        markPageFields(element, stats);
       } else if (element.type === "run") {
         fixRun(element, stats);
         fixNoteReferenceRun(element, stats);
@@ -720,6 +794,8 @@
     logicalTextAlign: logicalTextAlign,
     mapNumberFormat: mapNumberFormat,
     classifyHref: classifyHref,
+    fillPageFields: fillPageFields,
+    PAGE_FIELD_START: PAGE_FIELD_START,
     normalizeText: normalizeText,
     annotateBody: annotateBody,
     guardResources: guardResources,

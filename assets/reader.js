@@ -663,6 +663,21 @@
     return "auto " + Math.round(width) + "px auto " + Math.round(height) + "px";
   }
 
+  // PAGE, NUMPAGES, and SECTIONPAGES results arrive as markers (fixups.js
+  // markPageFields); each page gets its own number here.
+  function numberPageFields() {
+    var pages = elements.docBody.querySelectorAll(".docx-wrapper > section.docx");
+    for (var index = 0; index < pages.length; index += 1) {
+      var walker = document.createTreeWalker(pages[index], NodeFilter.SHOW_TEXT);
+      var node;
+      while ((node = walker.nextNode())) {
+        if (node.nodeValue.indexOf(Fixups.PAGE_FIELD_START) >= 0) {
+          node.nodeValue = Fixups.fillPageFields(node.nodeValue, index + 1, pages.length);
+        }
+      }
+    }
+  }
+
   function prepareDocumentDom() {
     if (currentView === "page") {
       elements.docBody.querySelectorAll(".docx-wrapper > section.docx").forEach(function (section) {
@@ -675,6 +690,7 @@
         }
       });
     }
+    numberPageFields();
     // Document ids (bookmarks) move to a data attribute so they can never
     // collide with the reader's own element ids.
     elements.docBody.querySelectorAll("[id]").forEach(function (node) {

@@ -818,6 +818,73 @@ private:
         }
     }
 
+    // PAGE, NUMPAGES, and SECTIONPAGES differ on every page, but docx-preview
+    // shows a field's cached result, which Word saved once. A simple field
+    // of these kinds keeps its instruction as a complex field, so the reader
+    // can number each page. Only the keyword is written, never the original
+    // instruction text; switches are dropped.
+    const char* PageFieldKeyword(pugi::xml_node field) {
+        const pugi::xml_attribute instruction = FindAttribute(scope_, field, Ns::W, "instr");
+        if (!instruction) {
+            return nullptr;
+        }
+        std::string text = instruction.value();
+        const std::size_t start = text.find_first_not_of(" \t");
+        if (start == std::string::npos) {
+            return nullptr;
+        }
+        const std::size_t end = text.find_first_of(" \t\\", start);
+        std::string keyword = text.substr(start, end == std::string::npos ? end : end - start);
+        for (char& character : keyword) {
+            if (character >= 'a' && character <= 'z') {
+                character = static_cast<char>(character - 'a' + 'A');
+            }
+        }
+        for (const char* known : {"PAGE", "NUMPAGES", "SECTIONPAGES"}) {
+            if (keyword == known) {
+                return known;
+            }
+        }
+        return nullptr;
+    }
+
+    pugi::xml_node UnwrapPageField(pugi::xml_node parent, pugi::xml_node field,
+                                   const char* keyword) {
+        const std::string fieldName = field.name();
+        const std::size_t colon = fieldName.find(':');
+        const std::string prefix =
+            colon == std::string::npos ? std::string() : fieldName.substr(0, colon + 1);
+        std::vector<pugi::xml_attribute> declarations;
+        for (pugi::xml_attribute attribute = field.first_attribute(); attribute;
+             attribute = attribute.next_attribute()) {
+            if (std::strncmp(attribute.name(), "xmlns", 5) == 0) {
+                declarations.push_back(attribute);
+            }
+        }
+        auto run = [&](pugi::xml_node before) {
+            pugi::xml_node created = before ? parent.insert_child_before(pugi::node_element, before)
+                                            : parent.append_child(pugi::node_element);
+            created.set_name((prefix + "r").c_str());
+            for (const pugi::xml_attribute& declaration : declarations) {
+                created.append_attribute(declaration.name()) = declaration.value();
+            }
+            return created;
+        };
+        auto fieldCharacter = [&](pugi::xml_node before, const char* type) {
+            pugi::xml_node character = run(before).append_child((prefix + "fldChar").c_str());
+            character.append_attribute((prefix + "fldCharType").c_str()) = type;
+        };
+        fieldCharacter(field, "begin");
+        pugi::xml_node instruction = run(field).append_child((prefix + "instrText").c_str());
+        instruction.append_attribute("xml:space") = "preserve";
+        instruction.text().set((std::string(" ") + keyword + " ").c_str());
+        fieldCharacter(field, "separate");
+        const pugi::xml_node after = field.next_sibling();
+        const pugi::xml_node first = Unwrap(parent, field);
+        fieldCharacter(after, "end");
+        return first;
+    }
+
     // Moves the element's children in front of it and removes it. Namespace
     // declarations on the element are copied to the moved children so their
     // prefixes still resolve. Returns the first moved node, or the next
@@ -910,11 +977,18 @@ private:
                     removedChild = true;
                     child = next;
                     break;
-                case Action::Unwrap:
+                case Action::Unwrap: {
+                    const char* pageField =
+                        childName.Is(Ns::W, "fldSimple") ? PageFieldKeyword(child) : nullptr;
                     scope_.Pop(mark);
-                    child = Unwrap(element, child);
+                    if (pageField != nullptr) {
+                        child = UnwrapPageField(element, child, pageField);
+                    } else {
+                        child = Unwrap(element, child);
+                    }
                     removedChild = true;
                     break;
+                }
                 case Action::Keep:
                 case Action::Alternate: {
                     const bool emptied = Process(child, childName);

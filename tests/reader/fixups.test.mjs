@@ -119,6 +119,40 @@ test("mailto links keep only their addresses and allowed parameters", () => {
   }
 });
 
+test("PAGE and NUMPAGES results become markers that each page fills in", () => {
+  const text = (value) => ({ type: "text", text: value });
+  const field = (charType) => ({ type: "run", fieldRun: true, children: [{ type: "complexField", charType }] });
+  const paragraph = {
+    type: "paragraph",
+    children: [
+      { type: "run", children: [text("Page ")] },
+      field("begin"),
+      { type: "run", fieldRun: true, children: [{ type: "instruction", text: " page \\* MERGEFORMAT " }] },
+      field("separate"),
+      { type: "run", children: [text("1")] },
+      field("end"),
+      { type: "run", children: [text(" of ")] },
+      field("begin"),
+      { type: "run", fieldRun: true, children: [{ type: "instruction", text: "NUMPAGES" }] },
+      field("separate"),
+      { type: "run", children: [text("9"), text("9")] },
+      field("end"),
+      field("begin"),
+      { type: "run", fieldRun: true, children: [{ type: "instruction", text: " DATE " }] },
+      field("separate"),
+      { type: "run", children: [text("1 May")] },
+      field("end")
+    ]
+  };
+  const doc = { documentPart: { body: { type: "body", children: [] } }, parts: [{ rootElement: { type: "footer", children: [paragraph] } }] };
+  const stats = Fixups.prepareModel(doc);
+  assert.equal(stats.pageFields, 2);
+  const rendered = paragraph.children.filter((run) => !run.fieldRun)
+    .flatMap((run) => run.children.map((child) => child.text)).join("");
+  assert.equal(Fixups.fillPageFields(rendered, 3, 12), "Page 3 of 121 May");
+  assert.equal(Fixups.fillPageFields(rendered, 0, 0), "Page 1 of 91 May", "cached values when unknown");
+});
+
 // Minimal element objects in the shape of an XML DOM: localName, children,
 // attributes.
 function el(localName, children = [], attributes = {}) {

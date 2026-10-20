@@ -311,7 +311,19 @@ describe("core fixtures through leandoc-inspect (RENDER-01, FIDELITY-01)", { ski
         (extra.links || []).forEach((link, index) => {
           assert.equal(result.linkHrefs[index], link.href, `${file}: link "${link.text}"`);
         });
-        if (extra.superscripts || extra.noteItems) {
+        if (extra.headers || extra.footers) {
+          const parts = await host.page.evaluate(() => ({
+            headers: Array.from(document.querySelectorAll("#docBody section.docx > header")).map((node) => node.textContent.trim()),
+            footers: Array.from(document.querySelectorAll("#docBody section.docx > footer")).map((node) => node.textContent.trim())
+          }));
+          if (extra.headers) {
+            assert.deepEqual(parts.headers, extra.headers, `${file}: headers per page`);
+          }
+          if (extra.footers) {
+            assert.deepEqual(parts.footers, extra.footers, `${file}: footers with each page's number`);
+          }
+        }
+                if (extra.superscripts || extra.noteItems) {
           const notes = await host.page.evaluate(() => ({
             sups: Array.from(document.querySelectorAll("#docBody article sup")).map((node) => node.textContent),
             items: Array.from(document.querySelectorAll("#docBody section.docx > ol > li")).map((node) => node.textContent.trim())

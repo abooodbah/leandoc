@@ -1018,6 +1018,23 @@ void TestDisplayedFeatures() {
     Expect(BodyText(output) == "7 cached" && !Contains(output, "fldSimple") &&
                !Contains(output, "INCLUDETEXT"),
            "simple fields become their result runs");
+
+    // PAGE-like simple fields keep their kind as a complex field so the reader
+    // can number each page; only the keyword is written.
+    output = SanitizedBody(
+        "<w:p><w:r><w:t>Page </w:t></w:r><w:fldSimple w:instr=\" page  \\* MERGEFORMAT \">"
+        "<w:r><w:t>1</w:t></w:r></w:fldSimple><w:r><w:t> of </w:t></w:r>"
+        "<w:fldSimple w:instr=\"NUMPAGES\"><w:r><w:t>9</w:t></w:r></w:fldSimple></w:p>");
+    Expect(BodyText(output) == "Page 1 of 9", "page fields keep their cached text");
+    Expect(!Contains(output, "fldSimple") && !Contains(output, "MERGEFORMAT"),
+           "page fields lose the simple form and their switches");
+    Expect(Contains(output, "<w:instrText xml:space=\"preserve\"> PAGE </w:instrText>") &&
+               Contains(output, "<w:instrText xml:space=\"preserve\"> NUMPAGES </w:instrText>"),
+           "page fields keep only their keyword");
+    Expect(Contains(output, "<w:fldChar w:fldCharType=\"begin\"/>") &&
+               Contains(output, "<w:fldChar w:fldCharType=\"separate\"/>") &&
+               Contains(output, "<w:fldChar w:fldCharType=\"end\"/>"),
+           "page fields become complex fields");
 }
 
 
