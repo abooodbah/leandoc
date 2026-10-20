@@ -1,0 +1,21 @@
+{
+  "name": "LeanDoc",
+  "short_name": "LeanDoc",
+  "description": "A read-only viewer for Word documents on Windows, Linux, and macOS.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#faf9f7",
+  "theme_color": "#1a1917",
+  "icons": [
+    {
+      "src": "assets/leandoc-icon.png",
+      "sizes": "256x256",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/leandoc-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

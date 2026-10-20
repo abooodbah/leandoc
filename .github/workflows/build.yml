@@ -1,0 +1,905 @@
+name: Build all platforms
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Build, test, and stage Windows files
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./scripts/build.ps1 -Configuration Release -Platform x64
+
+      - name: Run Windows static, payload, installer, and smoke checks
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/Test-LeanDoc.ps1 -DistPath ./dist -Smoke -Runtime
+
+      - name: Compare WebView2 browser-argument profiles
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/hosts/Compare-BrowserArguments.ps1 -ExePath ./dist/LeanDoc.exe
+
+      - name: Resolve release package version
+        id: package
+        shell: pwsh
+        env:
+          LEANDOC_REF_TYPE: ${{ github.ref_type }}
+          LEANDOC_REF_NAME: ${{ github.ref_name }}
+        run: |
+          $manifestVersion = [string](Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
+          $version = $manifestVersion
+          if ($env:LEANDOC_REF_TYPE -eq 'tag') {
+            if (-not $env:LEANDOC_REF_NAME.StartsWith('v')) {
+              throw ('Release tags must start with v: {0}' -f $env:LEANDOC_REF_NAME)
+            }
+            $version = $env:LEANDOC_REF_NAME.Substring(1)
+            if ($version -cne $manifestVersion) {
+              throw ('Tag version {0} does not match package.json version {1}.' -f $version, $manifestVersion)
+            }
+          }
+          ('version={0}' -f $version) | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Create Windows release package
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./scripts/package-release.ps1 -Version '${{ steps.package.outputs.version }}' -Platform x64
+
+      - name: Install, launch, and uninstall the release ZIP (L-02)
+        shell: pwsh
+        run: |
+          $zip = (Get-Item release/*.zip | Select-Object -First 1).FullName
+          node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/hosts/Test-WindowsLifecycle.ps1 -ZipPath $zip
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v7
+        with:
+          name: LeanDoc-v${{ steps.package.outputs.version }}-windows-x64
+          path: |
+            release/*.zip
+            release/*.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Report the failure log as annotations
+        if: failure()
+        shell: bash
+        run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "Windows"
+
+  windows-visual:
+    # The UI-01 captures launch LeanDoc once per fixture, theme, and view. About
+    # 90 launches on one runner could exhaust its desktop heap, and later
+    # processes failed to start with 0xC0000142, so each theme and view runs
+    # on its own fresh runner and windows-visual-check reviews them together.
+    name: Windows screenshots (UI-01, ${{ matrix.theme }} ${{ matrix.view }})
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        theme: [light, dark]
+        view: [page, reading]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Build and stage Windows files
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./scripts/build.ps1 -Configuration Release -Platform x64
+
+      - name: Capture every feature fixture in the real window (UI-01)
+        timeout-minutes: 10
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" --timeout 540 -- pwsh -NoProfile -File ./tests/visual/Capture-Windows.ps1 -ExePath ./dist/LeanDoc.exe -Themes ${{ matrix.theme }} -Views ${{ matrix.view }}
+
+      - name: Upload Windows screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: visual-windows-${{ matrix.theme }}-${{ matrix.view }}
+          path: artifacts/visual/windows/
+          retention-days: 14
+
+      - name: Report the failure log as annotations
+        if: failure()
+        shell: bash
+        run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "Windows screenshots"
+
+  windows-visual-check:
+    name: Windows screenshots (UI-01)
+    needs:
+      - windows-visual
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Download every Windows screenshot
+        uses: actions/download-artifact@v7
+        with:
+          pattern: visual-windows-*
+          path: artifacts/visual/windows
+          merge-multiple: true
+
+      - name: Check the Windows screenshots (UI-01)
+        shell: bash
+        run: node tests/visual/check-captures.mjs artifacts/visual/windows Windows
+
+  windows-usage:
+    # S-02 and the usage subset launch LeanDoc about 60 times; in the same job
+    # as the captures they exhausted the runner's desktop (later processes
+    # failed to start with 0xC0000142), so they run on a fresh runner.
+    name: Windows usage subset and network observation
+    runs-on: windows-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Build and stage Windows files
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./scripts/build.ps1 -Configuration Release -Platform x64
+
+      - name: Observe the network endpoints of every security fixture (S-02)
+        if: always()
+        timeout-minutes: 15
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" --timeout 720 -- pwsh -NoProfile -File ./tests/hosts/Observe-WindowsNetwork.ps1 -ExePath ./dist/LeanDoc.exe
+
+      - name: Report S-02 as a notice
+        if: always()
+        shell: bash
+        run: node tests/perf/annotate-results.mjs artifacts/network-windows/network-windows.md "S-02 Windows network observation"
+
+      - name: Run the Windows usage subset (U-01 U-04 U-07 U-08)
+        if: always()
+        timeout-minutes: 10
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" --timeout 480 -- pwsh -NoProfile -File ./tests/usage/Test-WindowsUsage.ps1 -ExePath ./dist/LeanDoc.exe
+
+      - name: Report the Windows usage subset as a notice
+        if: always()
+        shell: bash
+        run: node tests/perf/annotate-results.mjs artifacts/usage-windows/usage-windows.md "Usage subset Windows"
+
+      - name: Report the failure log as annotations
+        if: failure()
+        shell: bash
+        run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "Windows usage"
+
+  winget-validate:
+    name: winget manifests
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Validate the winget manifests
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./scripts/Test-WingetManifest.ps1
+
+      - name: Report the failure log as annotations
+        if: failure()
+        shell: bash
+        run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "winget"
+
+  linux:
+    name: Linux x86-64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install GTK, WebKitGTK, and package tools
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            appstream build-essential cmake dbus-x11 desktop-file-utils \
+            libgtk-4-dev libwebkitgtk-6.0-dev ninja-build pkg-config xdotool xvfb
+
+      - name: Install pinned reader assets
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Resolve release package version
+        id: package
+        shell: bash
+        env:
+          LEANDOC_REF_TYPE: ${{ github.ref_type }}
+          LEANDOC_REF_NAME: ${{ github.ref_name }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [[ "$LEANDOC_REF_TYPE" == "tag" ]]; then
+            [[ "$LEANDOC_REF_NAME" == "v$version" ]] || {
+              echo "Tag $LEANDOC_REF_NAME does not match package.json $version." >&2
+              exit 1
+            }
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Configure Linux Release build
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          cmake -S . -B build/linux -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DBUILD_TESTING=ON \
+            -DLEANDOC_ENABLE_GUI_TESTS=ON
+
+      - name: Build and run Linux tests
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          cmake --build build/linux --parallel
+          original_userns_restriction=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          trap 'sudo sysctl -w "kernel.apparmor_restrict_unprivileged_userns=${original_userns_restriction}" >/dev/null' EXIT
+          dbus-run-session -- ctest --test-dir build/linux --output-on-failure
+
+      - name: Validate desktop entry and AppStream metadata
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          desktop-file-validate packaging/linux/io.github.abooodbah.leandoc.desktop
+          appstreamcli validate --no-net --pedantic \
+            build/linux/io.github.abooodbah.leandoc.metainfo.xml
+
+      - name: Create and verify Debian package
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          bash ./scripts/package-linux.sh \
+            --version "${{ steps.package.outputs.version }}" \
+            --build-dir "${RUNNER_TEMP}/leandoc-linux-package" \
+            --output-dir "${GITHUB_WORKSPACE}/release"
+
+      - name: Upload Linux package
+        uses: actions/upload-artifact@v7
+        with:
+          name: LeanDoc-v${{ steps.package.outputs.version }}-linux-x86_64
+          path: |
+            release/*.deb
+            release/*.deb.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Report the failure log as annotations
+        if: failure()
+        shell: bash
+        run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "Linux"
+
+  macos:
+    name: macOS universal preview
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install pinned reader assets
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Resolve release package version
+        id: package
+        shell: bash
+        env:
+          LEANDOC_REF_TYPE: ${{ github.ref_type }}
+          LEANDOC_REF_NAME: ${{ github.ref_name }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [[ "$LEANDOC_REF_TYPE" == "tag" ]]; then
+            [[ "$LEANDOC_REF_NAME" == "v$version" ]] || {
+              echo "Tag $LEANDOC_REF_NAME does not match package.json $version." >&2
+              exit 1
+            }
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Configure universal macOS Release build
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          cmake -S . -B build/macos -G Xcode \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DBUILD_TESTING=ON
+
+      - name: Build and run macOS tests
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          cmake --build build/macos --config Release
+          ctest --test-dir build/macos -C Release --output-on-failure
+
+      - name: Create ad-hoc-signed macOS preview
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          cmake --build build/macos --config Release --target package_macos
+
+      - name: Check the preview ZIP's signature, architectures, and smoke (L-03)
+        shell: bash
+        env:
+          LEANDOC_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          bash tests/hosts/Test-MacPackage.sh "release/LeanDoc-v${LEANDOC_VERSION}-macos-universal-preview.zip"
+
+      - name: Capture every feature fixture in the real window (UI-01)
+        if: always()
+        shell: bash
+        run: |
+          app=$(find build/macos -name LeanDoc.app -type d -path '*Release*' | head -1)
+          bash tests/visual/capture-macos.sh "$app" artifacts/visual/macos || true
+
+      - name: Upload macOS screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: visual-macos
+          path: artifacts/visual/macos/
+          retention-days: 14
+
+      - name: Check the macOS screenshots (UI-01)
+        if: always()
+        shell: bash
+        run: node tests/visual/check-captures.mjs artifacts/visual/macos macOS
+
+      - name: Run the macOS usage subset (U-01 U-07 U-08)
+        if: always()
+        shell: bash
+        run: |
+          app=$(find build/macos -name LeanDoc.app -type d -path '*Release*' | head -1)
+          bash tests/usage/test-macos-usage.sh "$app" artifacts/usage-macos
+
+      - name: Report the macOS usage subset as a notice
+        if: always()
+        shell: bash
+        run: node tests/perf/annotate-results.mjs artifacts/usage-macos/usage-macos.md "Usage subset macOS"
+
+      - name: Verify macOS checksum and trust metadata
+        shell: bash
+        env:
+          LEANDOC_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          archive="LeanDoc-v${LEANDOC_VERSION}-macos-universal-preview.zip"
+          metadata="release/${archive}.metadata.json"
+          (
+            cd release
+            shasum -a 256 -c "${archive}.sha256"
+          )
+          digest=$(shasum -a 256 "release/${archive}" | awk '{print $1}')
+          jq -e \
+            --arg version "${LEANDOC_VERSION}" \
+            --arg artifact "${archive}" \
+            --arg digest "${digest}" '
+            .schemaVersion == 1 and
+            .product == "LeanDoc" and
+            .version == $version and
+            .platform == "macOS" and
+            .releaseChannel == "preview" and
+            .architectures == ["arm64", "x86_64"] and
+            .artifact.file == $artifact and
+            .artifact.sha256 == $digest and
+            .signing.mode == "ad-hoc" and
+            .signing.developerID == false and
+            .signing.hardenedRuntime == true and
+            .signing.trustedPublisher == false and
+            .notarization.status == "not-attempted" and
+            .notarization.ticketStapled == false and
+            .publicDistributionReady == false
+          ' "${metadata}"
+
+      - name: Upload macOS preview
+        uses: actions/upload-artifact@v7
+        with:
+          name: LeanDoc-v${{ steps.package.outputs.version }}-macos-universal-preview
+          path: |
+            release/*.zip
+            release/*.zip.sha256
+            release/*.zip.metadata.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Report the failure log as annotations
+        if: failure()
+        shell: bash
+        run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "macOS"
+
+  reader:
+    name: Reader in Chromium
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install pinned reader assets and test tools
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install the Chromium headless shell for the pinned Playwright
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          # The headless shell makes no background requests of its own; the
+          # tests fail on any network attempt the browser makes. The build is
+          # Chromium 141 (playwright-core 1.56.1), the one the committed pixel
+          # baselines in tests/visual/baselines/chromium-141 come from.
+          npm exec --yes --ignore-scripts --package=playwright-core@1.56.1 -- playwright-core install --only-shell chromium
+
+      - name: Build leandoc-inspect for the core-fixture cases
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          cmake -S . -B build/inspect -DCMAKE_BUILD_TYPE=Release \
+            -DLEANDOC_BUILD_HOSTS=OFF -DBUILD_TESTING=OFF
+          cmake --build build/inspect --target leandoc-inspect --parallel
+
+      - name: Run reader tests with static reports
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          npm run test:reader
+
+      - name: Run reader tests with the core's reports and packages
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          LEANDOC_INSPECT="$GITHUB_WORKSPACE/build/inspect/tools/inspect/leandoc-inspect" npm run test:reader
+
+      - name: Report the chrome states (UI-03, UI-07) as a notice
+        if: always()
+        shell: bash
+        run: node tests/perf/annotate-results.mjs artifacts/ui-baselines/summary.txt "UI-03 and UI-07 chrome states"
+
+      - name: Upload the chrome-state screenshots and baseline candidates
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reader-ui
+          path: |
+            artifacts/ui-baselines/
+            artifacts/reader-screenshots/
+          retention-days: 14
+
+      - name: Report the failure log as annotations
+        if: failure()
+        shell: bash
+        run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "Reader"
+
+  deb-lifecycle:
+    name: Linux package lifecycle (L-01)
+    needs: linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Download the Debian package
+        uses: actions/download-artifact@v7
+        with:
+          pattern: LeanDoc-v*-linux-x86_64
+          path: release
+          merge-multiple: true
+
+      - name: Install, launch, and purge in a clean ubuntu:24.04 container
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          # WebKit's bwrap sandbox needs unprivileged user namespaces.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          deb=$(ls release/*.deb | head -1)
+          docker run --rm --privileged -v "$PWD:/w" -w /w ubuntu:24.04 \
+            bash tests/hosts/Test-DebLifecycle.sh "$deb"
+
+      - name: Report the failure log as annotations
+        if: failure()
+        shell: bash
+        run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "Linux package lifecycle"
+
+  usage-linux:
+    name: Usage tasks on the Linux host
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install GTK, WebKitGTK, and the drivers' tools
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake dbus-x11 libgtk-4-dev libwebkitgtk-6.0-dev ninja-build \
+            pkg-config xvfb xdotool xclip imagemagick strace libreoffice-writer-nogui poppler-utils
+          npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Build the Linux host
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          cmake -S . -B build/t -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake --build build/t --parallel
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Run U-01 to U-15 through the real host
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          bash tests/usage/run-linux.sh python3 tests/usage/run_usage.py --out artifacts/usage
+          cat artifacts/usage/usage-linux.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload usage results and screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: usage-linux
+          path: |
+            artifacts/usage/*.json
+            artifacts/usage/*.md
+            artifacts/usage/shots/
+          retention-days: 14
+
+      - name: Report the failure log as annotations
+        if: failure()
+        shell: bash
+        run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "Usage"
+
+  perf-memory-linux:
+    name: perf-memory (Linux)
+    if: github.event_name != 'push' || startsWith(github.ref, 'refs/heads/test/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install GTK, WebKitGTK, and the harness tools
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake dbus-x11 libgtk-4-dev libwebkitgtk-6.0-dev ninja-build \
+            pkg-config xvfb xdotool
+          npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Build the Linux host (Release)
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          cmake -S . -B build/t -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+          cmake --build build/t --parallel
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Measure P-01 to P-11 and M-01 to M-09
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          status=0
+          bash tests/usage/run-linux.sh python3 tests/perf/run_perf.py --runs 10 --advisory-leak-checks --out artifacts/perf || status=$?
+          cat artifacts/perf/perf-linux.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Report the results as a notice
+        if: always()
+        shell: bash
+        run: node tests/perf/annotate-results.mjs artifacts/perf/perf-linux.md "perf-memory Linux results" "$RUNNER_TEMP/ci.log" "^  M-0[678] "
+
+      - name: Profile the UI process's heap while idle (M-08 diagnostic)
+        if: always()
+        shell: bash
+        run: |
+          bash tests/usage/run-linux.sh python3 tests/perf/heap_profile.py --minutes 5 --out artifacts/perf || true
+          node tests/perf/annotate-results.mjs artifacts/perf/heap-profile.md "Heap profile of the idle UI process"
+
+      - name: Upload performance results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-linux
+          path: |
+            artifacts/perf/*.json
+            artifacts/perf/*.md
+          retention-days: 30
+
+      - name: Report the failure log as annotations
+        if: failure()
+        shell: bash
+        run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "perf-memory Linux"
+
+  perf-memory-windows:
+    name: perf-memory (Windows)
+    if: github.event_name != 'push' || startsWith(github.ref, 'refs/heads/test/')
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Build and stage Windows files
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./scripts/build.ps1 -Configuration Release -Platform x64
+
+      - name: Download LeanMark 0.3.0 for the family comparison
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $folder = Join-Path $env:RUNNER_TEMP 'leanmark'
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          gh release download v0.3.0 --repo abooodbah/leanmark --pattern '*windows-x64.zip' --dir $folder
+          if ($LASTEXITCODE -ne 0) { Write-Output '::notice title=LeanMark comparison skipped::The LeanMark 0.3.0 release ZIP could not be downloaded.'; exit 0 }
+          $zip = Get-Item (Join-Path $folder '*.zip') | Select-Object -First 1
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath (Join-Path $folder 'app')
+          $exe = Get-ChildItem -LiteralPath (Join-Path $folder 'app') -Recurse -Filter LeanMark.exe | Select-Object -First 1
+          ('LEANMARK_EXE={0}' -f $exe.FullName) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Measure the launch scenarios (P-01 to P-06, M-01 to M-05)
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/perf/Measure-LeanDocPerf.ps1 -ExePath ./dist/LeanDoc.exe -LeanMarkExePath "$env:LEANMARK_EXE" -Runs 10
+
+      - name: Report the results as a notice
+        if: always()
+        shell: bash
+        run: node tests/perf/annotate-results.mjs artifacts/perf-windows/perf-windows.md "perf-memory Windows results" "$RUNNER_TEMP/ci.log" "LeanMark|^  report|^  empty"
+
+      - name: Upload performance results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-windows
+          path: |
+            artifacts/perf-windows/*.json
+            artifacts/perf-windows/*.md
+          retention-days: 30
+
+      - name: Report the failure log as annotations
+        if: failure()
+        shell: bash
+        run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "perf-memory Windows"
+
+  release-engineering:
+    name: Release engineering
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Check versions, notices, names, and wording
+        shell: bash
+        run: node scripts/ci-log.mjs run "$RUNNER_TEMP/ci.log" -- node scripts/Test-ReleaseEngineering.mjs
+
+      - name: Report the failure log as annotations
+        if: failure()
+        shell: bash
+        run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "Release engineering"
+
+  release:
+    name: Publish one verified release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - build
+      - linux
+      - macos
+      - reader
+      - release-engineering
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out release notes
+        uses: actions/checkout@v7
+
+      - name: Download all verified packages
+        uses: actions/download-artifact@v7
+        with:
+          pattern: LeanDoc-v${{ needs.build.outputs.version }}-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify complete artifact set and checksums
+        shell: bash
+        env:
+          LEANDOC_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          expected=(
+            "LeanDoc-v${LEANDOC_VERSION}-windows-x64.zip"
+            "LeanDoc-v${LEANDOC_VERSION}-windows-x64.zip.sha256"
+            "LeanDoc-v${LEANDOC_VERSION}-linux-x86_64.deb"
+            "LeanDoc-v${LEANDOC_VERSION}-linux-x86_64.deb.sha256"
+            "LeanDoc-v${LEANDOC_VERSION}-macos-universal-preview.zip"
+            "LeanDoc-v${LEANDOC_VERSION}-macos-universal-preview.zip.sha256"
+            "LeanDoc-v${LEANDOC_VERSION}-macos-universal-preview.zip.metadata.json"
+          )
+          for file in "${expected[@]}"; do
+            test -f "release-assets/$file"
+          done
+          (
+            cd release-assets
+            sha256sum -c *.sha256
+          )
+          mac_archive="LeanDoc-v${LEANDOC_VERSION}-macos-universal-preview.zip"
+          mac_metadata="release-assets/${mac_archive}.metadata.json"
+          mac_digest=$(sha256sum "release-assets/${mac_archive}" | awk '{print $1}')
+          jq -e \
+            --arg version "${LEANDOC_VERSION}" \
+            --arg artifact "${mac_archive}" \
+            --arg digest "${mac_digest}" '
+            .version == $version and
+            .releaseChannel == "preview" and
+            .architectures == ["arm64", "x86_64"] and
+            .artifact.file == $artifact and
+            .artifact.sha256 == $digest and
+            .publicDistributionReady == false
+          ' "${mac_metadata}"
+
+      - name: Publish the GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LEANDOC_TAG: ${{ github.ref_name }}
+        run: |
+          notes="docs/releases/${LEANDOC_TAG}.md"
+          test -f "$notes"
+          gh release create "$LEANDOC_TAG" \
+            release-assets/* \
+            --verify-tag \
+            --latest \
+            --title "LeanDoc $LEANDOC_TAG" \
+            --notes-file "$notes"
+
+  pages:
+    name: Deploy release website
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Check out released source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Verify launch site
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          test -f site/index.html
+          if [[ -f site/validate.mjs ]]; then
+            node site/validate.mjs
+          fi
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload static site
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
