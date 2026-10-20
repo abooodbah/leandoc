@@ -64,6 +64,7 @@ features.
 | `features/long-300-pages.docx` | docx | ok | none | 300 pages built with python-docx: headings every page, a page break after each, for the 500 ms open budget. |
 | `features/mixed-direction.docx` | docx | ok | none | English and Arabic in one document and in one paragraph; the first paragraph is left to right. |
 | `features/not-displayed.docx` | docx | ok | chart 1, equation 1, shape 1, smartart 1, text-box 1 | One of each not-displayed feature in a form docx-preview 0.4.1 does not draw: text box, equation, chart, SmartArt, and shape, for the fidelity bar. |
+| `features/notes-superscript.docx` | docx | ok | none | Footnote and endnote references with direct superscript formatting mixed with styled ones; each must be numbered once, in order. |
 | `features/notes.docx` | docx | ok | none | Two footnotes and one endnote, hand-written footnotes.xml and endnotes.xml. |
 | `features/numbering.docx` | docx | ok | none | Three levels (decimal, lowerLetter, lowerRoman) and a second list restarted with startOverride. |
 | `features/styles.docx` | docx | ok | none | A basedOn chain of three paragraph styles, a heading style inherited through basedOn, a heading level from the built-in name, character styles based on each other, direct outlineLvl, and outlineLvl 9 (body). |
