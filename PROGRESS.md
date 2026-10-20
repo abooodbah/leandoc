@@ -16,7 +16,7 @@ Updated: 2026-10-20
 ## In progress
 
 - Phase 1: stream B (reader) done on `stream/b-reader`. Streams A (core,
-  `stream/a-core`) and C (hosts, packaging, CI, `stream/c-hosts`) resumed
+  `stream/a-core`) and C (hosts, packaging, CI, `stream/hosts`) resumed
   from their pushed work after a session restart.
 
 ## Remaining
@@ -25,6 +25,13 @@ Updated: 2026-10-20
   performance, and memory ([docs/TEST_PLAN.md](docs/TEST_PLAN.md)); phase 4
   README and site; phase 5 CI on three platforms and release candidate check;
   phase 6 v0.1.0 release; phase 7 winget and companion PRs.
+
+## Owner actions
+
+- Delete the branch `stream/c-hosts` on GitHub
+  (https://github.com/abooodbah/leandoc/branches). One commit on it carried the
+  wrong author. It is dropped locally and never merged; the corrected history is
+  `stream/hosts`. The build session's git proxy refuses branch deletion.
 
 ## Open questions for the owner
 
