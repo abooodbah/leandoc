@@ -40,7 +40,8 @@ ignores them; CI uploads them as artifacts).
 | D-23 | 2 | Reader, Linux | After Tab past the last control, or Ctrl+Tab on Linux, no key reached the page until a click | 7575fdf | `linux_regressions.py` (keyboard focus), reader test "Tab wraps around", UI-06 |
 | D-24 | 1 | Linux | Every picture showed as an empty frame | a27bf73 | `linux_regressions.py` (images), `Test-LinuxSource.mjs` |
 | D-25 | 3 | Reader | Every freshly opened document was framed by the blue keyboard-focus ring | 3e2d7cc | reader test "without a focus ring" |
-| D-26 | 2 | Linux runner | M-07 missed its budget on the CI runner: 23.8, 31.3, and 66.7 MiB in three runs (15 allowed); 7.9 MiB in the session | open | M-07 in `tests/perf/run_perf.py` |
+| D-26 | 2 | Linux | The leak checks M-06 to M-08 pass in some runs and fail in others (web process garbage; live UI heap growth on some runner images) | open | M-06 to M-08 in `tests/perf/run_perf.py`, `tests/perf/heap_profile.py` |
+| D-27 | 2 | Linux | The UI process kept about 20 MiB of freed heap after reading documents | 64535ea | M-06 to M-08, `Test-LinuxSource.mjs` |
 
 Every defect above except D-26 is fixed. D-26 is open, with its analysis below. Known gaps that remain are listed at the end.
 
@@ -276,30 +277,48 @@ Every defect above except D-26 is fixed. D-26 is open, with its analysis below. 
   hides the ring until the document area loses the focus; Tab back to it
   shows the ring.
 
-### D-26: M-07 growth on the Linux runner (severity 2, open)
+### D-26: Linux leak checks disagree between runs (severity 2, open)
 
-- Steps: ten 3-page reports as tabs; cycle through all of them 50 times,
-  then switch between page and reading view 50 times (M-07). The budget is
-  growth under 15 MiB from the first cycle to the last.
-- Actual: on the CI runner (AMD EPYC, WebKitGTK 2.52.6) the tree grew 23.8,
-  31.3, and 66.7 MiB in three runs; in the session 7.9 MiB. The tab cycles
-  themselves do not grow (175.8 to 177.1 MiB on the runner); the growth
-  comes during the view switches, in the WebKit web process (44.8 to
-  68.3 MiB) and in sample-to-sample variation of the UI process (about 7 MiB
-  under Mesa's software GL).
-- Analysis: it is not memory the reader keeps. In Chromium with forced
-  garbage collection, 160 view switches leave the JavaScript heap at 3.4 MiB
-  (3.1 after the first 10) with a constant 314 DOM nodes and 65 listeners.
-  On the Linux host the web process levels off: 35, 44, 53, 58, and 60 MiB
-  after 2, 10, 26, 50, and 100 switches, and 64 to 66 MiB after 100 to 200.
-  A lower WebKit memory-pressure threshold (15 percent of the limit) changed
-  nothing, so this is the size WebKit's heap settles at after repeated
-  re-renders, not garbage it would release under pressure.
-- What closes it: either an owner decision that M-07 measures a leak as
-  growth that keeps rising (for example after 50 against after 200
-  switches, which levels off here), or a reader change that re-renders less
-  on a view switch (for example keeping both views' DOM for small
-  documents), measured on the runner.
+- Checks: M-06 (open and close the 300-page report 30 times), M-07 (cycle
+  ten tabs 50 times, then 50 view switches), M-08 (idle ten minutes).
+- Actual, final revision 64535ea: in the session M-06 +20.1 percent (fail),
+  M-07 10.0 MiB, M-08 -0.04 MiB; on the runner M-06 +3.2 percent, M-07
+  83.8 MiB (fail), M-08 94.2 MiB (fail). Earlier runs: M-06 -14.9 and -13.2
+  percent; M-07 7.9 MiB in the session and 23.8, 31.3, 35.6, 51.1, and
+  66.7 MiB on runners; M-08 flat on most runs, +34 and +35 MiB on two.
+- Analysis, web process: WebKit keeps a closed or re-rendered document's
+  garbage until JavaScriptCore next collects, and an idle reader does not
+  trigger a collection; the web process moved 66.8, 81.3, 69.6, 101.5 MiB
+  over the session's M-06 samples. The reader holds none of it: in
+  Chromium with forced collection, 160 view switches leave the JavaScript
+  heap at 3.4 MiB (3.1 after the first 10) with a constant 314 DOM nodes
+  and 65 listeners. On the Linux host the web process levels off over 200
+  view switches (35, 44, 53, 58, 60 MiB after 2, 10, 26, 50, 100 switches,
+  64 to 66 MiB after 100 to 200). A lower memory-pressure threshold (15
+  percent of the limit) changed nothing. There is no WebKitGTK API to
+  collect on demand.
+- Analysis, UI process: on runner images where M-01 is near 192 MiB
+  (150 MiB on the others, 149 MiB in the session) the UI process's main
+  heap grows by live allocations: +75 MiB over the M-07 tab cycles, +94 MiB
+  in minutes 2 to 4 of M-08 at 0.19 s of CPU in ten minutes. The heap trim
+  of D-27 does not release it, and the session does not show it. The perf
+  job runs `tests/perf/heap_profile.py` (heaptrack attached to the idle UI
+  process) to name the allocation site.
+- What closes it: the heaptrack result for the runner growth, then a fix or
+  an attribution outside LeanDoc; for the web process, an owner decision
+  that the leak checks gate on a rising trend (samples after 10, 20, and 30
+  closes; after 50 and 200 view switches), which levels off here.
+
+### D-27: freed heap kept by the Linux UI process (severity 2)
+
+- Found while analysing D-26: the UI process's main heap held about 20 MiB
+  that reading and sanitizing documents had freed; glibc keeps free pages
+  below the top of the heap. On one runner image the UI process grew by
+  25 MiB over the M-06 cycles this way.
+- Fix: 3 s after a document is shown or its package dropped, the host calls
+  `malloc_trim(0)` once (never on a timer while nothing happens). The UI
+  process now stays at 98.5 MiB through M-06 to M-08 in the session (it was
+  112 to 127 MiB). The memory harness samples after the trim.
 
 ## Known gaps
 

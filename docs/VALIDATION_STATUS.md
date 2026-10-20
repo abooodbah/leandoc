@@ -21,18 +21,18 @@ laptop run of `tests/owner/`.
 | Usage, Windows and macOS subsets | Passed on the runners | U-01, U-04, U-07, and U-08 on Windows; U-01, U-07, and U-08 on macOS. These hosts have no script hook, so the subsets are what the launch hooks can observe. |
 | UI (UI-01 to UI-10) | Passed, sign-off pending | Linux screenshots reviewed as images; Windows and macOS screenshots checked in CI and reviewed as statistics and text thumbnails (artifact downloads are blocked in the session). A person still signs off the three contact sheets. |
 | Performance (P-01 to P-11) | Passed | Every budget met in the session, on the Linux runner, and on the Windows runner (P-01 to P-06 there). P-01 in the session sits close to its budget under Xvfb. |
-| Memory (M-01 to M-09) | One open defect | M-07 missed its budget on the Linux runner (D-26, open, analysed); every other budget met. |
+| Memory (M-01 to M-09) | One open defect | M-01 to M-05 and M-09 met on every layer. The leak checks M-06 to M-08 failed in some Linux runs (D-26, open, analysed); the UI process's freed heap is now returned (D-27). |
 | Security in use (S-01 to S-06) | Passed | strace of the whole Linux process tree, Windows endpoint observation, ASan and UBSan, a 30-minute fuzz smoke, the corpus through Chromium and the Linux host, and file hashes. |
 | Install and package lifecycle (L-01 to L-04) | Passed | `.deb` in a clean container, Windows ZIP install and uninstall, macOS ZIP signature and architectures, winget manifests. |
-| Defects | 26 found, 25 fixed | Each fixed defect has a regression test; see [TEST_REPORT.md](TEST_REPORT.md). |
+| Defects | 27 found, 26 fixed | Each fixed defect has a regression test; see [TEST_REPORT.md](TEST_REPORT.md). |
 
 ## Machines and methods
 
 | Layer | Machine | Runtime | Method |
 | --- | --- | --- | --- |
 | Linux session | Intel Xeon @ 2.80 GHz, 4 logical processors, 15.7 GiB, Ubuntu 24.04.5 | WebKitGTK 2.52.6, GTK 4.14.5, Xvfb 2560 x 1600, Mesa llvmpipe, `WEBKIT_DISABLE_COMPOSITING_MODE=1` | `tests/usage/run-linux.sh` (own D-Bus session and Xvfb display) around the Python harnesses |
-| Linux runner | GitHub `ubuntu-24.04`, AMD EPYC 7763, 4 logical processors, 15.6 GiB | as the session | the same harnesses in the `perf-memory (Linux)` and `usage-linux` jobs |
-| Windows runner | GitHub `windows-latest`, Windows Server 2025 Datacenter 10.0.26100, AMD EPYC 9V74 or Intel Xeon Platinum 8573C, 4 logical processors, 16 GiB | WebView2 154.0.4258.62 | `tests/perf/Measure-LeanDocPerf.ps1`, `tests/usage/Test-WindowsUsage.ps1`, `tests/hosts/*.ps1` |
+| Linux runner | GitHub `ubuntu-24.04`, AMD EPYC (7763 or 9V74, by run; 9V74 for 64535ea), 4 logical processors, 15.6 GiB | as the session | the same harnesses in the `perf-memory (Linux)` and `usage-linux` jobs |
+| Windows runner | GitHub `windows-latest`, Windows Server 2025 Datacenter 10.0.26100, AMD EPYC or Intel Xeon by run (AMD EPYC 9V45 for 64535ea), 4 logical processors, 16 GiB | WebView2 154.0.4258.62 | `tests/perf/Measure-LeanDocPerf.ps1`, `tests/usage/Test-WindowsUsage.ps1`, `tests/hosts/*.ps1` |
 | macOS runner | GitHub `macos` | WKWebView | `tests/usage/test-macos-usage.sh`, `tests/visual/capture-macos.sh`, `tests/hosts/Test-MacPackage.sh` |
 | Reader | headless Chromium 141.0.7390.37 (Playwright headless shell 1194), fake host | | `npm run test:reader`: 76 tests, plus the core-fixture cases with `LEANDOC_INSPECT` |
 
@@ -84,54 +84,68 @@ bytes of the tree, as LeanMark measures it.
 
 ## Performance
 
-Median of 10 launches. The Linux session run is revision 587e7d0 (the final
-product code); the runner runs are revision 2107331.
+Median of 10 launches, all three columns on revision 64535ea (the final
+product code). On Windows, P-07 to P-11 need the script hook, which only the
+Linux host has.
 
 | ID | Budget | Linux session | Linux runner | Windows runner |
 | --- | --- | ---: | ---: | ---: |
-| P-01 window visible | < 300 ms | 294.5 ms (262.0 ms in a second run) | 191.5 ms | 37 ms |
-| P-02 first page, 3 pages | < 1.0 s | 619.5 ms | 576.0 ms | 433 ms |
-| P-03 first page, 300 pages | < 2.5 s | 1302.0 ms | 1210.0 ms | 831.5 ms |
-| P-04 first page, 1,000 pages, responsive | < 6 s; no long stall | 3170.5 ms; longest stall web 407.7 ms, UI 106.4 ms | 2758.5 ms; 349.9 ms, 82.7 ms | 1775.5 ms |
-| P-05 core open and sanitize (worst document) | 50 / 500 / 1500 / 1000 ms | 173.2 ms | 160.7 ms | 122.8 ms |
-| P-06 second document as a tab | < 500 ms | 277.6 ms | 251.3 ms | 27.4 ms |
-| P-07 tab switch back, 300 pages | < 1.5 s | 960.0 ms | 844.5 ms | not run |
-| P-08 view switch, 300 pages | < 1.5 s | 1078.0 ms | 824.0 ms | not run |
-| P-09 find, 300 pages | < 300 ms | 181.5 ms (1/1114) | 177.0 ms | not run |
-| P-10 scrolling, 300 pages | 95 percent of frames < 33 ms (Chromium) | Chromium: 100 percent under 33 ms, p95 16.7 ms (809 frames, 3 runs); WebKitGTK p95 81 ms, recorded | WebKitGTK p95 48 ms, recorded | not run |
-| P-11 zoom step, 300 pages | < 300 ms | 228.0 ms | 185.0 ms | not run |
+| P-01 window visible | < 300 ms | 252.0 ms | 172.0 ms | 37 ms |
+| P-02 first page, 3 pages | < 1.0 s | 631.0 ms | 516.5 ms | 432.5 ms |
+| P-03 first page, 300 pages | < 2.5 s | 1380.0 ms | 987.5 ms | 763 ms |
+| P-04 first page, 1,000 pages, responsive | < 6 s; no long stall | 3717.5 ms; longest stall web 339.5 ms, UI 82.7 ms | 2169.0 ms; 215.6 ms, 80.8 ms | 1639 ms |
+| P-05 core open and sanitize (worst document) | 50 / 500 / 1500 / 1000 ms | 176.8 ms | 118.8 ms | 105.3 ms |
+| P-06 second document as a tab | < 500 ms | 295.5 ms | 249.6 ms | 26.2 ms |
+| P-07 tab switch back, 300 pages | < 1.5 s | 1176.5 ms | 738.0 ms | not run |
+| P-08 view switch, 300 pages | < 1.5 s | 1048.5 ms | 683.5 ms | not run |
+| P-09 find, 300 pages | < 300 ms | 195.5 ms (1/1114) | 161.0 ms | not run |
+| P-10 scrolling, 300 pages | 95 percent of frames < 33 ms (Chromium) | Chromium: 100 percent under 33 ms, p95 16.7 ms (809 frames, 3 runs); WebKitGTK p95 91 ms, recorded | WebKitGTK p95 44 ms, recorded | not run |
+| P-11 zoom step, 300 pages | < 300 ms | 254.5 ms | 158.0 ms | not run |
 
-P-07 to P-11 need the script hook, which only the Linux host has. Under Xvfb
-the GTK host renders with Mesa's software GL; about 125 ms of P-01 in the
-session is its start-up. P-04 was a budget miss before D-22 (longest web
-stall 3,927 ms).
+Under Xvfb the GTK host renders with Mesa's software GL; about 125 ms of
+P-01 in the session is its start-up, and session medians of P-01 ranged from
+231 to 295 ms between runs of the same build. P-04 was a budget miss before
+D-22 (longest web stall 3,927 ms). P-05's worst document is the 20 MB
+image-heavy one; each document met its own budget.
 
 ## Memory
 
 | ID | Budget | Linux session | Linux runner | Windows runner |
 | --- | --- | ---: | ---: | ---: |
-| M-01 empty window | baseline | 149.4 MiB (private 219.0, PSS 280.2) | 150.2 MiB | 88.2 MiB |
-| M-02 3 pages | M-01 + 40 | +17.9 | +16.9 | +12.4 |
-| M-03 300 pages | M-01 + 120 | +72.2 | +67.2 | +90.1 |
-| M-04 1,000 pages | M-01 + 300 | +219.9 | +214.3 | +294.1 |
-| M-05 five tabs | M-02 + 25 | 165.9 (budget 192.3) | 167.6 (192.1) | 101.2 (125.6) |
-| M-06 open and close 300 pages 30 times | at most +10 % | -14.9 % | -13.2 % | not run |
-| M-07 10 tabs x 50, 50 view switches | growth < 15 MiB | 7.9 MiB | **23.8 MiB (fail, D-26)** | not run |
-| M-08 idle 10 minutes | < 5 MiB, no CPU | -0.04 MiB, 0.23 s CPU (0.038 % of a core) | -0.04 MiB, 0.2 s | not run |
-| M-09 security fixtures | peak within M-02 | 249.4 MiB UI process peak against 252.0 | 250.2 against 255.4 | not run |
+| M-01 empty window | baseline | 148.9 MiB (private 216.6, PSS 277.4) | 191.8 MiB | 89.3 MiB |
+| M-02 3 pages | M-01 + 40 | +9.2 | +7.7 | +11.9 |
+| M-03 300 pages | M-01 + 120 | +78.1 | +72.6 | +88.8 |
+| M-04 1,000 pages | M-01 + 300 | +202.8 | +204.9 | +293.8 |
+| M-05 five tabs | M-02 + 25 | 159.9 (budget 183.1) | 205.6 (224.5) | 101.9 (126.2) |
+| M-06 open and close 300 pages 30 times | at most +10 % | **+20.1 % (fail, D-26)** | +3.2 % | not run |
+| M-07 10 tabs x 50, 50 view switches | growth < 15 MiB | 10.0 MiB | **83.8 MiB (fail, D-26)** | not run |
+| M-08 idle 10 minutes | < 5 MiB, no CPU | -0.04 MiB, 0.26 s CPU (0.043 % of a core) | **94.2 MiB (fail, D-26)**, 0.19 s CPU | not run |
+| M-09 security fixtures | peak within M-02 | 247.4 MiB UI process peak against 250.8 | 265.8 against 279.4 | not run |
 
-M-06 is a leak check: the value after the first close still holds the
-closed document's garbage, so the final value may be lower; the runner's
-samples after closes 1, 10, 20, and 30 were 250.9, 252.3, 215.4, and
-217.7 MiB. Earlier runner runs of M-07 gave 31.3 and 66.7 MiB; one earlier
-runner run of M-08 grew 34 MiB in the UI process while the next one stayed
-flat to 0.1 MiB, and the harness now records the UI process's mappings each
-minute so a repeat can be attributed.
+The leak checks are where the runs disagree, and [D-26](TEST_REPORT.md) is
+open for them. Two things move the Linux figures:
 
-Same Windows runner, same method (private bytes of the tree): LeanDoc 88.2
-MiB empty, 100.6 MiB with a 3-page report, 178.3 MiB with a 300-page
-report; LeanMark 0.3.0 113 MiB with README.md and 99.7 MiB with a
-300-section Markdown file.
+- The WebKit web process keeps the garbage of a closed or re-rendered
+  document until JavaScriptCore next collects, which an idle reader does not
+  trigger. Its share of the tree moves by up to 35 MiB between samples
+  (M-06 in the session: 66.8, 81.3, 69.6, and 101.5 MiB after closes 1, 10,
+  20, and 30), so M-06 passed at -14.9 and -13.2 percent in earlier runs
+  and failed at +20.1 percent in the final one. The reader holds none of it:
+  in Chromium with forced collection, 160 view switches leave a 3.4 MiB
+  JavaScript heap with constant DOM nodes and listeners, and over 200 view
+  switches on the Linux host the web process levels off at 60 to 66 MiB.
+- On some runner images (the ones with M-01 near 192 MiB, against 150 MiB on
+  the others and 149 MiB in the session) the UI process's main heap grows by
+  live allocations: +75 MiB over the M-07 tab cycles and +94 MiB in minutes
+  2 to 4 of M-08, with 0.19 s of CPU in ten minutes. The heap trim (D-27)
+  does not release it, and the session does not show it (UI process flat at
+  98.5 MiB through M-06 to M-08). The perf job now runs heaptrack against
+  the idle UI process to name the allocation site.
+
+Same Windows runner, same method (private bytes of the tree): LeanDoc 89.3
+MiB empty, 101.2 MiB with a 3-page report, 178.1 MiB with a 300-page
+report; LeanMark 0.3.0 112.9 MiB with README.md and 99.9 MiB with a
+300-section Markdown file. M-04 on Windows passes with 6 MiB to spare.
 
 ## Security in use
 
@@ -155,8 +169,8 @@ report; LeanMark 0.3.0 113 MiB with README.md and 99.7 MiB with a
 
 ## Open items
 
-- D-26 (M-07 on the Linux runner) is open; the test report gives the
-  analysis and what closes it.
+- D-26 (the Linux leak checks M-06 to M-08) is open; the test report gives
+  the analysis and what closes it.
 - The owner signs off the three UI-01 contact sheets.
 - Published figures and the Word comparison remain the owner's laptop run
   (PERF-EXT); nothing here is a product claim.
