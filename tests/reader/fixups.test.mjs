@@ -313,9 +313,19 @@ test("The stage script copies the runtime files and refuses source folders", () 
 });
 
 test("Reader files contain no em dash and no banned wording", () => {
-  const banned = /—|ultra-lightweight|blazing fast|zero dependency|completely secure/i;
-  for (const file of ["reader.html", "reader.css", "reader.js", "fixups.js", "fidelity.js"]) {
-    const text = readFileSync(path.join(repositoryRoot, "assets", file), "utf8");
-    assert.equal(banned.test(text), false, file);
+  const banned = /\u2014|ultra-lightweight|blazing fast|zero dependency|completely secure/i;
+  const files = [
+    ...["reader.html", "reader.css", "reader.js", "fixups.js", "fidelity.js"].map((file) => path.join("assets", file)),
+    ...readdirSync(path.join(repositoryRoot, "tests", "reader"))
+      .filter((file) => /\.(mjs|json|md|py)$/.test(file))
+      .map((file) => path.join("tests", "reader", file)),
+    path.join("scripts", "stage-runtime-assets.mjs"),
+    path.join("docs", "notices", "reader.md")
+  ];
+  for (const file of files) {
+    const text = readFileSync(path.join(repositoryRoot, file), "utf8");
+    // This file names the banned words in its own pattern.
+    const pattern = file.endsWith("fixups.test.mjs") ? /\u2014/ : banned;
+    assert.equal(pattern.test(text), false, file);
   }
 });
