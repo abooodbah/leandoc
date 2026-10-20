@@ -825,8 +825,7 @@ void LinuxApp::SendJson(const std::string& json) {
     }
     // The JSON is a literal object, never a string that the page evaluates.
     static constexpr std::string_view kPrefix =
-        "document.dispatchEvent(new CustomEvent(\"leandoc-message\","
-        "{bubbles:true,detail:";
+        "window.dispatchEvent(new CustomEvent(\"leandoc-message\",{detail:";
     std::string script;
     script.reserve(kPrefix.size() + json.size() + 8);
     script += kPrefix;
