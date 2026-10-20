@@ -38,6 +38,8 @@ ignores them; CI uploads them as artifacts).
 | D-21 | 2 | Reader | Accessibility: the fallback page's heading label had 4.0:1 contrast in the dark theme | 526fb5b | UI-07 |
 | D-22 | 2 | Reader, Linux | The 1,000-page report froze the page for 3.9 s while it loaded (P-04 responsiveness) | 20332ef | P-04 probe in `tests/perf/run_perf.py`, reader test (1,000 pages, longest task) |
 | D-23 | 2 | Reader, Linux | After Tab past the last control, or Ctrl+Tab on Linux, no key reached the page until a click | 7575fdf | `linux_regressions.py` (keyboard focus), reader test "Tab wraps around", UI-06 |
+| D-24 | 1 | Linux | Every picture showed as an empty frame | a27bf73 | `linux_regressions.py` (images), `Test-LinuxSource.mjs` |
+| D-25 | 3 | Reader | Every freshly opened document was framed by the blue keyboard-focus ring | 3e2d7cc | reader test "without a focus ring" |
 
 Every defect above is fixed. Known gaps that remain are listed at the end.
 
@@ -251,6 +253,27 @@ Every defect above is fixed. Known gaps that remain are listed at the end.
 - Fix: the reader wraps Tab and Shift+Tab around its controls; the Linux
   host watches the window's focus widget and gives the focus back to the
   web view unless a popover (the context menu) holds it.
+
+### D-24: pictures missing on Linux (severity 1)
+
+- Steps: open `images.docx` on the Linux host (found in the UI-01 contact
+  sheet and the LibreOffice side-by-side).
+- Actual: three empty grey frames. docx-preview serves each image as a
+  `blob:` URL; the host registered `leandoc:` as a local scheme, and WebKit
+  loads no `blob:` URL from a local origin (`naturalWidth` 0, `fetch` of the
+  URL failed). Chromium, WebView2, and WKWebView were not affected.
+- Fix: the scheme is registered as secure only. A local origin could also
+  read `file:` URLs, which the reader never needs. The source policy test
+  now forbids the local registration.
+
+### D-25: focus ring on every new document (severity 3)
+
+- Actual: after D-15 the reader focuses the document area after a render;
+  WebKit and Chromium count focus given before any click as keyboard focus,
+  so `:focus-visible` drew a 2 px blue frame round every new document.
+- Fix: focus the reader gives itself carries a `quiet-focus` class that
+  hides the ring until the document area loses the focus; Tab back to it
+  shows the ring.
 
 ## Known gaps
 
