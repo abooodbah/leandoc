@@ -7,6 +7,7 @@
 #include <array>
 #include <charconv>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <optional>
 #include <string_view>
@@ -307,7 +308,8 @@ LinuxApp::LinuxApp(
       assetRoot_(ResolveAssetRoot()),
       smokeTest_(options.smokeTest),
       exitAfterRenderMs_(options.exitAfterRenderMs),
-      smokeExitCode_(smokeExitCode) {}
+      smokeExitCode_(smokeExitCode),
+      testScript_(options.testScript) {}
 
 LinuxApp::~LinuxApp() {
     if (reloadTimer_ != 0) {
@@ -319,6 +321,19 @@ LinuxApp::~LinuxApp() {
     if (exitTimer_ != 0) {
         g_source_remove(exitTimer_);
     }
+    if (scriptTimer_ != 0) {
+        g_source_remove(scriptTimer_);
+    }
+    if (scriptDeadline_ != 0) {
+        g_source_remove(scriptDeadline_);
+    }
+    if (scriptCancel_ != nullptr) {
+        // Pending script reads and evaluations finish as cancelled and never
+        // touch this object again.
+        g_cancellable_cancel(scriptCancel_);
+        g_clear_object(&scriptCancel_);
+    }
+    g_clear_object(&scriptStream_);
     ClearPackage();
     g_clear_object(&directoryMonitor_);
     g_clear_object(&contentManager_);
@@ -764,6 +779,9 @@ void LinuxApp::HandleMessage(JSCValue* message) {
         SendTheme();
         SendTabs();
         ShowActiveTab(false);
+        if (testScript_ && !scriptStarted_) {
+            StartTestScript();
+        }
         return;
     }
     if (!readerReady_) {
@@ -829,6 +847,20 @@ void LinuxApp::HandleRendered(JSCValue* message, bool failed) {
     if (!tab || !generation || active == nullptr || *tab != active->id ||
         *generation != active->generation) {
         return;
+    }
+    if (testScript_) {
+        ++renderedCount_;
+        lastRenderFailed_ = failed;
+        lastRenderDetails_ =
+            "{\"tab\":" + std::to_string(*tab) + ",\"generation\":" +
+            std::to_string(*generation) + ",\"pages\":" +
+            std::to_string(UnsignedProperty(message, "pages").value_or(0)) +
+            ",\"readerMs\":" + std::to_string(UnsignedProperty(message, "ms").value_or(0)) +
+            ",\"failed\":" + (failed ? "true" : "false") + "}";
+        if (scriptWaitingRender_) {
+            scriptWaitingRender_ = false;
+            FinishScriptCommand(!failed, lastRenderDetails_);
+        }
     }
     if (!failed) {
         if (TimingEnabled()) {
@@ -1020,6 +1052,322 @@ void LinuxApp::UpdateTitle() {
     const Tab* tab = ActiveTab();
     const std::string title = tab == nullptr ? "LeanDoc" : tab->name + " - LeanDoc";
     gtk_window_set_title(GTK_WINDOW(window_), title.c_str());
+}
+
+// --test-script ---------------------------------------------------------------
+// Commands run one at a time; each answers with one line on stdout (see
+// TestHooks.h and docs/architecture/hosts.md). Nothing here runs unless the
+// flag was given.
+
+namespace {
+
+struct ScriptJsCall {
+    LinuxApp* app;
+    unsigned line;
+    bool poll;
+};
+
+std::string OneLine(std::string_view text) {
+    std::string result(text);
+    for (char& character : result) {
+        if (character == '\n' || character == '\r') {
+            character = ' ';
+        }
+    }
+    return result;
+}
+
+}  // namespace
+
+std::uint64_t LinuxApp::ScriptElapsedMs(std::chrono::steady_clock::time_point since) const {
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          std::chrono::steady_clock::now() - since)
+                                          .count());
+}
+
+void LinuxApp::StartTestScript() {
+    scriptStarted_ = true;
+    scriptCancel_ = g_cancellable_new();
+    renderMarkStart_ = std::chrono::steady_clock::now();
+    GFile* file = g_file_new_for_path(testScript_->c_str());
+    // Opening a FIFO waits for its writer, so the open is asynchronous too.
+    g_file_read_async(file, G_PRIORITY_DEFAULT, scriptCancel_, OnScriptOpened, this);
+    g_object_unref(file);
+}
+
+void LinuxApp::OnScriptOpened(GObject* source, GAsyncResult* result, gpointer data) {
+    GError* error = nullptr;
+    GFileInputStream* stream = g_file_read_finish(G_FILE(source), result, &error);
+    if (stream == nullptr) {
+        const bool cancelled = g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
+        const std::string message = error != nullptr ? error->message : "unknown error";
+        g_clear_error(&error);
+        if (cancelled) {
+            return;
+        }
+        auto* app = static_cast<LinuxApp*>(data);
+        std::printf("LEANDOC_TEST 0 open-script error 0 %s\n", OneLine(message).c_str());
+        std::fflush(stdout);
+        app->scriptFailed_ = true;
+        if (app->smokeExitCode_ != nullptr) {
+            *app->smokeExitCode_ = 1;
+        }
+        g_application_quit(G_APPLICATION(app->application_));
+        return;
+    }
+    auto* app = static_cast<LinuxApp*>(data);
+    app->scriptStream_ = g_data_input_stream_new(G_INPUT_STREAM(stream));
+    g_object_unref(stream);
+    app->ReadNextScriptLine();
+}
+
+void LinuxApp::ReadNextScriptLine() {
+    if (scriptStream_ == nullptr) {
+        return;
+    }
+    g_data_input_stream_read_line_async(
+        scriptStream_, G_PRIORITY_DEFAULT, scriptCancel_, OnScriptLine, this);
+}
+
+void LinuxApp::OnScriptLine(GObject* source, GAsyncResult* result, gpointer data) {
+    GError* error = nullptr;
+    gsize length = 0;
+    char* line = g_data_input_stream_read_line_finish(
+        G_DATA_INPUT_STREAM(source), result, &length, &error);
+    if (error != nullptr) {
+        const bool cancelled = g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
+        g_clear_error(&error);
+        g_free(line);
+        if (!cancelled) {
+            auto* app = static_cast<LinuxApp*>(data);
+            std::printf("LEANDOC_TEST %u read error 0\n", app->scriptLine_ + 1);
+            std::fflush(stdout);
+            app->scriptFailed_ = true;
+        }
+        return;
+    }
+    auto* app = static_cast<LinuxApp*>(data);
+    if (line == nullptr) {
+        // End of the script: the window stays as it is.
+        std::printf("LEANDOC_TEST %u eof ok 0\n", app->scriptLine_ + 1);
+        std::fflush(stdout);
+        return;
+    }
+    const std::string text(line, length);
+    g_free(line);
+    app->RunScriptLine(text);
+}
+
+void LinuxApp::RunScriptLine(const std::string& line) {
+    ++scriptLine_;
+    scriptCommand_ = ParseScriptCommand(line);
+    scriptCommandStart_ = std::chrono::steady_clock::now();
+    const ScriptCommandKind kind = scriptCommand_.kind;
+    const bool action = kind == ScriptCommandKind::Js || kind == ScriptCommandKind::Open ||
+                        kind == ScriptCommandKind::Drop ||
+                        kind == ScriptCommandKind::SystemTheme ||
+                        kind == ScriptCommandKind::Resize;
+    if (action) {
+        // wait-render waits for a render that this action started.
+        renderMark_ = renderedCount_;
+        renderMarkStart_ = scriptCommandStart_;
+    }
+    switch (kind) {
+        case ScriptCommandKind::Empty:
+            --scriptLine_;
+            ReadNextScriptLine();
+            return;
+        case ScriptCommandKind::Invalid:
+            FinishScriptCommand(false, "unknown command or bad argument");
+            return;
+        case ScriptCommandKind::Js:
+            EvaluateScriptJs(scriptCommand_.argument);
+            return;
+        case ScriptCommandKind::Wait:
+            ArmScriptDeadline();
+            PollScriptWait();
+            return;
+        case ScriptCommandKind::WaitRender:
+            if (renderedCount_ > renderMark_) {
+                renderMark_ = renderedCount_;
+                FinishScriptCommand(!lastRenderFailed_, lastRenderDetails_);
+                return;
+            }
+            scriptWaitingRender_ = true;
+            ArmScriptDeadline();
+            return;
+        case ScriptCommandKind::Open:
+            OpenPaths({std::filesystem::path(scriptCommand_.argument)});
+            FinishScriptCommand(true, "");
+            return;
+        case ScriptCommandKind::Drop: {
+            GFile* file = g_file_new_for_path(scriptCommand_.argument.c_str());
+            GSList* files = g_slist_append(nullptr, file);
+            GdkFileList* list = gdk_file_list_new_from_list(files);
+            g_slist_free(files);
+            g_object_unref(file);
+            GValue value = G_VALUE_INIT;
+            g_value_init(&value, GDK_TYPE_FILE_LIST);
+            g_value_take_boxed(&value, list);
+            const gboolean accepted = OnDrop(nullptr, &value, 0, 0, this);
+            g_value_unset(&value);
+            FinishScriptCommand(true, accepted ? "accepted" : "refused");
+            return;
+        }
+        case ScriptCommandKind::Sleep:
+            scriptTimer_ = g_timeout_add(scriptCommand_.number, OnScriptTimer, this);
+            return;
+        case ScriptCommandKind::Mark:
+            FinishScriptCommand(true, scriptCommand_.argument);
+            return;
+        case ScriptCommandKind::Timeout:
+            scriptTimeoutMs_ = std::max(1u, scriptCommand_.number);
+            FinishScriptCommand(true, "");
+            return;
+        case ScriptCommandKind::SystemTheme:
+            // Stands in for the desktop switching its colour scheme.
+            g_object_set(
+                gtk_settings_get_default(), "gtk-application-prefer-dark-theme",
+                scriptCommand_.argument == "dark" ? TRUE : FALSE, nullptr);
+            FinishScriptCommand(true, scriptCommand_.argument);
+            return;
+        case ScriptCommandKind::Resize:
+            gtk_window_set_default_size(
+                GTK_WINDOW(window_), static_cast<int>(scriptCommand_.number),
+                static_cast<int>(scriptCommand_.secondNumber));
+            FinishScriptCommand(true, "");
+            return;
+        case ScriptCommandKind::Quit:
+            if (smokeExitCode_ != nullptr) {
+                *smokeExitCode_ = scriptFailed_ ? 1 : 0;
+            }
+            std::printf("LEANDOC_TEST %u quit %s 0\n", scriptLine_, scriptFailed_ ? "error" : "ok");
+            std::fflush(stdout);
+            g_application_quit(G_APPLICATION(application_));
+            return;
+    }
+}
+
+void LinuxApp::EvaluateScriptJs(const std::string& body) {
+    // The body runs as an async function in the reader page, so it can await
+    // and return any JSON value.
+    const std::string wrapped =
+        "const __leandocResult = await (async () => {\n" + body +
+        "\n})();\nreturn __leandocResult === undefined ? 'null' : "
+        "JSON.stringify(__leandocResult);";
+    auto* call = new ScriptJsCall{this, scriptLine_, false};
+    webkit_web_view_call_async_javascript_function(
+        webView_, wrapped.c_str(), static_cast<gssize>(wrapped.size()), nullptr, nullptr,
+        nullptr, scriptCancel_, OnScriptJsFinished, call);
+}
+
+void LinuxApp::PollScriptWait() {
+    const std::string body =
+        "return (await (async () => (" + scriptCommand_.argument + "))()) ? 'true' : 'false';";
+    auto* call = new ScriptJsCall{this, scriptLine_, true};
+    webkit_web_view_call_async_javascript_function(
+        webView_, body.c_str(), static_cast<gssize>(body.size()), nullptr, nullptr, nullptr,
+        scriptCancel_, OnScriptJsFinished, call);
+}
+
+void LinuxApp::OnScriptJsFinished(GObject* source, GAsyncResult* result, gpointer data) {
+    auto* call = static_cast<ScriptJsCall*>(data);
+    GError* error = nullptr;
+    JSCValue* value = webkit_web_view_call_async_javascript_function_finish(
+        WEBKIT_WEB_VIEW(source), result, &error);
+    const bool cancelled = g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
+    LinuxApp* app = cancelled ? nullptr : call->app;
+    const unsigned line = call->line;
+    const bool poll = call->poll;
+    delete call;
+    std::string text;
+    if (value != nullptr && jsc_value_is_string(value)) {
+        char* raw = jsc_value_to_string(value);
+        text = raw == nullptr ? "" : raw;
+        g_free(raw);
+    }
+    const std::string message = error != nullptr ? error->message : "";
+    g_clear_object(&value);
+    g_clear_error(&error);
+    // A late answer for a command that already timed out is dropped.
+    if (app == nullptr || line != app->scriptLine_ || app->scriptCommand_.kind ==
+                                                          ScriptCommandKind::Empty) {
+        return;
+    }
+    if (!poll) {
+        if (!message.empty()) {
+            app->FinishScriptCommand(false, message);
+        } else {
+            app->FinishScriptCommand(true, text);
+        }
+        return;
+    }
+    if (app->scriptDeadline_ == 0) {
+        return;  // The wait already ended.
+    }
+    if (text == "true") {
+        app->FinishScriptCommand(true, "");
+        return;
+    }
+    // Not yet (or the page is reloading): ask again shortly.
+    app->scriptTimer_ = g_timeout_add(25, OnScriptTimer, app);
+}
+
+gboolean LinuxApp::OnScriptTimer(gpointer data) {
+    auto* app = static_cast<LinuxApp*>(data);
+    app->scriptTimer_ = 0;
+    if (app->scriptCommand_.kind == ScriptCommandKind::Sleep) {
+        app->FinishScriptCommand(true, "");
+    } else if (app->scriptCommand_.kind == ScriptCommandKind::Wait) {
+        app->PollScriptWait();
+    }
+    return G_SOURCE_REMOVE;
+}
+
+void LinuxApp::ArmScriptDeadline() {
+    if (scriptDeadline_ != 0) {
+        g_source_remove(scriptDeadline_);
+    }
+    scriptDeadline_ = g_timeout_add(scriptTimeoutMs_, OnScriptDeadline, this);
+}
+
+gboolean LinuxApp::OnScriptDeadline(gpointer data) {
+    auto* app = static_cast<LinuxApp*>(data);
+    app->scriptDeadline_ = 0;
+    app->scriptWaitingRender_ = false;
+    if (app->scriptTimer_ != 0) {
+        g_source_remove(app->scriptTimer_);
+        app->scriptTimer_ = 0;
+    }
+    app->FinishScriptCommand(false, "timed out");
+    return G_SOURCE_REMOVE;
+}
+
+void LinuxApp::FinishScriptCommand(bool ok, std::string_view result) {
+    if (scriptDeadline_ != 0) {
+        g_source_remove(scriptDeadline_);
+        scriptDeadline_ = 0;
+    }
+    if (scriptTimer_ != 0) {
+        g_source_remove(scriptTimer_);
+        scriptTimer_ = 0;
+    }
+    const auto since = scriptCommand_.kind == ScriptCommandKind::WaitRender
+                           ? renderMarkStart_
+                           : scriptCommandStart_;
+    if (scriptCommand_.kind == ScriptCommandKind::WaitRender) {
+        renderMark_ = renderedCount_;
+    }
+    if (!ok) {
+        scriptFailed_ = true;
+    }
+    const std::string name = scriptCommand_.name.empty() ? "-" : scriptCommand_.name;
+    std::printf("LEANDOC_TEST %u %s %s %llu%s%s\n", scriptLine_, name.c_str(),
+                ok ? "ok" : "error", static_cast<unsigned long long>(ScriptElapsedMs(since)),
+                result.empty() ? "" : " ", OneLine(result).c_str());
+    std::fflush(stdout);
+    scriptCommand_ = ScriptCommand{};
+    ReadNextScriptLine();
 }
 
 void LinuxApp::StartSmokeProbe() {

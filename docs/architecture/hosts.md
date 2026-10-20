@@ -180,6 +180,27 @@ All three hosts accept these flags; each does nothing unless given.
 | `--trace-timing` | Prints `LEANDOC_TIMING <event> <ms since process start> [key=value ...]` to standard output, one flushed line per event: `process-start`, `window-visible`, `webview-ready`, `document-requested` (`tab`, `generation`), `package-served` (`tab`, `generation`, `coreMs`, `bytes`), `rendered` (`tab`, `generation`, `pages`, `readerMs`). |
 | `--exit-after-render=MS` | Quits cleanly MS milliseconds (0 to 600000) after the first `rendered`, so a harness can sample memory first. Such a launch starts its own instance and never joins a running window. |
 
+The Linux host also accepts a fourth hook for the
+[test plan](../TEST_PLAN.md) drivers in `tests/usage/` and `tests/perf/`:
+
+| Flag | Effect |
+| --- | --- |
+| `--test-script FILE` | After the reader's first `ready`, reads FILE one line at a time and runs each command before reading the next. FILE may be a FIFO, so a harness can drive the window interactively, sample memory, and continue. Each command answers with one line on standard output: `LEANDOC_TEST <line> <command> <ok\|error> <ms> [result]`. The launch keeps normal single-instance behaviour, so a second launch still joins it. The process exits 0 after `quit` if no command failed, otherwise 1. |
+
+| Command | Effect and answer |
+| --- | --- |
+| `js BODY` | Runs BODY as an async function in the reader page (`webkit_web_view_call_async_javascript_function`) and answers its return value as JSON. Reader actions go through the real bridge: clicking chrome buttons, dispatching key events, or `webkit.messageHandlers.leandoc.postMessage`. |
+| `wait EXPR` | Evaluates EXPR every 25 ms until it is truthy or the timeout passes. |
+| `wait-render` | Waits for the next accepted `rendered` or `renderFailed` after the last action (`js`, `open`, `drop`, `system-theme`, `resize`); the answer gives the time since that action, the pages, and the reader's ms. |
+| `open PATH` | Opens PATH as a tab, as a later launch does. |
+| `drop PATH` | Hands PATH to the window's drop handler as a dropped file list; answers `accepted` or `refused`. |
+| `sleep MS`, `timeout MS`, `mark LABEL` | Waits; sets the wait timeout (30 s by default); answers LABEL at once so a harness can sample. |
+| `system-theme light\|dark` | Sets GTK's `gtk-application-prefer-dark-theme`, standing in for the desktop switching its colour scheme. |
+| `resize W H` | Sets the window size. |
+| `quit` | Quits the application. |
+
+Without the flag no script is opened and none of these commands exist.
+
 Process start is the kernel's start time of the process: `GetProcessTimes`
 on Windows, field 22 of `/proc/self/stat` on the boot-time clock on Linux,
 and `kp_proc.p_starttime` from `sysctl` on macOS. On Windows standard output

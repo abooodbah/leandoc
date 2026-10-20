@@ -42,6 +42,14 @@ bool ParseArguments(int argc, char** argv, ApplicationState* state, bool* showHe
             state->documents.emplace_back(argv[++index]);
             continue;
         }
+        if (!afterSeparator && argument == leandoc::linux_host::kTestScriptFlag) {
+            if (state->options.testScript || index + 1 >= argc) {
+                std::cerr << "--test-script requires exactly one script path.\n";
+                return false;
+            }
+            state->options.testScript = std::filesystem::path(argv[++index]);
+            continue;
+        }
         if (!afterSeparator && argument == leandoc::linux_host::kTraceTimingFlag) {
             state->traceTiming = true;
             continue;
@@ -62,6 +70,10 @@ bool ParseArguments(int argc, char** argv, ApplicationState* state, bool* showHe
             return false;
         }
         state->documents.emplace_back(argument);
+    }
+    if (state->options.smokeTest && state->options.testScript) {
+        std::cerr << "--smoke-test and --test-script cannot be combined.\n";
+        return false;
     }
     if (state->options.smokeTest && state->documents.size() != 1) {
         std::cerr << "--smoke-test accepts exactly one document path.\n";
@@ -117,7 +129,7 @@ int main(int argc, char** argv) {
     if (showHelp) {
         std::cout << "Usage: leandoc [--] [DOCUMENT ...]\n"
                   << "       leandoc --smoke-test DOCUMENT\n"
-                  << "Test hooks: --trace-timing, --exit-after-render=MS\n";
+                  << "Test hooks: --trace-timing, --exit-after-render=MS, --test-script FILE\n";
         return 0;
     }
     if (state.traceTiming) {
@@ -188,7 +200,7 @@ int main(int argc, char** argv) {
     }
     g_object_unref(application);
 
-    if (state.options.smokeTest) {
+    if (state.options.smokeTest || state.options.testScript) {
         return state.smokeExitCode;
     }
     return status;

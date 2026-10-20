@@ -54,7 +54,8 @@ for (const [guard, reason] of [
   [/kMaximumRecent = 10/, "recent files are capped at ten"],
   [/"leandoc" \/ "settings\.ini"/, "settings live in $XDG_CONFIG_HOME/leandoc/settings.ini"],
   [/g_file_monitor_directory/, "the active file is watched for changes"],
-  [/securitypolicyviolation/, "the smoke test counts CSP violations"]
+  [/securitypolicyviolation/, "the smoke test counts CSP violations"],
+  [/if \(testScript_ && !scriptStarted_\)/, "the test script hook runs only with --test-script"]
 ]) {
   assert.match(host, guard, `Linux host guard is missing: ${reason}`);
 }

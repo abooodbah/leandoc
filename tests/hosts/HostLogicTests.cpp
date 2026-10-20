@@ -243,8 +243,45 @@ void TestHooks() {
           "Windows trace line shape");
 }
 
+// --test-script lines: one command per line, the argument kept as written.
+void TestScriptCommands() {
+    namespace lh = leandoc::linux_host;
+    using Kind = lh::ScriptCommandKind;
+    Check(lh::ParseScriptCommand("").kind == Kind::Empty, "a blank script line is empty");
+    Check(lh::ParseScriptCommand("  # note").kind == Kind::Empty, "a comment is empty");
+    const auto js = lh::ParseScriptCommand("js return {a: 1}\r\n");
+    Check(js.kind == Kind::Js && js.argument == "return {a: 1}",
+          "js keeps its body and drops the line ending");
+    Check(lh::ParseScriptCommand("js").kind == Kind::Invalid, "js needs a body");
+    Check(lh::ParseScriptCommand("wait document.body").kind == Kind::Wait, "wait parses");
+    Check(lh::ParseScriptCommand("wait-render").kind == Kind::WaitRender, "wait-render parses");
+    Check(lh::ParseScriptCommand("wait-render 5").kind == Kind::Invalid,
+          "wait-render takes no argument");
+    const auto open = lh::ParseScriptCommand("open /tmp/a b.docx");
+    Check(open.kind == Kind::Open && open.argument == "/tmp/a b.docx",
+          "open keeps spaces in the path");
+    const auto sleep = lh::ParseScriptCommand("sleep 250");
+    Check(sleep.kind == Kind::Sleep && sleep.number == 250u, "sleep takes milliseconds");
+    Check(lh::ParseScriptCommand("sleep -1").kind == Kind::Invalid, "sleep rejects a sign");
+    Check(lh::ParseScriptCommand("sleep 99999999").kind == Kind::Invalid,
+          "sleep rejects eight digits");
+    const auto resize = lh::ParseScriptCommand("resize 800 600");
+    Check(resize.kind == Kind::Resize && resize.number == 800u && resize.secondNumber == 600u,
+          "resize takes a width and a height");
+    Check(lh::ParseScriptCommand("resize 100 100").kind == Kind::Invalid,
+          "resize refuses tiny windows");
+    Check(lh::ParseScriptCommand("system-theme dark").kind == Kind::SystemTheme,
+          "system-theme dark parses");
+    Check(lh::ParseScriptCommand("system-theme blue").kind == Kind::Invalid,
+          "system-theme accepts light and dark only");
+    Check(lh::ParseScriptCommand("quit").kind == Kind::Quit, "quit parses");
+    Check(lh::ParseScriptCommand("rm -rf /").kind == Kind::Invalid,
+          "unknown commands are invalid");
+}
+
 int main() {
     TestHooks();
+    TestScriptCommands();
     TestWindowsEditorOrder();
     TestLinuxEditorOrder();
     TestQuoting();

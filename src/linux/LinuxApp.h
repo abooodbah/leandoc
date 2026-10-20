@@ -3,6 +3,7 @@
 #include <gtk/gtk.h>
 #include <webkit/webkit.h>
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -11,6 +12,7 @@
 #include <vector>
 
 #include "EditorChoice.h"
+#include "TestHooks.h"
 #include "core/DocCore.h"
 
 namespace leandoc::linux_host {
@@ -19,6 +21,8 @@ struct HostOptions {
     bool smokeTest = false;
     // --exit-after-render=MS: quit MS milliseconds after the first rendered.
     std::optional<unsigned> exitAfterRenderMs;
+    // --test-script FILE: commands that drive the window (TestHooks.h).
+    std::optional<std::filesystem::path> testScript;
 };
 
 // One LeanDoc window. Every document is a tab of it: GApplication forwards a
@@ -87,6 +91,16 @@ private:
     void ApplyWindowTheme();
     std::string ThemeName() const;
     void UpdateTitle();
+
+    // --test-script: inert unless testScript_ is set.
+    void StartTestScript();
+    void ReadNextScriptLine();
+    void RunScriptLine(const std::string& line);
+    void EvaluateScriptJs(const std::string& body);
+    void PollScriptWait();
+    void FinishScriptCommand(bool ok, std::string_view result);
+    void ArmScriptDeadline();
+    std::uint64_t ScriptElapsedMs(std::chrono::steady_clock::time_point since) const;
 
     void StartSmokeProbe();
     void CompleteSmoke(bool success, std::string_view reason);
@@ -161,6 +175,11 @@ private:
         gpointer data);
     static gboolean OnReloadTimer(gpointer data);
     static gboolean OnSmokeTimeout(gpointer data);
+    static void OnScriptOpened(GObject* source, GAsyncResult* result, gpointer data);
+    static void OnScriptLine(GObject* source, GAsyncResult* result, gpointer data);
+    static void OnScriptJsFinished(GObject* source, GAsyncResult* result, gpointer data);
+    static gboolean OnScriptTimer(gpointer data);
+    static gboolean OnScriptDeadline(gpointer data);
     static gboolean OnExitAfterRender(gpointer data);
     static void OnWindowMapped(GtkWidget* widget, gpointer data);
 
@@ -201,6 +220,25 @@ private:
     int* smokeExitCode_ = nullptr;
     guint smokeTimeout_ = 0;
     std::uint64_t smokeRenderMs_ = 0;
+
+    // --test-script state.
+    std::optional<std::filesystem::path> testScript_;
+    GCancellable* scriptCancel_ = nullptr;
+    GDataInputStream* scriptStream_ = nullptr;
+    bool scriptStarted_ = false;
+    bool scriptFailed_ = false;
+    bool scriptWaitingRender_ = false;
+    unsigned scriptLine_ = 0;
+    unsigned scriptTimeoutMs_ = 30000;
+    ScriptCommand scriptCommand_;
+    std::chrono::steady_clock::time_point scriptCommandStart_;
+    std::chrono::steady_clock::time_point renderMarkStart_;
+    unsigned renderedCount_ = 0;
+    unsigned renderMark_ = 0;
+    bool lastRenderFailed_ = false;
+    std::string lastRenderDetails_;
+    guint scriptTimer_ = 0;
+    guint scriptDeadline_ = 0;
 };
 
 }  // namespace leandoc::linux_host
