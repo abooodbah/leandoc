@@ -79,6 +79,30 @@ def breakdown(sample) -> str:
     return ", ".join(f"{name} {value:.1f}" for name, value in parts)
 
 
+def dirty_by_mapping(pid: int) -> dict:
+    """Private dirty KiB of one process per mapping name ([heap], [anon], a file, a memfd)."""
+    totals = {}
+    name = "[anon]"
+    try:
+        with open(f"/proc/{pid}/smaps") as smaps:
+            for line in smaps:
+                head = line.split()
+                if not head:
+                    continue
+                if "-" in head[0] and len(head) >= 5 and not head[0].endswith(":"):
+                    name = head[5] if len(head) > 5 else "[anon]"
+                elif head[0] == "Private_Dirty:":
+                    totals[name] = totals.get(name, 0) + int(head[1])
+    except OSError:
+        pass
+    return totals
+
+
+def mapping_growth(before: dict, after: dict, count: int = 6) -> str:
+    changes = sorted(((after.get(k, 0) - before.get(k, 0), k) for k in set(before) | set(after)), reverse=True)
+    return ", ".join(f"{name} {delta / 1024:+.1f}" for delta, name in changes[:count] if delta)
+
+
 def vm_hwm_kib(pid: int) -> int:
     try:
         for line in open(f"/proc/{pid}/status"):
@@ -421,7 +445,9 @@ def leak_open_close(results, build, docs, cycles=30):
             app.wait_render(timeout=60)
             close_tab(app, tab_ids(app)[0] if tab_ids(app) else 1)
             app.wait("document.documentElement.dataset.renderState === 'empty'")
-            if cycle == 0 or cycle == cycles - 1:
+            # Samples after closes 1, 10, 20, and 30 show whether any growth
+            # keeps rising (a leak) or levels off (garbage not yet collected).
+            if cycle in (0, cycles - 1) or (cycle + 1) % 10 == 0:
                 sample, _ = settle(app)
                 after.append(sample.summary())
                 parts.append(breakdown(sample))
@@ -429,10 +455,13 @@ def leak_open_close(results, build, docs, cycles=30):
         app.quit()
     first, last = after[0]["privateDirtyMiB"], after[-1]["privateDirtyMiB"]
     growth = round((last - first) / first * 100, 1)
-    results.measure("M-06", growth, "% growth", "within 10%", abs(growth) <= 10,
+    # A leak check: the final value may not exceed the value after the first
+    # close by more than 10 percent. It may be lower; the first sample still
+    # holds the closed document's garbage until WebKit collects it.
+    results.measure("M-06", growth, "% growth", "at most +10%", growth <= 10,
                     f"after first close {first} MiB, after close {cycles} {last} MiB",
-                    [first, last], {"privateMiB": [after[0]["privateMiB"], after[-1]["privateMiB"]],
-                                    "processes": parts})
+                    [a["privateDirtyMiB"] for a in after],
+                    {"privateMiB": [a["privateMiB"] for a in after], "processes": parts})
 
 
 def leak_tabs_views(results, build, docs, cycles=50, switches=50):
@@ -481,10 +510,14 @@ def idle(results, build, docs, minutes):
         settle(app)
         time.sleep(60)
         start = app.memory()
+        maps = [dirty_by_mapping(app.pid)]
         ticks = [sample_tree(app.pid).cpu_ticks]
-        for _ in range(int(minutes)):
+        for minute in range(int(minutes)):
             time.sleep(60)
             ticks.append(sample_tree(app.pid).cpu_ticks)
+            maps.append(dirty_by_mapping(app.pid))
+            print(f"  M-08 minute {minute + 1}: leandoc {sum(maps[-1].values()) / 1024:.1f} MiB; "
+                  f"{mapping_growth(maps[-2], maps[-1])}", flush=True)
         end = app.memory()
         app.quit()
     print(f"  M-08 idle start: {breakdown(start)}", flush=True)
