@@ -13,6 +13,12 @@ extern NSString *const LDDocumentTypeName;
 @property(nonatomic, readonly) BOOL hasSourceFile;
 @property(nonatomic, readonly) NSUInteger tabId;
 @property(nonatomic, readonly) NSUInteger generation;
+// How long the core took for the last read, for --trace-timing.
+@property(nonatomic, readonly) NSUInteger lastCoreMilliseconds;
+
+// Up to ten recent paths in NSUserDefaults, newest first.
++ (NSArray<NSString *> *)recentPaths;
++ (void)clearRecent;
 
 // The message for the reader: "document", "fallback", or "empty".
 - (NSDictionary<NSString *, id> *)readerPayload;

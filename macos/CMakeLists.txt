@@ -27,7 +27,8 @@ add_executable(LeanDoc MACOSX_BUNDLE
   src/LDDocumentController.mm
   src/LDDocumentWindowController.mm
   src/LDEditor.mm
-  src/LDSchemeHandler.mm)
+  src/LDSchemeHandler.mm
+  src/LDTiming.mm)
 add_dependencies(LeanDoc leandoc_runtime_assets)
 
 target_include_directories(LeanDoc PRIVATE
@@ -92,7 +93,13 @@ if(BUILD_TESTING)
   add_test(
     NAME leandoc-macos-fallback
     COMMAND "$<TARGET_FILE:LeanDoc>" --smoke-test "${LEANDOC_FALLBACK_FIXTURE}")
-  set_tests_properties(leandoc-macos-host leandoc-macos-fallback PROPERTIES TIMEOUT 40)
+  # --trace-timing and --exit-after-render, the SPEC section 5 hooks.
+  add_test(
+    NAME leandoc-macos-test-hooks
+    COMMAND bash "${LEANDOC_ROOT}/tests/hosts/Test-TimingHooks.sh"
+            "$<TARGET_FILE:LeanDoc>" "${LEANDOC_SMOKE_FIXTURE}")
+  set_tests_properties(leandoc-macos-host leandoc-macos-fallback leandoc-macos-test-hooks
+    PROPERTIES TIMEOUT 40)
   set_tests_properties(leandoc-macos-fallback PROPERTIES WILL_FAIL TRUE)
 endif()
 

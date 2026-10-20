@@ -221,7 +221,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
       add_test(
         NAME leandoc-linux-test-hooks
         COMMAND "${LEANDOC_XVFB_RUN_EXECUTABLE}" -a bash
-                "${LEANDOC_ROOT}/tests/hosts/Test-LinuxTiming.sh"
+                "${LEANDOC_ROOT}/tests/hosts/Test-TimingHooks.sh"
                 "$<TARGET_FILE:leandoc>" "${LEANDOC_SMOKE_FIXTURE}")
       set_tests_properties(
         leandoc-linux-host leandoc-linux-fallback leandoc-linux-single-instance

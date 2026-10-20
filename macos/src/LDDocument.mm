@@ -2,9 +2,11 @@
 
 #import "LDAppDelegate.h"
 #import "LDDocumentWindowController.h"
+#import "LDTiming.h"
 
 #include "core/DocCore.h"
 
+#include <chrono>
 #include <filesystem>
 #include <string>
 
@@ -57,6 +59,7 @@ void AddRecent(NSString *path) {
     NSNumber *_pendingSize;
     NSTimeInterval _pendingSince;
     BOOL _missingReported;
+    NSUInteger _lastCoreMilliseconds;
 }
 @end
 
@@ -85,6 +88,24 @@ void AddRecent(NSString *path) {
         _tabId = NextTabId();
     }
     return self;
+}
+
++ (NSArray<NSString *> *)recentPaths {
+    NSMutableArray<NSString *> *recent = [NSMutableArray array];
+    for (id item in [NSUserDefaults.standardUserDefaults arrayForKey:LDRecentKey] ?: @[]) {
+        if ([item isKindOfClass:NSString.class] && recent.count < kMaximumRecent) {
+            [recent addObject:item];
+        }
+    }
+    return recent;
+}
+
++ (void)clearRecent {
+    [NSUserDefaults.standardUserDefaults removeObjectForKey:LDRecentKey];
+}
+
+- (NSUInteger)lastCoreMilliseconds {
+    return _lastCoreMilliseconds;
 }
 
 - (BOOL)hasSourceFile {
@@ -135,8 +156,19 @@ void AddRecent(NSString *path) {
         _loadedDate = date;
         _loadedSize = size;
     }
+    if (LDTimingEnabled()) {
+        LDTraceTiming(@"document-requested",
+                      [NSString stringWithFormat:@"tab=%lu generation=%lu",
+                                                 static_cast<unsigned long>(_tabId),
+                                                 static_cast<unsigned long>(_generation + 1)]);
+    }
+    const auto coreStart = std::chrono::steady_clock::now();
     leandoc::core::OpenResult result =
         leandoc::core::OpenDocumentFile(std::filesystem::path(_sourceURL.fileSystemRepresentation));
+    _lastCoreMilliseconds = static_cast<NSUInteger>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - coreStart)
+            .count());
     const std::string json = leandoc::core::ReportToJson(result);
     NSData *jsonData = [NSData dataWithBytes:json.data() length:json.size()];
     id report = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:nil];
@@ -168,10 +200,8 @@ void AddRecent(NSString *path) {
 - (NSDictionary<NSString *, id> *)readerPayload {
     if (_sourceURL == nil) {
         NSMutableArray *recent = [NSMutableArray array];
-        for (id item in [NSUserDefaults.standardUserDefaults arrayForKey:LDRecentKey] ?: @[]) {
-            if ([item isKindOfClass:NSString.class]) {
-                [recent addObject:@{ @"path" : item, @"name" : [item lastPathComponent] }];
-            }
+        for (NSString *item in [LDDocument recentPaths]) {
+            [recent addObject:@{ @"path" : item, @"name" : item.lastPathComponent }];
         }
         return @{ @"type" : @"empty", @"recent" : recent };
     }
