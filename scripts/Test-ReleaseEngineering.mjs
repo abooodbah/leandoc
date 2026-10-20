@@ -215,8 +215,12 @@ function trackedFiles() {
 }
 
 const binary = /\.(png|ico|icns|docx|dotx|docm|dotm|doc|odt|woff2?|ttf|zip|deb|pdf|jpg|jpeg|gif)$/i;
-// The spec and the handoff define the rules, so they quote the banned phrases.
-const ruleSources = new Set(["docs/SPEC.md", "docs/HANDOFF.md", "scripts/Test-ReleaseEngineering.mjs"]);
+// The spec and the handoff define the rules, and these checks enforce them, so
+// they quote the banned phrases.
+const ruleSources = new Set([
+  "docs/SPEC.md", "docs/HANDOFF.md", "scripts/Test-ReleaseEngineering.mjs",
+  "tests/reader/fixups.test.mjs"
+]);
 // Built from parts so this file does not contain the phrases it bans.
 const join = (...parts) => parts.join("");
 const bannedPhrases = [
@@ -228,7 +232,7 @@ const attribution = [
   join("noreply", "@anthropic.com"), join("\u{1F916}")
 ];
 const publicText = /^(README\.md|CHANGELOG\.md|site\/.*\.(html|md)|docs\/releases\/.*\.md|packaging\/.*|installer\/README\.md)$/;
-const emDash = "—";
+const emDash = "\u2014";
 
 for (const file of trackedFiles()) {
   if (binary.test(file) || file.startsWith("third_party/") || !exists(file) ||
