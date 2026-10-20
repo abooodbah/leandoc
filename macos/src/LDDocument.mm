@@ -49,6 +49,11 @@ void AddRecent(NSString *path) {
 @interface LDDocument () {
     NSURL *_sourceURL;
     NSData *_package;
+    // The last read gave a renderable package. The package itself is
+    // dropped once the reader has fetched it (SPEC 5: the host keeps no
+    // document data it does not need) and read again when the reader asks
+    // for the document again.
+    BOOL _renderable;
     NSDictionary<NSString *, id> *_report;
     NSUInteger _tabId;
     NSUInteger _generation;
@@ -175,6 +180,7 @@ void AddRecent(NSString *path) {
     _report = [report isKindOfClass:NSDictionary.class] ? report : @{};
     const bool renderable = result.ok && leandoc::core::IsRenderableKind(result.kind) &&
                             !result.sanitizedPackage.empty();
+    _renderable = renderable;
     _package = renderable ? [NSData dataWithBytes:result.sanitizedPackage.data()
                                            length:result.sanitizedPackage.size()]
                           : nil;
@@ -208,14 +214,14 @@ void AddRecent(NSString *path) {
     NSString *fileName = _sourceURL.lastPathComponent ?: @"";
     NSString *path = _sourceURL.path ?: @"";
     NSMutableDictionary<NSString *, id> *payload = [@{
-        @"type" : _package != nil ? @"document" : @"fallback",
+        @"type" : _renderable ? @"document" : @"fallback",
         @"tab" : @(_tabId),
         @"generation" : @(_generation),
         @"fileName" : fileName,
         @"displayPath" : path,
         @"report" : _report ?: @{},
     } mutableCopy];
-    if (_package != nil) {
+    if (_renderable) {
         payload[@"packageUrl"] = [NSString stringWithFormat:@"leandoc://app/pkg/%lu/%lu/document.docx",
                                   static_cast<unsigned long>(_tabId),
                                   static_cast<unsigned long>(_generation)];
@@ -227,7 +233,15 @@ void AddRecent(NSString *path) {
     if (_package == nil || tab != _tabId || generation != _generation) {
         return nil;
     }
-    return _package;
+    NSData *package = _package;
+    _package = nil;
+    return package;
+}
+
+- (void)preparePackage {
+    if (_sourceURL != nil && _renderable && _package == nil) {
+        [self loadFromDisk];
+    }
 }
 
 - (void)reloadFromDisk {

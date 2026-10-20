@@ -7,7 +7,7 @@ NS_ASSUME_NONNULL_BEGIN
 extern NSString *const LDDocumentTypeName;
 
 // One read-only document per window. The document keeps the sanitized
-// package of its file, which is the only document data the host holds.
+// package of its file only until the reader has fetched it.
 @interface LDDocument : NSDocument
 
 @property(nonatomic, readonly) BOOL hasSourceFile;
@@ -20,9 +20,13 @@ extern NSString *const LDDocumentTypeName;
 + (NSArray<NSString *> *)recentPaths;
 + (void)clearRecent;
 
+// Reads the file again when its package was already handed to the reader,
+// so the next "document" message has a package to serve.
+- (void)preparePackage;
 // The message for the reader: "document", "fallback", or "empty".
 - (NSDictionary<NSString *, id> *)readerPayload;
-// The package for leandoc://app/pkg/<tab>/<generation>/document.docx, or nil.
+// The package for leandoc://app/pkg/<tab>/<generation>/document.docx, or
+// nil. It is handed out once; the document then drops it.
 - (nullable NSData *)packageForTab:(NSUInteger)tab generation:(NSUInteger)generation;
 - (void)reloadFromDisk;
 

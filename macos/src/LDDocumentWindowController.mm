@@ -337,6 +337,9 @@ static BOOL LDIsAllowedMenuItem(NSMenuItem *item) {
     if (!_readerReady) {
         return;
     }
+    if (!_rendererStopped) {
+        [self.leanDocDocument preparePackage];
+    }
     NSDictionary<NSString *, id> *payload = [self.leanDocDocument readerPayload];
     if (_rendererStopped && [payload[@"type"] isEqualToString:@"document"]) {
         NSMutableDictionary<NSString *, id> *stopped = [payload mutableCopy];

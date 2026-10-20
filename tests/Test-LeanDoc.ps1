@@ -142,6 +142,13 @@ function Test-StaticInvariants {
     Assert-Match $uninstaller 'Resolve-OwnedFile' 'Uninstall file deletion must pass through the owned-path resolver.'
     Assert-Match $uninstaller 'ReparsePoint' 'Uninstall must reject reparse-point traversal.'
     Assert-NotMatch $uninstaller '(?im)^\s*Remove-Item[^\r\n]*\$InstallDir[^\r\n]*-Recurse' 'Uninstall must never recursively delete the install directory.'
+    Assert-Match $uninstaller "Join-Path \$DataDir 'WebView2'" 'Uninstall must remove the WebView2 user-data folder.'
+    Assert-Match $uninstaller 'Refusing reparse-point data path' 'Uninstall must refuse a linked data folder.'
+    Assert-Match $uninstaller 'function Remove-TreeWithoutFollowing' 'The data folder must be removed without following links.'
+    Assert-Match $installer 'function Test-ExtensionUnclaimed' 'The installer must check every existing default before claiming one.'
+    $hiveReader = [regex]::Match($installer, '(?s)function Get-HiveDefault \{.*?\n\}').Value
+    Assert-True ($hiveReader.Length -gt 0) 'Get-HiveDefault is missing.'
+    Assert-NotMatch $hiveReader '(?i)SetValue|CreateSubKey|DeleteValue|DeleteSubKey|OpenSubKey\([^,]*,\s*\$true' 'HKLM may only be read.'
     foreach ($scriptCase in @(
         [pscustomobject]@{ Name = 'installer'; Text = $installer },
         [pscustomobject]@{ Name = 'uninstaller'; Text = $uninstaller }
@@ -218,6 +225,7 @@ function Test-ValidateOnly {
         -ValidateOnly 2>&1
     Assert-Equal $LASTEXITCODE 0 ("install.ps1 -ValidateOnly failed: " + ($output -join ' '))
     Assert-Match ($output -join "`n") 'Validated LeanDoc' 'install.ps1 -ValidateOnly did not report the payload.'
+    Assert-Match ($output -join "`n") '\.docx: (no default exists|another app is the default)' 'install.ps1 -ValidateOnly did not report the .docx plan.'
     $after = Get-InstallFootprint | ConvertTo-Json -Compress
     Assert-Equal $after $before 'install.ps1 -ValidateOnly changed files or the registry.'
     Write-TestPass 'install.ps1 -ValidateOnly accepts the payload and changes nothing'

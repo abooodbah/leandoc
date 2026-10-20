@@ -33,17 +33,23 @@ LeanDoc registers `.docx`, `.dotx`, `.docm`, `.dotm`, `.doc`, `.rtf`, and
 Applications entry, an App Paths entry, and each extension's
 `OpenWithProgids` list.
 
-For each extension, `install.ps1` checks the protected Explorer UserChoice key.
-It writes a direct `HKCU\Software\Classes` extension default only when
-UserChoice does not exist. It then calls SHChangeNotify and asks Windows which
-executable is actually used.
+For each extension, `install.ps1` writes a direct `HKCU\Software\Classes`
+extension default only when no app owns that extension: there is no
+UserChoice, and neither `HKCU\Software\Classes\<ext>` nor
+`HKLM\Software\Classes\<ext>` has a default value. A Word or LibreOffice
+deployed for the whole machine often sets only the HKLM default; LeanDoc then
+does not take it over and is registered only in Open With and Default Apps.
+`-ValidateOnly` lists, for each extension, which of the two would happen. The
+installer then calls SHChangeNotify and asks Windows which executable is
+actually used.
 
 When another application stays the default, an interactive install offers to
 open LeanDoc's page in Windows Default Apps. These switches also exist:
 
 - `-OpenDefaultAppsSettings`: open the settings page when it is needed.
 - `-Quiet`: do not show the interactive settings prompt.
-- `-ValidateOnly`: check the payload and exit without changing anything.
+- `-ValidateOnly`: check the payload, list what the install would register
+  for each extension, and exit without changing anything.
 
 Windows asks the user before an existing default changes; the scripts do not
 work around that.

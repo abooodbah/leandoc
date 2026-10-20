@@ -61,6 +61,45 @@ foreach ($Binary in @('LeanDoc.exe', 'WebView2Loader.dll')) {
     }
 }
 
+# Reads the default value of Software\Classes\<ext> in one hive and view.
+function Get-HiveDefault {
+    param([Microsoft.Win32.RegistryHive]$Hive, [Microsoft.Win32.RegistryView]$View, [string]$SubKey)
+    $Base = $null
+    $Key = $null
+    try {
+        $Base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($Hive, $View)
+        $Key = $Base.OpenSubKey($SubKey, $false)
+        if ($null -eq $Key) { return [pscustomobject]@{ Present = $false; Value = $null } }
+        $Present = @($Key.GetValueNames()) -contains ''
+        $Value = if ($Present) { [string]$Key.GetValue('', $null) } else { $null }
+        return [pscustomobject]@{ Present = $Present; Value = $Value }
+    } catch {
+        return [pscustomobject]@{ Present = $false; Value = $null }
+    } finally {
+        if ($null -ne $Key) { $Key.Dispose() }
+        if ($null -ne $Base) { $Base.Dispose() }
+    }
+}
+
+# LeanDoc takes the per-user default for an extension only when nothing else
+# owns it: no UserChoice, and no default value in HKCU or HKLM
+# Software\Classes\<ext> (a deployed Word or LibreOffice often sets HKLM
+# without any UserChoice). A HKCU value that is LeanDoc's own counts as free.
+# Otherwise LeanDoc is only offered through Open With and Default Apps.
+function Test-ExtensionUnclaimed {
+    param([string]$Extension)
+    $SubKey = 'Software\Classes\' + $Extension
+    $UserChoice = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\' + $Extension + '\UserChoice'
+    if (Test-Path -LiteralPath $UserChoice) { return $false }
+    foreach ($View in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
+        $Machine = Get-HiveDefault ([Microsoft.Win32.RegistryHive]::LocalMachine) $View $SubKey
+        if ($Machine.Present -and $Machine.Value) { return $false }
+    }
+    $User = Get-HiveDefault ([Microsoft.Win32.RegistryHive]::CurrentUser) ([Microsoft.Win32.RegistryView]::Default) $SubKey
+    if ($User.Present -and $User.Value -and $User.Value -ne $ProgId) { return $false }
+    return $true
+}
+
 if ($ValidateOnly) {
     # Reads only. Nothing is copied and no registry value is written.
     $PayloadVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $Payload $ExeName)).ProductVersion
@@ -68,6 +107,16 @@ if ($ValidateOnly) {
     Write-Output ('Validated LeanDoc {0} payload in {1}.' -f $PayloadVersion, $Payload)
     Write-Output ('An install would copy it to {0} and register {1} for Open With and Default Apps.' -f
         $InstallDir, ($Extensions -join ' '))
+    Write-Output ('It would make LeanDoc the per-user default for an extension only when that extension has no ' +
+        'UserChoice and no default in HKCU or HKLM Software\Classes. For every other extension it would only ' +
+        'add LeanDoc to Open With and Default Apps.')
+    foreach ($Extension in $Extensions) {
+        if (Test-ExtensionUnclaimed $Extension) {
+            Write-Output ('  {0}: no default exists; LeanDoc would become the per-user default.' -f $Extension)
+        } else {
+            Write-Output ('  {0}: another app is the default; LeanDoc would be offered in Open With and Default Apps only.' -f $Extension)
+        }
+    }
     Write-Output 'It would never write UserChoice, so Windows keeps every default-app choice.'
     exit 0
 }
@@ -117,8 +166,8 @@ function Register-Extension {
     New-ItemProperty -LiteralPath $OpenWith -Name $ProgId -Value '' -PropertyType String -Force | Out-Null
 
     # Never alter or delete protected UserChoice. Write the direct Classes
-    # default only when Windows has no explicit selection for this extension.
-    if (-not (Test-Path -LiteralPath $UserChoice)) {
+    # default only when no app owns the extension (Test-ExtensionUnclaimed).
+    if (Test-ExtensionUnclaimed $Extension) {
         $Old = Get-DefaultState $SubKey
         $State = Join-Path $AppKey 'InstallState'
         $Stem = $Extension.TrimStart('.')

@@ -82,8 +82,16 @@ Nothing is sent before the reader's `ready`. Then the host sends `host`,
 | Linux | The reader's tab strip; one window | `GApplication` with `G_APPLICATION_HANDLES_OPEN` forwards the files over D-Bus to the running instance. |
 | macOS | System window tabs (`NSWindowTabbingModePreferred`); the reader's strip stays hidden (`tabs: false`) | macOS LaunchServices delivers the files to the running app as `NSDocument`s. |
 
-A tab keeps only its path, file stamp, and generation. Background tabs keep
-no package or DOM; selecting a tab reads the file again. The active file is
+On Windows and Linux a tab keeps only its path, file stamp, and generation.
+Background tabs keep no package or DOM; selecting a tab reads the file again.
+
+macOS differs, because its tabs are system window tabs: each document is an
+`NSDocument` with its own window and its own `WKWebView`, so a background
+tab keeps its rendered DOM and its web content process (which the system may
+suspend). The host keeps the sanitized package only until the reader has
+fetched it, then drops it and reads the file again when the reader asks for
+the document again (a reload, a renderer recovery, or a file change). M-05
+on macOS measures what five open windows cost. The active file is
 watched (Windows polls every 500 ms, Linux uses a `GFileMonitor` on the
 folder, macOS polls every 500 ms) and reloads after it has been stable for
 350 ms.
@@ -102,7 +110,14 @@ Zoom stays per session in the reader. The smoke test writes no settings.
 
 Links open only for `http` and `https` with a host, and `mailto`, through the
 system handler (`ShellExecuteW`, `g_app_info_launch_default_for_uri`,
-`NSWorkspace openURL:`), after the reader posts `link` on a click.
+`NSWorkspace openURL:`), after the reader posts `link` on a click. All three
+hosts apply one rule from the core, `NormalizeExternalLink` in
+`src/core/Links.h`: the scheme is compared without case, raw spaces,
+controls, non-ASCII bytes, quotes, backslashes, angle brackets, and backticks
+are refused (the reader percent-encodes them), and a `mailto` link is rebuilt
+from its addresses and only its `subject`, `body`, `cc`, and `bcc`
+parameters, so a parameter such as `attach=` never reaches a mail client.
+The reader rebuilds `mailto` links the same way before it posts them.
 
 The editor is resolved once per launch and its label is sent in `host`:
 
@@ -111,7 +126,7 @@ The editor is resolved once per launch and its label is sent in `host`:
 | 1 | Word: App Paths `WINWORD.EXE` or the `Word.Document.12` association | (none) | `com.microsoft.Word` |
 | 2 | LibreOffice: App Paths `soffice.exe` or Program Files | `libreoffice` or `soffice` on `PATH`, or `libreoffice-writer.desktop` | `org.libreoffice.script` |
 | 3 | | | `com.apple.iWork.Pages` |
-| 4 | The default `.docx` handler when it is not LeanDoc | The default GIO app for `.docx` when it is not LeanDoc | The default app for `.docx` when it is not LeanDoc |
+| 4 | The default `.docx` handler when it is not LeanDoc | The default GIO app for the file's own content type when it is not LeanDoc, looked up when the button is pressed; the label follows the active file | The default app for `.docx` when it is not LeanDoc |
 | 5 | Word for the web (`https://www.office.com/launch/word`) with a status message that the file must be uploaded there | same | same |
 
 Labels: "Open in Word", "Open in LibreOffice", "Open in Pages",
@@ -123,9 +138,22 @@ on macOS.
 
 ## Web runtime policy
 
-All hosts refuse navigation away from the reader page, new windows,
-downloads, permission requests, file choosers, and script dialogs, and turn
-off developer tools and the inspector.
+All hosts refuse navigation away from the reader page (Windows, Linux, and
+macOS allow only `reader.html` itself), new windows, downloads, permission
+requests, file choosers, and script dialogs, and turn off developer tools and
+the inspector.
+
+The page's context menu keeps only copy and text-editing items, because the
+web runtimes' own items ("Download Linked File", "Open Link", "Save link as",
+"Open Image in New Window") would fetch what the document points to. Linux
+filters by `WebKitContextMenuAction` in the `context-menu` signal, Windows by
+item name in `ContextMenuRequested` (`src/windows/ContextMenu.h`), and macOS
+by identifier and action in `willOpenMenu:withEvent:` of its `WKWebView`
+subclass.
+
+When the web content process dies, a host reloads the reader at most three
+times a minute; after that the active document shows an error page
+("renderer-stopped") until the user reloads it with F5.
 
 - Windows: one user-data folder per user at
   `%LOCALAPPDATA%\LeanDoc\WebView2`, with identical environment options for

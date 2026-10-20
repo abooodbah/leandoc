@@ -204,6 +204,52 @@ if ((Test-Path -LiteralPath $InstallDir) -and
     Remove-Item -LiteralPath $InstallDir -Force
 }
 
+# LeanDoc.exe keeps one WebView2 user-data folder per user at
+# %LOCALAPPDATA%\LeanDoc\WebView2 (src/windows/App.cpp). Remove exactly that
+# folder, never through a link: a reparse point at the folder or its parent
+# is refused, and a link inside it is removed as a link, not followed.
+function Remove-TreeWithoutFollowing {
+    param([string]$Directory)
+    foreach ($Entry in [IO.Directory]::EnumerateFileSystemEntries($Directory)) {
+        $EntryAttributes = [IO.File]::GetAttributes($Entry)
+        $IsDirectory = [bool]($EntryAttributes -band [IO.FileAttributes]::Directory)
+        if ($EntryAttributes -band [IO.FileAttributes]::ReparsePoint) {
+            if ($IsDirectory) { [IO.Directory]::Delete($Entry, $false) }
+            else { [IO.File]::Delete($Entry) }
+        } elseif ($IsDirectory) {
+            Remove-TreeWithoutFollowing $Entry
+            [IO.Directory]::Delete($Entry, $false)
+        } else {
+            if ($EntryAttributes -band [IO.FileAttributes]::ReadOnly) {
+                [IO.File]::SetAttributes($Entry, $EntryAttributes -band (-bnot [IO.FileAttributes]::ReadOnly))
+            }
+            [IO.File]::Delete($Entry)
+        }
+    }
+}
+
+$DataDir = [IO.Path]::GetFullPath((Join-Path $LocalData 'LeanDoc')).TrimEnd('\')
+$WebViewDir = Join-Path $DataDir 'WebView2'
+foreach ($Candidate in @($DataDir, $WebViewDir)) {
+    if ((Test-Path -LiteralPath $Candidate) -and
+        ((Get-Item -LiteralPath $Candidate -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw ('Refusing reparse-point data path: {0}' -f $Candidate)
+    }
+}
+if (Test-Path -LiteralPath $WebViewDir -PathType Container) {
+    try {
+        Remove-TreeWithoutFollowing $WebViewDir
+        [IO.Directory]::Delete($WebViewDir, $false)
+    } catch {
+        Write-Warning ('Could not remove {0}; close LeanDoc and run the uninstaller again. {1}' -f
+            $WebViewDir, $_.Exception.Message)
+    }
+}
+if ((Test-Path -LiteralPath $DataDir -PathType Container) -and
+    $null -eq (Get-ChildItem -LiteralPath $DataDir -Force | Select-Object -First 1)) {
+    [IO.Directory]::Delete($DataDir, $false)
+}
+
 if (-not ('LeanDocRemove.Native' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
