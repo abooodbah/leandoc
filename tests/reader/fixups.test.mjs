@@ -1,7 +1,9 @@
 // Unit tests for the reader's pure modules, run directly in Node.
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -287,6 +289,27 @@ test("The reader's Content Security Policy is exactly SPEC section 4.4", () => {
   const meta = /http-equiv="Content-Security-Policy"\s+content="([^"]+)"/.exec(html);
   assert.ok(meta, "reader.html has the policy meta element");
   assert.equal(meta[1], expected);
+});
+
+test("The stage script copies the runtime files and refuses source folders", () => {
+  const script = path.join(repositoryRoot, "scripts", "stage-runtime-assets.mjs");
+  for (const forbidden of [repositoryRoot, path.join(repositoryRoot, "assets"), path.join(repositoryRoot, "node_modules")]) {
+    const result = spawnSync(process.execPath, [script, forbidden], { encoding: "utf8" });
+    assert.notEqual(result.status, 0, forbidden);
+  }
+  const destination = mkdtempSync(path.join(os.tmpdir(), "leandoc-stage-"));
+  try {
+    const result = spawnSync(process.execPath, [script, destination], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    const list = (folder) => readdirSync(path.join(destination, folder)).sort();
+    assert.deepEqual(readdirSync(destination).sort(), ["fidelity.js", "fixups.js", "fonts", "reader.css", "reader.html", "reader.js", "vendor"]);
+    assert.deepEqual(list("vendor"), ["docx-preview.min.js", "jszip.min.js"]);
+    const css = readFileSync(path.join(repositoryRoot, "assets", "reader.css"), "utf8");
+    const referenced = [...css.matchAll(/url\("\/fonts\/([^"]+)"\)/g)].map((match) => match[1]).sort();
+    assert.deepEqual(list("fonts"), [...new Set(referenced)]);
+  } finally {
+    rmSync(destination, { recursive: true, force: true });
+  }
 });
 
 test("Reader files contain no em dash and no banned wording", () => {

@@ -350,7 +350,7 @@
     elements.statePane.dataset.code = info.code;
   }
 
-  function showRenderFailure(message) {
+  function showRenderFailure() {
     var name = current ? current.fileName || "Untitled" : "Untitled";
     clearDocument();
     if (current) {
@@ -358,7 +358,7 @@
     }
     setIdentity(name, "Not shown", current ? current.displayPath : "");
     showState("fallback", "This document could not be shown", name,
-      "LeanDoc could not lay out this document. " + message);
+      "LeanDoc could not lay out this document.");
     elements.statePane.dataset.code = "render-failed";
     root.dataset.renderState = "failed";
   }
@@ -504,7 +504,7 @@
       generation: expected.generation,
       message: message.slice(0, 500)
     });
-    showRenderFailure("");
+    showRenderFailure();
   }
 
   // Parses into docx-preview's model, applies LeanDoc's model fixes, renders
