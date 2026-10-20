@@ -26,13 +26,17 @@ complete process tree (LeanDoc plus every web runtime process it starts);
 | PKG-01 | Each artifact contains exactly the allow-listed payload, has a `.sha256` sidecar, and the version is pinned across every file. | `scripts/Test-ReleaseEngineering.mjs`, package checks |
 | INSTALL-01 | `install.ps1 -ValidateOnly` succeeds without changing files or the registry; install and uninstall contracts pass static checks. | `tests/Test-LeanDoc.ps1` |
 | CORPUS-01 | leandoc-inspect runs over the fetched corpus without a crash or a hang over 10 s; unexpected error codes are listed. | `tests/corpus/` |
+| USAGE-01 | The 15 usage tasks U-01 to U-15 in the test plan pass through the real Linux host; the Windows and macOS subsets pass in CI. | `tests/usage/`, CI |
+| UI-01 | Contact sheets for all three platforms are signed off; UI-02 to UI-10 pass, including zero serious axe-core findings. | `tests/visual/`, `tests/reader/` |
+| PERF-01 | Timings P-01 to P-11 meet their budgets on the Linux session and the Windows runner. | `tests/perf/`, `perf-memory` CI job |
+| MEMORY-01 | Memory scenarios M-01 to M-09 meet their budgets; leak and idle checks show no growth beyond the limits. | `tests/perf/`, `perf-memory` CI job |
 | DOCS-01 | README and site make no unmeasured claim, list known gaps, disclose unsigned builds, and use no banned word. | `site/validate.mjs`, review |
 
 ## Extended campaigns (not 0.1 gates)
 
 | ID | Campaign | Claim boundary |
 | --- | --- | --- |
-| PERF-EXT | Owner-run `Measure-Performance.ps1` and `Compare-WithWord.ps1` on his laptop. | No memory, start-up, or Word comparison claim until the receipt exists. |
+| PERF-EXT | Published figures: owner-run `Measure-Performance.ps1` and `Compare-WithWord.ps1` on his laptop. | No memory, start-up, or Word comparison claim until the receipt exists. |
 | FIDELITY-EXT | Person-scored rubric over the 30 documents in `docs/FIDELITY.md`. | No fidelity percentage until scored. |
 | NET-EXT | Network observation on a clean Windows machine during open, view, and close. | No network statement beyond what the app's own code does. |
 | FUZZ-EXT | Coverage-guided fuzzing of the core's ZIP and XML paths. | No fuzzing claim until a receipt exists. |

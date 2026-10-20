@@ -9,10 +9,11 @@ Date: 2026-10-20. Spec: [SPEC.md](SPEC.md). Decision: [ADR 0001](adr/0001-render
 | 0 | Spec, ADR, acceptance, plan | this branch (`spec/v0.1`) | owner decisions recorded in SPEC section 1 |
 | 1 | Three build streams in parallel (below) | three branches | each stream's own tests green locally |
 | 2 | Integration and review | `integrate/v0.1` | all Linux tests green in the session; review findings fixed |
-| 3 | README, site, screenshots | `site/v0.1` | `site/validate.mjs` passes; screenshot from a real render |
-| 4 | CI on all three platforms | PR to `main` | Windows, Linux, macOS jobs green |
-| 5 | Release | tag `v0.1.0` | every asset and checksum on the release; Pages shows 0.1.0 |
-| 6 | Distribution | winget PR, companion PRs | one package per winget PR; sibling PRs opened, not merged |
+| 3 | Thorough testing ([TEST_PLAN.md](TEST_PLAN.md)) | `test/v0.1`, test report in `docs/VALIDATION_STATUS.md` | every layer in the test plan run; exit criteria met |
+| 4 | README, site, screenshots | `site/v0.1` | `site/validate.mjs` passes; screenshot from a real render |
+| 5 | CI on all three platforms and release candidate check | PR to `main` | Windows, Linux, macOS jobs green; RC artifacts installed and smoke-tested |
+| 6 | Release | tag `v0.1.0` | every asset and checksum on the release; Pages shows 0.1.0 |
+| 7 | Distribution | winget PR, companion PRs | one package per winget PR; sibling PRs opened, not merged |
 
 ## Phase 1 streams
 
@@ -67,6 +68,29 @@ sections of `CMakeLists.txt`, `CHANGELOG.md`, `docs/releases/v0.1.0.md`, and
   LeanMark; winget manifests; owner measurement scripts; brand mark and icons.
 - Until stream A merges, build against a stub core in `tests/hosts/stub/`
   that returns a fixed report and package, kept out of release builds.
+
+## Phase 3 thorough testing
+
+A dedicated test agent, separate from the three build streams, runs
+[TEST_PLAN.md](TEST_PLAN.md) on the integrated build. It is not a code review.
+It covers:
+
+- **Usage:** 15 scripted end-to-end tasks for the three audiences, through the
+  real host on Linux, with Windows and macOS subsets in CI.
+- **UI:** contact sheets of every fixture in both views and themes on all three
+  platforms, a LibreOffice side-by-side, pixel baselines for chrome states,
+  window sizes and scaling, keyboard, axe-core accessibility, and zoom.
+- **Performance:** launch, first page, tab, view, find, zoom, and scrolling
+  timings on 3, 300, and 1,000-page documents against fixed budgets.
+- **Memory footprint:** full process tree baselines, per-document and per-tab
+  cost, leak checks over repeated open, close, tab, and view cycles, and idle
+  growth, against fixed budgets and LeanMark on the same runner.
+- **Security in use, install lifecycle, and the corpus rendered end to end.**
+
+The agent builds the harnesses in `tests/usage/`, `tests/perf/`, and
+`tests/visual/`, adds a `perf-memory` CI job, files every defect, and fixes
+them with the owning code. The phase ends when the exit criteria in the test
+plan are met and every result is recorded in `docs/VALIDATION_STATUS.md`.
 
 ## Phase 2 review checklist
 
