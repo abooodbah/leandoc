@@ -935,6 +935,41 @@ const char* FeatureCode(Feature feature) {
     return "";
 }
 
+// The first eight features are content the reader does not show. The core
+// counts them only where docx-preview 0.4.1, the reader's layout engine, does
+// not draw them, so "not displayed" in the fidelity bar is true for every
+// item it counts. Checked against docx-preview 0.4.1's source and by
+// rendering probe documents in Chromium (2026-10-20):
+//
+// - TextBox: docx-preview draws VML text boxes (v:textbox) as SVG
+//   foreignObject with their paragraphs, but only inside a w:pict that is a
+//   child of a run and only through v:shape, v:rect, v:oval, and v:line (a
+//   v:group or v:roundrect drops its content). It draws nothing from
+//   DrawingML (a:graphicData yields pictures only). It supports no
+//   mc:Choice, so inside a run it shows mc:Fallback, whose first element
+//   must be the w:pict. A DrawingML text box therefore displays when Word
+//   wrote a VML fallback, and counts here only when it has none. Text that
+//   overflows the box size Word recorded is clipped.
+// - Equation: docx-preview renders OMML as MathML for f, func, rad, sSup,
+//   sSub, sPre, d, nary, eqArr, limLow, m, box, bar, and groupChr, and only
+//   for m:oMath or m:oMathPara directly in a paragraph (or in an inline
+//   content control). An equation counts when it uses any other element
+//   (m:acc, m:sSubSup, m:limUpp, m:borderBox, m:phant lose their content), sits
+//   elsewhere (for example in a hyperlink), or lacks a property or argument
+//   element whose absence makes docx-preview throw and abandon the whole
+//   document (m:d without m:dPr, m:nary with one limit, and so on).
+// - Shape: docx-preview draws v:rect, v:oval, and v:line, also from a VML
+//   fallback. v:shape becomes an empty SVG group, and DrawingML shapes,
+//   groups, and locked canvases are not drawn. Only the drawn VML forms
+//   are left uncounted.
+// - Chart, SmartArt: a:graphicData yields pictures only, so neither is drawn.
+// - OleObject, ActiveX, AltChunk: removed from the sanitized package.
+//   docx-preview would draw neither w:object nor w:control, and it would
+//   load an altChunk into an iframe, which LeanDoc never allows.
+//
+// The tests in tests/core/CoreTests.cpp (TestDisplayedFeatures) and the
+// fixtures features/not-displayed.docx and features/drawn-content.docx pin
+// these rules. Recheck them whenever the pinned docx-preview changes.
 bool FeatureIsNotDisplayed(Feature feature) {
     return static_cast<int>(feature) <= static_cast<int>(Feature::AltChunk);
 }
@@ -951,7 +986,7 @@ FeatureLabel LabelFor(Feature feature) {
         case Feature::AltChunk: return {"imported content block", "imported content blocks"};
         case Feature::TrackedChanges: return {"tracked change", "tracked changes"};
         case Feature::Comments: return {"comment", "comments"};
-        case Feature::Macros: return {"macro project", "macros"};
+        case Feature::Macros: return {"macro project", "macro projects"};
         case Feature::RemoteTemplate: return {"remote template", "remote templates"};
         case Feature::RemoteImage: return {"remote image", "remote images"};
         case Feature::ExternalContent: return {"external content link", "external content links"};

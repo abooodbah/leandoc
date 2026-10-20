@@ -9,6 +9,7 @@
 {"features/breaks.docx", "docx", true, "", "", 0, "1|0|Portrait section\n1|4|Landscape section", "Portrait section\nFirst page of the portrait section.\nText before a page break. Text after the page break.\nLast portrait paragraph.\nLandscape section\nThis section is landscape."},
 {"features/bullets.docx", "docx", true, "", "", 0, "1|0|Bullets in symbol fonts", nullptr},
 {"features/comments.docx", "docx", true, "", "comments=2", 0, "1|0|Comments", "Comments\nThis sentence has a comment.\nSo does this phrase."},
+{"features/drawn-content.docx", "docx", true, "", "", 0, "1|0|Drawn text boxes and equations", "Drawn text boxes and equations\nA text box with a fallback:\nA VML text box:\nA rectangle:\n\nInline: after.\nThe end."},
 {"features/headers-footers.docx", "docx", true, "", "", 0, "1|0|Page 1\n1|3|Page 2\n1|6|Page 3\n1|9|Page 4", nullptr},
 {"features/hyperlinks.docx", "docx", true, "", "", 0, "1|0|Links\n2|4|The target paragraph.", "Links\nVisit the docs or write to the team.\nJump to the target below.\n\nThe target paragraph."},
 {"features/images.docx", "docx", true, "", "", 0, "1|0|Inline images", "Inline images\nA blue picture follows.\n\nA green picture, inline with text: and text after it.\n"},

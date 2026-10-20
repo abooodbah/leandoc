@@ -813,6 +813,7 @@ def feature_fixtures():
     breaks_fixture()
     arabic_fixtures()
     not_displayed_fixture()
+    drawn_content_fixture()
     tracked_changes_fixture()
     comments_fixture()
     long_fixture()
@@ -1185,39 +1186,21 @@ def not_displayed_fixture():
                 f'<wp:cNvGraphicFramePr/><a:graphic>{graphic}</a:graphic></wp:inline>'
                 '</w:drawing></w:r>')
 
-    text_box = (
-        '<w:r><mc:AlternateContent><mc:Choice Requires="wps"><w:drawing>'
-        '<wp:anchor distT="0" distB="0" distL="114300" distR="114300" simplePos="0" '
-        'relativeHeight="251659264" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">'
-        '<wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="column"><wp:posOffset>0</wp:posOffset>'
-        '</wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>0</wp:posOffset>'
-        '</wp:positionV><wp:extent cx="2286000" cy="457200"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
-        '<wp:wrapSquare wrapText="bothSides"/><wp:docPr id="1" name="Text Box 1"/><wp:cNvGraphicFramePr/>'
-        '<a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">'
-        '<wps:wsp><wps:cNvSpPr txBox="1"/><wps:spPr><a:xfrm><a:off x="0" y="0"/>'
-        '<a:ext cx="2286000" cy="457200"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
-        '</wps:spPr><wps:txbx><w:txbxContent>' + para("Text inside a text box.") +
-        '</w:txbxContent></wps:txbx><wps:bodyPr/></wps:wsp></a:graphicData></a:graphic>'
-        '</wp:anchor></w:drawing></mc:Choice><mc:Fallback><w:pict>'
-        '<v:shape id="Text Box 1" type="#_x0000_t202" style="width:180pt;height:36pt">'
-        '<v:textbox><w:txbxContent>' + para("Text inside a text box.") +
-        '</w:txbxContent></v:textbox></v:shape></w:pict></mc:Fallback></mc:AlternateContent></w:r>')
+    # docx-preview 0.4.1 draws VML text boxes and most equations, so this
+    # fixture uses the forms it does not draw: a DrawingML text box with no
+    # VML fallback, an equation with m:sSubSup, and a shape whose fallback is
+    # a v:roundrect. drawn-content.docx holds the forms it does draw.
+    text_box = '<w:r>' + wps_text_box(1, "Text inside a text box.") + '</w:r>'
 
     shape = (
-        '<w:r><mc:AlternateContent><mc:Choice Requires="wps"><w:drawing>'
-        '<wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="914400" cy="457200"/>'
-        '<wp:docPr id="2" name="Rectangle 2"/><wp:cNvGraphicFramePr/><a:graphic>'
-        '<a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">'
-        '<wps:wsp><wps:cNvSpPr/><wps:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="457200"/>'
-        '</a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="4472C4"/>'
-        '</a:solidFill></wps:spPr><wps:bodyPr/></wps:wsp></a:graphicData></a:graphic></wp:inline>'
-        '</w:drawing></mc:Choice><mc:Fallback><w:pict><v:rect id="Rectangle 2" '
+        '<w:r><mc:AlternateContent><mc:Choice Requires="wps">' + wps_rectangle(2) +
+        '</mc:Choice><mc:Fallback><w:pict><v:roundrect id="Rectangle 2" '
         'style="width:72pt;height:36pt" fillcolor="#4472c4"/></w:pict></mc:Fallback>'
         '</mc:AlternateContent></w:r>')
 
-    equation = ('<m:oMathPara><m:oMath><m:r><m:t>E</m:t></m:r><m:r><m:t>=</m:t></m:r><m:r><m:t>m</m:t>'
-                '</m:r><m:sSup><m:e><m:r><m:t>c</m:t></m:r></m:e><m:sup><m:r><m:t>2</m:t></m:r>'
-                '</m:sup></m:sSup></m:oMath></m:oMathPara>')
+    equation = ('<m:oMathPara><m:oMath><m:sSubSup><m:e><m:r><m:t>x</m:t></m:r></m:e>'
+                '<m:sub><m:r><m:t>i</m:t></m:r></m:sub><m:sup><m:r><m:t>2</m:t></m:r></m:sup>'
+                '</m:sSubSup></m:oMath></m:oMathPara>')
 
     chart_frame = anchor_frame(3, "Chart 3", '<a:graphicData uri="http://schemas.openxmlformats.org/'
                                f'drawingml/2006/chart"><c:chart r:id="{chart}"/></a:graphicData>')
@@ -1240,8 +1223,91 @@ def not_displayed_fixture():
            outline=[(1, "Content LeanDoc does not display", 0)],
            text=["Content LeanDoc does not display", "A text box:", "", "A chart:",
                  "A SmartArt graphic:", "A shape:", "The end."],
-           purpose="One of each not-displayed feature: text box, equation, chart, SmartArt, "
-                   "and shape, for the fidelity bar.")
+           purpose="One of each not-displayed feature in a form docx-preview 0.4.1 does not "
+                   "draw: text box, equation, chart, SmartArt, and shape, for the fidelity bar.")
+
+
+def wps_text_box(docpr_id, text):
+    """A floating DrawingML text box, as Word 2010 and later write it."""
+    return (
+        '<w:drawing><wp:anchor distT="0" distB="0" distL="114300" distR="114300" simplePos="0" '
+        f'relativeHeight="{251659264 + docpr_id}" behindDoc="0" locked="0" layoutInCell="1" '
+        'allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="column">'
+        '<wp:posOffset>0</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph">'
+        '<wp:posOffset>0</wp:posOffset></wp:positionV><wp:extent cx="2286000" cy="457200"/>'
+        '<wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapSquare wrapText="bothSides"/>'
+        f'<wp:docPr id="{docpr_id}" name="Text Box {docpr_id}"/><wp:cNvGraphicFramePr/>'
+        '<a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">'
+        '<wps:wsp><wps:cNvSpPr txBox="1"/><wps:spPr><a:xfrm><a:off x="0" y="0"/>'
+        '<a:ext cx="2286000" cy="457200"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+        '</wps:spPr><wps:txbx><w:txbxContent>' + para(text) +
+        '</w:txbxContent></wps:txbx><wps:bodyPr/></wps:wsp></a:graphicData></a:graphic>'
+        '</wp:anchor></w:drawing>')
+
+
+def vml_text_box(shape_id, text, style="width:180pt;height:36pt"):
+    return (f'<w:pict><v:shape id="Text Box {shape_id}" type="#_x0000_t202" style="{style}">'
+            '<v:textbox><w:txbxContent>' + para(text) +
+            '</w:txbxContent></v:textbox></v:shape></w:pict>')
+
+
+def wps_rectangle(docpr_id):
+    return (
+        '<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">'
+        f'<wp:extent cx="914400" cy="457200"/><wp:docPr id="{docpr_id}" name="Rectangle {docpr_id}"/>'
+        '<wp:cNvGraphicFramePr/><a:graphic>'
+        '<a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">'
+        '<wps:wsp><wps:cNvSpPr/><wps:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="457200"/>'
+        '</a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="4472C4"/>'
+        '</a:solidFill></wps:spPr><wps:bodyPr/></wps:wsp></a:graphicData></a:graphic></wp:inline>'
+        '</w:drawing>')
+
+
+def drawn_content_fixture():
+    """Text boxes, a shape, and equations in the forms docx-preview 0.4.1 draws.
+
+    The core reports none of them as not displayed. Word writes a DrawingML
+    text box with a VML fallback; docx-preview supports no mc:Choice and
+    draws the fallback. It renders OMML fractions, scripts, radicals, n-ary
+    operators, and delimiters as MathML.
+    """
+    def m_run(text):
+        return f"<m:r><m:t>{xml_escape(text)}</m:t></m:r>"
+
+    with_fallback = (
+        '<w:r><mc:AlternateContent><mc:Choice Requires="wps">' +
+        wps_text_box(1, "Text in a text box with a fallback.") +
+        '</mc:Choice><mc:Fallback>' +
+        vml_text_box(1, "Text in a text box with a fallback.",
+                     "position:absolute;margin-left:0;margin-top:0;width:180pt;height:36pt;z-index:1") +
+        '</mc:Fallback></mc:AlternateContent></w:r>')
+    plain_vml = '<w:r>' + vml_text_box(2, "Text in a VML text box.") + '</w:r>'
+    rectangle = (
+        '<w:r><mc:AlternateContent><mc:Choice Requires="wps">' + wps_rectangle(3) +
+        '</mc:Choice><mc:Fallback><w:pict><v:rect id="Rectangle 3" '
+        'style="width:72pt;height:36pt" fillcolor="#4472c4"/></w:pict></mc:Fallback>'
+        '</mc:AlternateContent></w:r>')
+    energy = ('<m:oMathPara><m:oMath>' + m_run("E=m") + '<m:sSup><m:e>' + m_run("c") +
+              '</m:e><m:sup>' + m_run("2") + '</m:sup></m:sSup></m:oMath></m:oMathPara>')
+    inline = ('<m:oMath><m:f><m:num>' + m_run("a") + '</m:num><m:den>' + m_run("b") +
+              '</m:den></m:f>' + m_run("+") + '<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr>'
+              '<m:deg/><m:e>' + m_run("z") + '</m:e></m:rad>' + m_run("+") +
+              '<m:d><m:dPr><m:ctrlPr/></m:dPr><m:e>' + m_run("p+q") + '</m:e></m:d></m:oMath>')
+    body = (para("Drawn text boxes and equations", "Heading1") +
+            para(run("A text box with a fallback: ") + with_fallback) +
+            para(run("A VML text box: ") + plain_vml) +
+            para(run("A rectangle: ") + rectangle) +
+            para(energy) +
+            para(run("Inline: ") + inline + run(" after.")) +
+            para("The end."))
+    package = new_docx("Drawn content", body)
+    write("features/drawn-content.docx", package.build())
+    expect("features/drawn-content.docx", "docx", rtl=False, features={},
+           outline=[(1, "Drawn text boxes and equations", 0)],
+           text=["Drawn text boxes and equations", "A text box with a fallback:",
+                 "A VML text box:", "A rectangle:", "", "Inline: after.", "The end."],
+           purpose="Text boxes, a shape, and equations that docx-preview 0.4.1 draws, so the "
+                   "core reports nothing as not displayed.")
 
 
 def tracked_changes_fixture():

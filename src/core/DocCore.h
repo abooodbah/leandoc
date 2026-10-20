@@ -51,12 +51,14 @@ const char* FileKindName(FileKind kind);  // "docx", "legacy-doc", ...
 // fidelity bar, the CLI, and the tests agree.
 enum class Feature {
     // Content LeanDoc does not display in v0.1. Reported in the fidelity bar
-    // as "not displayed".
-    TextBox,          // wps:txbx, v:textbox
-    Equation,         // m:oMath, m:oMathPara (each top-level occurrence)
+    // as "not displayed". Text boxes, equations, and shapes count only in the
+    // forms the reader's docx-preview does not draw; the rules and evidence
+    // are beside FeatureIsNotDisplayed() in DocCore.cpp.
+    TextBox,          // wps:txbx without a drawn VML fallback, v:textbox docx-preview skips
+    Equation,         // top-level m:oMath, m:oMathPara docx-preview cannot render fully
     Chart,            // c:chart references
     SmartArt,         // dgm:relIds
-    Shape,            // wps:wsp / v:shape / v:rect etc. without a picture
+    Shape,            // wps:wsp / v:shape / locked canvas etc. without a picture, not drawn
     OleObject,        // w:object, o:OLEObject, embedded packages
     ActiveX,          // w:control, activeX parts
     AltChunk,         // w:altChunk (imported HTML/RTF/MHT content)
@@ -91,10 +93,11 @@ struct OutlineEntry {
     std::string text;    // plain text, whitespace collapsed, at most 200 bytes
     // Zero-based index among the body's w:p elements in document order,
     // counting paragraphs inside table cells. Paragraphs inside text box
-    // content (w:txbxContent) and inside mc:Fallback are not counted, because
-    // docx-preview does not render text boxes. The count is taken on the
-    // sanitized package the reader receives. The reader uses it to find the
-    // rendered paragraph.
+    // content (w:txbxContent) and inside mc:Fallback are not counted: they
+    // are not part of the document's block flow, and docx-preview draws text
+    // box paragraphs, when it draws them at all, inside SVG. The count is
+    // taken on the sanitized package the reader receives. The reader uses it
+    // to find the rendered paragraph.
     std::uint32_t paragraphIndex = 0;
 };
 

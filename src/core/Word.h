@@ -27,6 +27,13 @@ struct FeatureTally {
         auto& slot = counts[static_cast<std::size_t>(feature)];
         slot = amount > UINT32_MAX - slot ? UINT32_MAX : slot + amount;
     }
+    // Takes back up to `amount` of what was added since the count was
+    // `before`, for content the reader turns out to show after all.
+    void Credit(Feature feature, std::uint32_t before, std::uint32_t amount) {
+        auto& slot = counts[static_cast<std::size_t>(feature)];
+        const std::uint32_t added = slot > before ? slot - before : 0;
+        slot -= added < amount ? added : amount;
+    }
     std::uint32_t Get(Feature feature) const {
         return counts[static_cast<std::size_t>(feature)];
     }

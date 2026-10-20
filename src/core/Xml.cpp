@@ -37,6 +37,8 @@ constexpr UriEntry kNamespaces[] = {
     {"urn:schemas-microsoft-com:office:office", Ns::O},
     {"http://schemas.microsoft.com/office/word/2010/wordml", Ns::W14},
     {"http://schemas.microsoft.com/office/drawing/2016/SVG/main", Ns::Asvg},
+    {"http://schemas.openxmlformats.org/drawingml/2006/lockedCanvas", Ns::Lc},
+    {"http://purl.oclc.org/ooxml/drawingml/lockedCanvas", Ns::Lc},
     {"http://schemas.openxmlformats.org/package/2006/relationships", Ns::Pr},
     {"http://schemas.openxmlformats.org/package/2006/content-types", Ns::Ct},
     {"http://schemas.openxmlformats.org/package/2006/metadata/core-properties", Ns::Cp},

@@ -37,6 +37,7 @@ enum class Ns : unsigned char {
     O,      // VML office extensions
     W14,    // Word 2010 wordml extensions
     Asvg,   // Office 2016 SVG extension
+    Lc,     // drawingml locked canvas
     Pr,     // package relationships
     Ct,     // package content types
     Cp,     // core properties

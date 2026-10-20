@@ -183,6 +183,38 @@ const char* FieldCharType(const NsScope& scope, pugi::xml_node element) {
 }
 
 // ---------------------------------------------------------------------------
+// What docx-preview 0.4.1 draws. The feature counts report only content the
+// reader cannot show, so text boxes, shapes, and equations are counted only
+// where docx-preview would drop them. The evidence for each rule is in the
+// comment above FeatureIsNotDisplayed() in DocCore.cpp.
+
+// VML elements docx-preview turns into SVG (parseVmlElement). Anything else
+// inside a w:pict is dropped together with its content.
+bool IsDrawnVmlElement(const char* local) {
+    return IsOneOf(local, {"shape", "rect", "oval", "line", "textbox"});
+}
+
+// VML shapes that come out as visible SVG geometry. v:shape becomes an empty
+// <g>, so a v:shape without a text box or image draws nothing.
+bool IsDrawnVmlGeometry(const char* local) {
+    return IsOneOf(local, {"rect", "oval", "line"});
+}
+
+bool IsVmlShapeElement(const char* local) {
+    return IsOneOf(
+        local, {"shape", "rect", "roundrect", "oval", "line", "polyline", "arc", "curve"});
+}
+
+// OMML elements docx-preview maps to MathML (mmlTagMap), plus m:r. An
+// element outside this list is dropped with everything inside it.
+bool IsDrawnMathElement(const char* local) {
+    return IsOneOf(
+        local, {"oMath", "oMathPara", "f", "func", "fName", "num", "den", "rad", "deg",
+                "e", "sSup", "sSub", "sPre", "sup", "sub", "d", "nary", "eqArr", "lim",
+                "limLow", "m", "mr", "box", "bar", "groupChr", "r"});
+}
+
+// ---------------------------------------------------------------------------
 // Analysis
 
 class Analyzer final {
@@ -249,6 +281,189 @@ private:
         return attribute && externalIds_.count(attribute.value()) > 0;
     }
 
+    // The QName of the ancestor `up` levels above the current element (0 is
+    // the parent), or an empty name.
+    QName Ancestor(std::size_t up) const {
+        if (ancestors_.size() < up + 2) {
+            return {};
+        }
+        return ancestors_[ancestors_.size() - 2 - up];
+    }
+
+    // Counts the text boxes and shapes docx-preview draws from a VML subtree
+    // whose root it parses (a w:pict child of a run). `drawn` tells whether
+    // `element` itself is still on a drawn path.
+    void CountDrawnVml(pugi::xml_node element, std::uint32_t& textBoxes, std::uint32_t& shapes) {
+        for (pugi::xml_node child = element.first_child(); child;
+             child = child.next_sibling()) {
+            if (child.type() != pugi::node_element) {
+                continue;
+            }
+            const std::size_t mark = scope_.Mark();
+            scope_.Push(child);
+            const QName name = scope_.Element(child);
+            if (name.ns == Ns::V && IsDrawnVmlElement(name.local)) {
+                if (std::strcmp(name.local, "textbox") == 0) {
+                    ++textBoxes;
+                } else if (IsDrawnVmlGeometry(name.local) &&
+                           !HasChild(child, Ns::V, "imagedata") &&
+                           !HasChild(child, Ns::V, "textbox")) {
+                    ++shapes;
+                }
+                CountDrawnVml(child, textBoxes, shapes);
+            }
+            scope_.Pop(mark);
+        }
+    }
+
+    // After the mc:Choice of an mc:AlternateContent has been counted: inside a
+    // run, docx-preview shows the mc:Fallback instead (it supports no
+    // Requires namespace), so text boxes and shapes it draws from a VML
+    // fallback are taken off the Choice's counts.
+    void CreditFallback(pugi::xml_node alternate, std::uint32_t textBoxesBefore,
+                        std::uint32_t shapesBefore) {
+        if (!Ancestor(0).Is(Ns::W, "r")) {
+            return;
+        }
+        pugi::xml_node fallback;
+        for (pugi::xml_node child = alternate.first_child(); child && !fallback;
+             child = child.next_sibling()) {
+            if (child.type() != pugi::node_element) {
+                continue;
+            }
+            const std::size_t mark = scope_.Mark();
+            scope_.Push(child);
+            if (scope_.Element(child).Is(Ns::Mc, "Fallback")) {
+                fallback = child;
+            }
+            scope_.Pop(mark);
+        }
+        if (!fallback) {
+            return;
+        }
+        const std::size_t mark = scope_.Mark();
+        scope_.Push(fallback);
+        pugi::xml_node first = fallback.first_child();
+        while (first && first.type() != pugi::node_element) {
+            first = first.next_sibling();
+        }
+        std::uint32_t textBoxes = 0;
+        std::uint32_t shapes = 0;
+        if (first) {
+            scope_.Push(first);
+            if (scope_.Element(first).Is(Ns::W, "pict")) {
+                CountDrawnVml(first, textBoxes, shapes);
+            }
+        }
+        scope_.Pop(mark);
+        tally_.Credit(Feature::TextBox, textBoxesBefore, textBoxes);
+        tally_.Credit(Feature::Shape, shapesBefore, shapes);
+    }
+
+    // docx-preview reads m:oMath and m:oMathPara only as children of a
+    // paragraph, or of an inline content control in one. w:ins and w:moveTo
+    // are unwrapped in the sanitized package.
+    bool IsMathPlacementDrawn() const {
+        std::size_t up = 0;
+        const auto skipRevisions = [this, &up]() {
+            while (Ancestor(up).Is(Ns::W, "ins") || Ancestor(up).Is(Ns::W, "moveTo")) {
+                ++up;
+            }
+        };
+        skipRevisions();
+        if (Ancestor(up).Is(Ns::W, "sdtContent") && Ancestor(up + 1).Is(Ns::W, "sdt")) {
+            up += 2;
+            skipRevisions();
+        }
+        return Ancestor(up).Is(Ns::W, "p");
+    }
+
+    // True when docx-preview renders every part of this equation. Unknown
+    // OMML elements lose their content, and some missing property or
+    // argument elements make docx-preview throw, which stops the whole
+    // document from rendering.
+    bool IsMathDrawn(pugi::xml_node element) {
+        bool drawn = true;
+        bool hasE = false;
+        bool hasSub = false;
+        bool hasSup = false;
+        bool hasDeg = false;
+        bool degHidden = false;
+        bool hasOwnProperties = false;
+        const QName self = scope_.Element(element);
+        const std::string ownProperties = std::string(self.local) + "Pr";
+        for (pugi::xml_node child = element.first_child(); child && drawn;
+             child = child.next_sibling()) {
+            if (child.type() != pugi::node_element) {
+                continue;
+            }
+            const std::size_t mark = scope_.Mark();
+            scope_.Push(child);
+            const QName name = scope_.Element(child);
+            if (name.ns == Ns::M) {
+                if (ownProperties == name.local) {
+                    hasOwnProperties = true;
+                    if (self.Is(Ns::M, "rad")) {
+                        if (pugi::xml_node hide = FindMathChild(child, "degHide")) {
+                            // docx-preview reads only an explicit true value.
+                            const std::size_t inner = scope_.Mark();
+                            scope_.Push(hide);
+                            const char* value =
+                                FindAttribute(scope_, hide, Ns::M, "val").value();
+                            degHidden = IsOneOf(value, {"1", "on", "true"});
+                            scope_.Pop(inner);
+                        }
+                    }
+                } else if (EndsWith(name.local, "Pr")) {
+                    // Other property elements (ctrlPr, argPr) carry no text.
+                } else if (!IsDrawnMathElement(name.local)) {
+                    drawn = false;
+                } else if (std::strcmp(name.local, "r") != 0) {
+                    hasE = hasE || std::strcmp(name.local, "e") == 0;
+                    hasSub = hasSub || std::strcmp(name.local, "sub") == 0;
+                    hasSup = hasSup || std::strcmp(name.local, "sup") == 0;
+                    hasDeg = hasDeg || std::strcmp(name.local, "deg") == 0;
+                    drawn = IsMathDrawn(child);
+                }
+            }
+            scope_.Pop(mark);
+        }
+        if (!drawn || self.ns != Ns::M) {
+            return drawn;
+        }
+        const char* local = self.local;
+        if (IsOneOf(local, {"d", "groupChr", "bar"})) {
+            return hasOwnProperties;
+        }
+        if (std::strcmp(local, "nary") == 0) {
+            return hasE && hasSub == hasSup;
+        }
+        if (std::strcmp(local, "sPre") == 0) {
+            return hasE && hasSub && hasSup;
+        }
+        if (std::strcmp(local, "rad") == 0) {
+            return hasE && (hasDeg || degHidden);
+        }
+        return true;
+    }
+
+    pugi::xml_node FindMathChild(pugi::xml_node element, const char* local) {
+        for (pugi::xml_node child = element.first_child(); child;
+             child = child.next_sibling()) {
+            if (child.type() != pugi::node_element) {
+                continue;
+            }
+            const std::size_t mark = scope_.Mark();
+            scope_.Push(child);
+            const bool match = scope_.Element(child).Is(Ns::M, local);
+            scope_.Pop(mark);
+            if (match) {
+                return child;
+            }
+        }
+        return {};
+    }
+
     void FieldCharacter(pugi::xml_node element) {
         const char* type = FieldCharType(scope_, element);
         if (std::strcmp(type, "begin") == 0) {
@@ -273,9 +488,24 @@ private:
         const std::size_t mark = scope_.Mark();
         scope_.Push(element);
         const QName name = scope_.Element(element);
+        ancestors_.push_back(name);
         bool descend = true;
         bool enteredMath = false;
         bool enteredObject = false;
+        bool alternate = false;
+        const std::uint32_t textBoxesBefore = tally_.Get(Feature::TextBox);
+        const std::uint32_t shapesBefore = tally_.Get(Feature::Shape);
+
+        // docx-preview parses a w:pict that is a child of a run, and inside it
+        // only an unbroken chain of the VML elements it knows.
+        const bool vmlDrawnBefore = vmlDrawn_;
+        if (name.Is(Ns::W, "pict")) {
+            vmlDrawn_ = Ancestor(0).Is(Ns::W, "r");
+        } else if (name.ns == Ns::V) {
+            vmlDrawn_ = vmlDrawn_ && IsDrawnVmlElement(name.local);
+        } else {
+            vmlDrawn_ = false;
+        }
 
         switch (name.ns) {
             case Ns::W:
@@ -307,6 +537,7 @@ private:
                 break;
             case Ns::Mc:
                 descend = std::strcmp(name.local, "Fallback") != 0;
+                alternate = std::strcmp(name.local, "AlternateContent") == 0;
                 break;
             case Ns::Wps:
                 if (std::strcmp(name.local, "txbx") == 0) {
@@ -318,18 +549,19 @@ private:
                 break;
             case Ns::V:
                 if (std::strcmp(name.local, "textbox") == 0) {
-                    tally_.Add(Feature::TextBox);
+                    if (!vmlDrawn_) {
+                        tally_.Add(Feature::TextBox);
+                    }
                 } else if (std::strcmp(name.local, "imagedata") == 0) {
                     if (FindAttribute(scope_, element, Ns::R, "link") ||
                         IsExternalReference(element, Ns::R, "id") ||
                         IsExternalReference(element, Ns::O, "relid")) {
                         tally_.Add(Feature::RemoteImage);
                     }
-                } else if (objectDepth_ == 0 &&
-                           IsOneOf(name.local, {"shape", "rect", "roundrect", "oval",
-                                                "line", "polyline", "arc", "curve"}) &&
+                } else if (objectDepth_ == 0 && IsVmlShapeElement(name.local) &&
                            !HasChild(element, Ns::V, "imagedata") &&
-                           !HasChild(element, Ns::V, "textbox")) {
+                           !HasChild(element, Ns::V, "textbox") &&
+                           !(vmlDrawn_ && IsDrawnVmlGeometry(name.local))) {
                     tally_.Add(Feature::Shape);
                 }
                 break;
@@ -349,10 +581,19 @@ private:
                     tally_.Add(Feature::SmartArt);
                 }
                 break;
+            case Ns::Lc:
+                // A locked canvas groups DrawingML shapes; docx-preview draws
+                // only pictures from a:graphicData. Counted once, not per shape.
+                if (std::strcmp(name.local, "lockedCanvas") == 0) {
+                    tally_.Add(Feature::Shape);
+                    descend = false;
+                }
+                break;
             case Ns::M:
                 if (std::strcmp(name.local, "oMath") == 0 ||
                     std::strcmp(name.local, "oMathPara") == 0) {
-                    if (mathDepth_ == 0) {
+                    if (mathDepth_ == 0 &&
+                        !(IsMathPlacementDrawn() && IsMathDrawn(element))) {
                         tally_.Add(Feature::Equation);
                     }
                     enteredMath = true;
@@ -381,6 +622,11 @@ private:
             mathDepth_ -= enteredMath ? 1 : 0;
             objectDepth_ -= enteredObject ? 1 : 0;
         }
+        if (alternate) {
+            CreditFallback(element, textBoxesBefore, shapesBefore);
+        }
+        vmlDrawn_ = vmlDrawnBefore;
+        ancestors_.pop_back();
         scope_.Pop(mark);
     }
 
@@ -388,8 +634,10 @@ private:
     FeatureTally& tally_;
     NsScope scope_;
     std::vector<Frame> fields_;
+    std::vector<QName> ancestors_;  // the current element is last
     int mathDepth_ = 0;
     int objectDepth_ = 0;
+    bool vmlDrawn_ = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -480,11 +728,11 @@ private:
                     return Action::Remove;
                 }
                 if (std::strcmp(local, "fldSimple") == 0) {
-                    const pugi::xml_attribute instruction =
-                        FindAttribute(scope_, element, Ns::W, "instr");
-                    return ShouldStripField(ClassifyField(instruction.value()))
-                               ? Action::Unwrap
-                               : Action::Keep;
+                    // Every simple field becomes its cached result runs. For
+                    // external and DDE fields this drops the instruction;
+                    // for the rest it is what the reader can show, because
+                    // docx-preview 0.4.1 drops w:fldSimple with its content.
+                    return Action::Unwrap;
                 }
                 if (std::strcmp(local, "hyperlink") == 0) {
                     const pugi::xml_attribute id = FindAttribute(scope_, element, Ns::R, "id");

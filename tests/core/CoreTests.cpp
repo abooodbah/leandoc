@@ -581,7 +581,7 @@ void TestJson() {
         "\"sourceBytes\":1234,\"features\":[{\"code\":\"text-box\",\"count\":2,"
         "\"notDisplayed\":true,\"singular\":\"text box\",\"plural\":\"text boxes\"},"
         "{\"code\":\"macros\",\"count\":1,\"notDisplayed\":false,\"singular\":\"macro project\","
-        "\"plural\":\"macros\"}],\"outline\":[{\"level\":1,\"text\":\"Intro \\\"one\\\"\","
+        "\"plural\":\"macro projects\"}],\"outline\":[{\"level\":1,\"text\":\"Intro \\\"one\\\"\","
         "\"paragraph\":0}],\"properties\":{\"title\":\"T\",\"creator\":\"C\","
         "\"rightToLeft\":true}}",
         "report JSON shape");
@@ -918,6 +918,107 @@ void TestPerformance(const fs::path& fixtures) {
 #endif
 }
 
+
+// Text boxes, shapes, and equations count only where docx-preview 0.4.1 does
+// not draw them; see FeatureIsNotDisplayed() in DocCore.cpp.
+void TestDisplayedFeatures() {
+    const auto features = [](const std::string& body) {
+        return FeaturesText(OpenEntries(MinimalDocx(body)));
+    };
+    const std::string wpsTextBox =
+        "<w:drawing><wp:inline><wp:extent cx=\"1\" cy=\"1\"/><wp:docPr id=\"1\" name=\"t\"/>"
+        "<a:graphic><a:graphicData uri=\"http://schemas.microsoft.com/office/word/2010/"
+        "wordprocessingShape\"><wps:wsp><wps:txbx><w:txbxContent><w:p><w:r><w:t>In box</w:t>"
+        "</w:r></w:p></w:txbxContent></wps:txbx></wps:wsp></a:graphicData></a:graphic>"
+        "</wp:inline></w:drawing>";
+    const std::string vmlTextBox =
+        "<w:pict><v:shape style=\"width:10pt;height:10pt\"><v:textbox><w:txbxContent><w:p><w:r>"
+        "<w:t>In box</w:t></w:r></w:p></w:txbxContent></v:textbox></v:shape></w:pict>";
+    const auto alternate = [](const std::string& choice, const std::string& fallback) {
+        return "<w:p><w:r><mc:AlternateContent><mc:Choice Requires=\"wps\">" + choice +
+               "</mc:Choice><mc:Fallback>" + fallback +
+               "</mc:Fallback></mc:AlternateContent></w:r></w:p>";
+    };
+
+    ExpectEqual(features("<w:p><w:r>" + wpsTextBox + "</w:r></w:p>"), "text-box=1",
+                "a DrawingML text box without a fallback is not displayed");
+    ExpectEqual(features(alternate(wpsTextBox, vmlTextBox)), "",
+                "a DrawingML text box with a VML fallback is displayed");
+    ExpectEqual(features(alternate(wpsTextBox, "<w:drawing/>" + vmlTextBox)), "text-box=1",
+                "docx-preview reads only the first element of a fallback");
+    ExpectEqual(features("<w:p><mc:AlternateContent><mc:Choice Requires=\"wps\"><w:r>" +
+                         wpsTextBox + "</w:r></mc:Choice><mc:Fallback><w:r>" + vmlTextBox +
+                         "</w:r></mc:Fallback></mc:AlternateContent></w:p>"),
+                "text-box=1", "an AlternateContent outside a run is not read at all");
+    ExpectEqual(features("<w:p><w:r>" + vmlTextBox + "</w:r></w:p>"), "",
+                "a VML text box in a run is displayed");
+    ExpectEqual(features("<w:p><w:r><w:pict><v:group><v:shape><v:textbox><w:txbxContent>"
+                         "<w:p/></w:txbxContent></v:textbox></v:shape></v:group></w:pict></w:r></w:p>"),
+                "text-box=1", "a VML text box inside a group is not displayed");
+    ExpectEqual(features("<w:p><w:r><w:pict><v:rect style=\"width:9pt\"/><v:oval/><v:line/>"
+                         "</w:pict></w:r></w:p>"),
+                "", "VML rectangles, ovals, and lines are drawn");
+    ExpectEqual(features("<w:p><w:r><w:pict><v:shape path=\"m0,0l1,1e\"/><v:roundrect/>"
+                         "</w:pict></w:r></w:p>"),
+                "shape=2", "VML paths and rounded rectangles are not drawn");
+    ExpectEqual(features(alternate("<wps:wsp/>", "<w:pict><v:rect/></w:pict>")), "",
+                "a DrawingML shape with a rectangle fallback is drawn");
+    ExpectEqual(features(alternate("<wps:wsp/>", "<w:pict><v:roundrect/></w:pict>")), "shape=1",
+                "a DrawingML shape with a rounded rectangle fallback is not drawn");
+    ExpectEqual(features("<w:p><w:r><w:drawing><wp:inline><a:graphic><a:graphicData uri=\"x\">"
+                         "<lc:lockedCanvas xmlns:lc=\"http://schemas.openxmlformats.org/drawingml/"
+                         "2006/lockedCanvas\"><a:sp/><a:sp/></lc:lockedCanvas></a:graphicData>"
+                         "</a:graphic></wp:inline></w:drawing></w:r></w:p>"),
+                "shape=1", "a locked canvas counts as one shape");
+
+    const auto math = [](const std::string& content) {
+        return "<w:p><m:oMath>" + content + "</m:oMath></w:p>";
+    };
+    const std::string x = "<m:r><m:t>x</m:t></m:r>";
+    ExpectEqual(features(math(x + "<m:f><m:num>" + x + "</m:num><m:den>" + x +
+                              "</m:den></m:f><m:sSup><m:e>" + x + "</m:e><m:sup>" + x +
+                              "</m:sup></m:sSup>")),
+                "", "fractions and superscripts are displayed");
+    ExpectEqual(features("<w:p><m:oMathPara><m:oMathParaPr/><m:oMath>" + x +
+                         "</m:oMath><m:oMath>" + x + "</m:oMath></m:oMathPara></w:p>"),
+                "", "an equation paragraph is displayed");
+    ExpectEqual(features(math("<m:sSubSup><m:e>" + x + "</m:e><m:sub>" + x + "</m:sub><m:sup>" +
+                              x + "</m:sup></m:sSubSup>")),
+                "equation=1", "m:sSubSup loses its content");
+    ExpectEqual(features(math("<m:acc><m:e>" + x + "</m:e></m:acc>")), "equation=1",
+                "m:acc loses its content");
+    ExpectEqual(features(math("<m:d><m:e>" + x + "</m:e></m:d>")), "equation=1",
+                "a delimiter without m:dPr stops docx-preview");
+    ExpectEqual(features(math("<m:d><m:dPr/><m:e>" + x + "</m:e></m:d>")), "",
+                "a delimiter with m:dPr is displayed");
+    ExpectEqual(features(math("<m:nary><m:sub>" + x + "</m:sub><m:e>" + x + "</m:e></m:nary>")),
+                "equation=1", "an n-ary operator with only a lower limit stops docx-preview");
+    ExpectEqual(features(math("<m:nary><m:naryPr/><m:sub/><m:sup/><m:e>" + x + "</m:e></m:nary>")),
+                "", "an n-ary operator with both limits is displayed");
+    ExpectEqual(features(math("<m:rad><m:radPr><m:degHide/></m:radPr><m:e>" + x + "</m:e></m:rad>")),
+                "equation=1", "a radical whose degree docx-preview cannot find");
+    ExpectEqual(features(math("<m:rad><m:radPr><m:degHide m:val=\"1\"/></m:radPr><m:e>" + x +
+                              "</m:e></m:rad>")),
+                "", "a square root is displayed");
+    ExpectEqual(features("<w:p><w:hyperlink w:anchor=\"a\"><m:oMath>" + x +
+                         "</m:oMath></w:hyperlink></w:p>"),
+                "equation=1", "an equation inside a hyperlink is not read");
+    ExpectEqual(features("<w:p><w:ins w:id=\"1\"><m:oMath>" + x + "</m:oMath></w:ins></w:p>"),
+                "tracked-changes=1", "an inserted equation is displayed once accepted");
+    ExpectEqual(features("<w:p><w:sdt><w:sdtContent><m:oMath>" + x +
+                         "</m:oMath></w:sdtContent></w:sdt></w:p>"),
+                "", "an equation in an inline content control is displayed");
+
+    // docx-preview drops w:fldSimple and its content, so every simple field
+    // reaches the reader as its cached result.
+    std::string output = SanitizedBody(
+        "<w:p><w:fldSimple w:instr=\" PAGE \"><w:r><w:t>7</w:t></w:r></w:fldSimple>"
+        "<w:fldSimple w:instr=\"INCLUDETEXT x\"><w:r><w:t> cached</w:t></w:r></w:fldSimple></w:p>");
+    Expect(BodyText(output) == "7 cached" && !Contains(output, "fldSimple") &&
+               !Contains(output, "INCLUDETEXT"),
+           "simple fields become their result runs");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -934,6 +1035,7 @@ int main(int argc, char** argv) {
     TestOutline();
     TestRightToLeft();
     TestSanitizing();
+    TestDisplayedFeatures();
     TestClassification(fixtures);
     TestPerformance(fixtures);
     std::cout << checks - failures << " of " << checks << " checks passed\n";

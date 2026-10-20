@@ -132,6 +132,30 @@
     ],
     "purpose": "Two comments with ranges and reference runs; the comments part is dropped."
   },
+  "features/drawn-content.docx": {
+    "kind": "docx",
+    "ok": true,
+    "errorCode": "",
+    "features": {},
+    "rightToLeft": false,
+    "outline": [
+      [
+        1,
+        "Drawn text boxes and equations",
+        0
+      ]
+    ],
+    "text": [
+      "Drawn text boxes and equations",
+      "A text box with a fallback:",
+      "A VML text box:",
+      "A rectangle:",
+      "",
+      "Inline: after.",
+      "The end."
+    ],
+    "purpose": "Text boxes, a shape, and equations that docx-preview 0.4.1 draws, so the core reports nothing as not displayed."
+  },
   "features/headers-footers.docx": {
     "kind": "docx",
     "ok": true,
@@ -1820,7 +1844,7 @@
       "A shape:",
       "The end."
     ],
-    "purpose": "One of each not-displayed feature: text box, equation, chart, SmartArt, and shape, for the fidelity bar."
+    "purpose": "One of each not-displayed feature in a form docx-preview 0.4.1 does not draw: text box, equation, chart, SmartArt, and shape, for the fidelity bar."
   },
   "features/notes.docx": {
     "kind": "docx",

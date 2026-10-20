@@ -15,6 +15,7 @@ set(cases
   "features/headers-footers.docx|Body text on page 4."
   "features/arabic.docx|هذه فقرة عربية"
   "features/not-displayed.docx|The end."
+  "features/drawn-content.docx|Inline:"
   "security/hyperlinks.docx|Script link"
   "security/include-field.docx|Cached picture text"
   "security/dde.docx|Cached DDE result"
