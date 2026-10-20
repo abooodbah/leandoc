@@ -114,15 +114,21 @@ async function inspect(host, expect) {
       result.numbered.push(!!p && /docx-num-/.test(p.className) &&
         !section.classList.contains("ld-lazy") && getComputedStyle(p, "::before").content !== "none");
     }
-    result.rightAligned = (expectation.rightAligned || []).map((text) => {
+    const aligned = (text, side) => {
       const p = paragraphWith(text);
       if (!p) {
         return null;
       }
       const range = document.createRange();
       range.selectNodeContents(p);
-      return Math.abs(range.getBoundingClientRect().right - p.getBoundingClientRect().right) < 3;
-    });
+      const textBox = range.getBoundingClientRect();
+      const box = p.getBoundingClientRect();
+      return side === "right"
+        ? Math.abs(textBox.right - box.right) < 3 && textBox.left - box.left > 20
+        : Math.abs(textBox.left - box.left) < 3 && box.right - textBox.right > 20;
+    };
+    result.rightAligned = (expectation.rightAligned || []).map((text) => aligned(text, "right"));
+    result.leftAligned = (expectation.leftAligned || []).map((text) => aligned(text, "left"));
     result.header = Array.from(body.querySelectorAll("section.docx > header")).map((n) => n.textContent).join("\n");
     result.footer = Array.from(body.querySelectorAll("section.docx > footer")).map((n) => n.textContent).join("\n");
     result.bidiVisual = Array.from(body.querySelectorAll("table.ld-bidi-visual"))
@@ -177,6 +183,7 @@ describe("rendering cases (RENDER-01, SEC-01 reader half)", () => {
         });
         result.numbered.forEach((ok, index) => assert.ok(ok, `${entry.id}: numbered "${expect.numbered[index]}"`));
         result.rightAligned.forEach((ok, index) => assert.ok(ok, `${entry.id}: right aligned "${expect.rightAligned[index]}"`));
+        result.leftAligned.forEach((ok, index) => assert.ok(ok, `${entry.id}: left aligned "${expect.leftAligned[index]}"`));
         if (expect.header) {
           assert.ok(result.header.includes(expect.header), `${entry.id}: header`);
         }
@@ -652,6 +659,20 @@ describe("chrome interactions (VIEW-01)", () => {
       assert.equal(await host.page.isVisible("#outlineList"), false);
       await host.page.click("#outlineToggle");
       assert.equal(await host.page.isVisible("#outlineList"), true);
+    });
+  });
+
+  test("outline entries whose index misses fall back to the heading text", async () => {
+    await withHost({}, async (host) => {
+      const { report } = fixture("headings.docx");
+      const shifted = report.outline.map((entry) => ({ ...entry, paragraph: entry.paragraph + 1 }));
+      shifted.push({ level: 1, text: "A heading that is not in the document", paragraph: 9999 });
+      await openFixture(host, "headings.docx", { report: { outline: shifted } });
+      const targets = await host.page.$$eval("#docBody [data-ld-target]", (nodes) =>
+        nodes.map((node) => [Number(node.dataset.ldTarget), node.textContent.trim()]));
+      assert.deepEqual(targets, report.outline.map((entry, index) => [index, entry.text]));
+      assert.equal(await host.page.locator("#outlineList a").count(), shifted.length);
+      await host.page.locator("#outlineList a").last().click();
     });
   });
 

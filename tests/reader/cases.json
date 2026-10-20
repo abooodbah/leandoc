@@ -67,7 +67,8 @@
           { "text": "An English paragraph", "dir": "ltr" }
         ],
         "numbered": ["الخطوة الأولى"],
-        "rightAligned": ["زار الفريق"],
+        "rightAligned": ["زار الفريق", "فقرة عند بداية"],
+        "leftAligned": ["فقرة عند نهاية", "An English paragraph"],
         "bidiVisualTables": 1,
         "tableOrder": { "right": "الموقع", "left": "ملاحظات" }
       }

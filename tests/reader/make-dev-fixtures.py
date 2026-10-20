@@ -269,6 +269,13 @@ def make_arabic(document: Document) -> None:
         paragraph = document.add_paragraph()
         set_bidi(paragraph)
         rtl_run(paragraph, text)
+    # Word stores jc relative to the paragraph direction: in a right-to-left
+    # paragraph "left" is the start (right) edge and "right" the end.
+    for jc, text in [("left", "فقرة عند بداية السطر"), ("right", "فقرة عند نهاية السطر")]:
+        paragraph = document.add_paragraph()
+        set_bidi(paragraph)
+        paragraph._p.get_or_add_pPr().append(parse_xml(f'<w:jc {nsdecls("w")} w:val="{jc}"/>'))
+        rtl_run(paragraph, text)
     mixed = document.add_paragraph()
     set_bidi(mixed)
     rtl_run(mixed, "يعمل برنامج ")
