@@ -71,21 +71,24 @@ if (mode === "run") {
       add(index);
     }
   });
-  const firstPart = picked.slice(0, 150);
+  // Compiler command lines are long and rarely the cause; keep lines short.
+  const firstPart = picked.filter((index) => lines[index].length < 1000).slice(0, 150);
   const tail = [];
-  for (let index = Math.max(0, lines.length - 120); index < lines.length; index += 1) {
+  for (let index = Math.max(0, lines.length - 150); index < lines.length; index += 1) {
     tail.push(index);
   }
   const chunks = [];
-  const render = (indices) => indices.sort((a, b) => a - b).map((index) => lines[index]).join("\n");
+  const render = (indices) => indices.sort((a, b) => a - b)
+    .map((index) => (lines[index].length > 300 ? `${lines[index].slice(0, 300)} ...` : lines[index]))
+    .join("\n");
   const pushChunks = (label, text) => {
     const size = 6000;
     for (let offset = 0; offset < text.length && chunks.length < 9; offset += size) {
       chunks.push(`${label}\n${text.slice(offset, offset + size)}`);
     }
   };
-  pushChunks("Matching lines:", render(firstPart));
   pushChunks("Last lines:", render(tail));
+  pushChunks("Matching lines:", render(firstPart));
   const escape = (text) => text.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
   chunks.forEach((chunk, index) => {
     console.log(`::error title=${title} (${index + 1}/${chunks.length})::${escape(chunk)}`);
