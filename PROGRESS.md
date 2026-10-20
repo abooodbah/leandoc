@@ -15,8 +15,9 @@ Updated: 2026-10-20
 
 ## In progress
 
-- Phase 1: stream B (reader) done on `stream/b-reader`; streams A (core) and
-  C (hosts, packaging, CI) running.
+- Phase 1: stream B (reader) done on `stream/b-reader`; stream A (core)
+  running on `stream/a-core`. Stream C (hosts, packaging, CI) was stopped
+  before it committed anything and needs to be restarted.
 
 ## Remaining
 
