@@ -241,22 +241,31 @@ if (-not [string]::IsNullOrWhiteSpace($LeanMarkExePath) -and (Test-Path -Literal
     }
     [System.IO.File]::WriteAllText($markdown['heavy'], $heavy.ToString())
     foreach ($entry in $markdown.GetEnumerator()) {
-        $values = [System.Collections.Generic.List[double]]::new()
-        for ($index = 0; $index -lt $Runs; $index += 1) {
-            $process = Start-Process -FilePath $LeanMarkExePath -ArgumentList @('--', ('"{0}"' -f $entry.Value)) -PassThru
-            try {
-                $deadline = [DateTime]::UtcNow.AddSeconds(30)
-                do { Start-Sleep -Milliseconds 100; $count = (Get-LeanDocProcessSample -RootProcessId $process.Id).ProcessCount }
-                while ($count -lt 3 -and [DateTime]::UtcNow -lt $deadline)
-                $memory = Wait-Settled $process.Id
-                if ($memory.Complete) { $values.Add($memory.PrivateMiB) }
-            } finally {
-                Stop-LeanDocTestProcessTree -RootProcess $process
-                Start-Sleep -Milliseconds 1500
+        # The comparison is context, not a gate: a LeanMark launch that fails
+        # (for example 0xC0000142 once the runner's desktop heap runs out)
+        # is reported and skipped, never fails the LeanDoc measurements.
+        try {
+            $values = [System.Collections.Generic.List[double]]::new()
+            for ($index = 0; $index -lt $Runs; $index += 1) {
+                $process = Start-Process -FilePath $LeanMarkExePath -ArgumentList @('--', ('"{0}"' -f $entry.Value)) -PassThru
+                try {
+                    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+                    do { Start-Sleep -Milliseconds 100; $count = (Get-LeanDocProcessSample -RootProcessId $process.Id).ProcessCount }
+                    while ($count -lt 3 -and [DateTime]::UtcNow -lt $deadline)
+                    $memory = Wait-Settled $process.Id
+                    if ($memory.Complete) { $values.Add($memory.PrivateMiB) }
+                } finally {
+                    Stop-LeanDocTestProcessTree -RootProcess $process
+                    Start-Sleep -Milliseconds 1500
+                }
             }
+            if ($values.Count -gt 0) {
+                $leanmark[$entry.Key] = [ordered]@{ privateMiB = (Get-Median ([double[]]$values)); samples = @($values) }
+                Write-Host ('  LeanMark {0}: {1} MiB' -f $entry.Key, $leanmark[$entry.Key].privateMiB)
+            }
+        } catch {
+            Write-Warning ('LeanMark {0} comparison skipped: {1}' -f $entry.Key, $_.Exception.Message)
         }
-        $leanmark[$entry.Key] = [ordered]@{ privateMiB = (Get-Median ([double[]]$values)); samples = @($values) }
-        Write-Host ('  LeanMark {0}: {1} MiB' -f $entry.Key, $leanmark[$entry.Key].privateMiB)
     }
 }
 
@@ -286,8 +295,8 @@ if ($leanmark.Count -gt 0) {
     $lines.Add(('| LeanDoc, empty window | {0} |' -f $m01))
     $lines.Add(('| LeanDoc, 3-page report | {0} |' -f $m02))
     $lines.Add(('| LeanDoc, 300-page report | {0} |' -f (Summary ([pscustomobject]@{ Records = $launches['report-300'] }) 'private')))
-    $lines.Add(('| LeanMark 0.3.0, README.md | {0} |' -f $leanmark['simple'].privateMiB))
-    $lines.Add(('| LeanMark 0.3.0, 300-section Markdown | {0} |' -f $leanmark['heavy'].privateMiB))
+    if ($leanmark.Contains('simple')) { $lines.Add(('| LeanMark 0.3.0, README.md | {0} |' -f $leanmark['simple'].privateMiB)) }
+    if ($leanmark.Contains('heavy')) { $lines.Add(('| LeanMark 0.3.0, 300-section Markdown | {0} |' -f $leanmark['heavy'].privateMiB)) }
 }
 $markdownText = $lines -join "`n"
 Set-Content -LiteralPath (Join-Path $out 'perf-windows.md') -Value $markdownText -Encoding utf8
