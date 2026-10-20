@@ -39,6 +39,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.1" date="2026-10-20">
+      <description>
+        <p>Page view lays out documents that carry no page breaks into pages.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-10-20">
       <description>
         <p>First release: page and reading views, a fidelity bar, an outline, find, tabs, and open in editor.</p>

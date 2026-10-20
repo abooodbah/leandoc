@@ -1141,3 +1141,47 @@ describe("generations and scale", () => {
     });
   });
 });
+
+describe("page view lays out documents that carry no page breaks", () => {
+  // python-docx, pandoc, and other generators write no page break and none of
+  // Word's lastRenderedPageBreak markers, so docx-preview put such a document
+  // on one page as tall as the whole text.
+  test("a generated document with no page breaks is split into full pages", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeBigDocx(30, { pageBreaks: false });
+      await host.openDocument({ bytes, report, fileName: "unbroken.docx" });
+      const result = await host.page.evaluate(() => {
+        const pages = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"));
+        const heights = pages.map((page) => page.offsetHeight);
+        const text = document.getElementById("docBody").textContent;
+        return {
+          pages: pages.length,
+          tallest: Math.max(...heights),
+          shortest: Math.min(...heights),
+          paragraphs: document.querySelectorAll("#docBody section.docx article > p").length,
+          finalMarkers: text.split("Final marker otter.").length - 1,
+          firstParagraphs: text.split("Page 1, paragraph 1.").length - 1,
+          firstPage: pages[0] ? {
+            minHeight: getComputedStyle(pages[0]).minHeight,
+            height: pages[0].offsetHeight,
+            children: Array.from(pages[0].children).map((node) => node.nodeName + ":" + node.children.length),
+            wrapperZoom: pages[0].parentNode.style.zoom || "",
+            view: document.documentElement.dataset.view || ""
+          } : null
+        };
+      });
+      assert.ok(result.pages >= 20, `${result.pages} pages; first page ${JSON.stringify(result.firstPage)}`);
+      // Every page is the page height: none grew to hold the rest of the text.
+      assert.ok(result.tallest - result.shortest <= 1, `page heights ${result.shortest} to ${result.tallest}`);
+      // 30 x 7 body paragraphs and 3 chapter headings, each shown once.
+      assert.equal(result.paragraphs, 213);
+      assert.equal(result.firstParagraphs, 1);
+      assert.equal(result.finalMarkers, 1);
+      const meta = await host.page.evaluate(() => {
+        const node = document.querySelector("[data-ld-file-meta], #fileMeta, .file-meta");
+        return node ? node.textContent : null;
+      });
+      assert.ok(meta && meta.includes(`${result.pages} pages`), `header shows the page count: ${meta}`);
+    });
+  });
+});

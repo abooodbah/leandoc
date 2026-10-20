@@ -588,6 +588,208 @@
   var FIRST_BATCH = 8;
   var BATCH = 20;
 
+  // Page layout for documents that carry no page breaks.
+  // docx-preview starts a page only at an explicit page break, a section
+  // break, or one of the lastRenderedPageBreak markers Word saves after laying
+  // a document out. python-docx, pandoc, and other generators write none, so
+  // their whole text sat on one page as tall as the document. Once a page is
+  // attached and unzoomed, everything below its bottom margin moves to a new
+  // page with the same size, margins, header, and footer. Tables split between
+  // rows; a heading moves with the block it introduces; notes go to the last
+  // page. A block taller than a page stays whole on a page of its own.
+  var PAGINATION_LIMIT = 5000;
+
+  function isHeadingBlock(node) {
+    if (/^H[1-6]$/.test(node.nodeName)) {
+      return true;
+    }
+    var name = typeof node.className === "string" ? node.className : "";
+    return /(^|[\s_-])(heading|title|subtitle)/i.test(name);
+  }
+
+  function childrenNamed(page, name) {
+    return Array.prototype.filter.call(page.children, function (child) {
+      return child.nodeName === name;
+    });
+  }
+
+  function contentBottom(page) {
+    var style = window.getComputedStyle(page);
+    var height = parseFloat(style.minHeight);
+    if (!(height > 0)) {
+      return null;
+    }
+    var bottom = page.getBoundingClientRect().top + height - (parseFloat(style.paddingBottom) || 0);
+    var footers = childrenNamed(page, "FOOTER");
+    var footer = footers[footers.length - 1];
+    if (footer) {
+      // A footer taller than the bottom margin reaches up into the text area.
+      var reach = footer.offsetHeight - (parseFloat(window.getComputedStyle(footer).minHeight) || 0);
+      if (reach > 0) {
+        bottom -= reach;
+      }
+    }
+    return bottom;
+  }
+
+  // Moves the rows that do not fit into a copy of the table placed after it,
+  // and returns the copy, or null when not even the first body row fits.
+  function splitTable(table, bottom) {
+    var rows = table.rows;
+    var headerRows = table.tHead ? table.tHead.rows.length : 0;
+    var first = -1;
+    for (var index = headerRows; index < rows.length; index += 1) {
+      if (rows[index].getBoundingClientRect().bottom > bottom + 0.5) {
+        first = index;
+        break;
+      }
+    }
+    if (first <= headerRows) {
+      return null;
+    }
+    var rest = table.cloneNode(false);
+    Array.prototype.forEach.call(table.children, function (child) {
+      if (child.nodeName === "COLGROUP" || child.nodeName === "THEAD") {
+        rest.appendChild(child.cloneNode(true));
+      }
+    });
+    var moving = Array.prototype.slice.call(rows, first);
+    var sections = [];
+    moving.forEach(function (row) {
+      var parent = row.parentNode;
+      if (parent === table) {
+        rest.appendChild(row);
+        return;
+      }
+      var copy = null;
+      for (var at = 0; at < sections.length; at += 1) {
+        if (sections[at].source === parent) {
+          copy = sections[at].copy;
+        }
+      }
+      if (!copy) {
+        copy = parent.cloneNode(false);
+        rest.appendChild(copy);
+        sections.push({ source: parent, copy: copy });
+      }
+      copy.appendChild(row);
+    });
+    table.parentNode.insertBefore(rest, table.nextSibling);
+    return rest;
+  }
+
+  // Splits one page at its bottom margin and returns the new page after it,
+  // or null when everything already fits or nothing more can move.
+  function splitPage(page) {
+    var bottom = contentBottom(page);
+    if (bottom === null) {
+      return null;
+    }
+    var articles = childrenNamed(page, "ARTICLE");
+    var blocks = [];
+    articles.forEach(function (article) {
+      Array.prototype.forEach.call(article.children, function (node) {
+        blocks.push({ node: node, article: article });
+      });
+    });
+    var index = -1;
+    for (var at = 0; at < blocks.length; at += 1) {
+      if (blocks[at].node.getBoundingClientRect().bottom > bottom + 0.5) {
+        index = at;
+        break;
+      }
+    }
+    if (index < 0) {
+      return null;
+    }
+    var start = blocks[index];
+    var continued = start.node.nodeName === "TABLE" ? splitTable(start.node, bottom) : null;
+    if (continued) {
+      start = { node: continued, article: start.article };
+    } else if (index === 0) {
+      // The first block alone is taller than the page: it keeps this page.
+      if (blocks.length === 1) {
+        return null;
+      }
+      start = blocks[1];
+    } else {
+      var previous = start.node.previousElementSibling;
+      while (previous && previous !== blocks[0].node && isHeadingBlock(previous)) {
+        start = { node: previous, article: start.article };
+        previous = previous.previousElementSibling;
+      }
+    }
+
+    var next = page.cloneNode(false);
+    childrenNamed(page, "HEADER").forEach(function (header) {
+      next.appendChild(header.cloneNode(true));
+    });
+    var from = articles.indexOf(start.article);
+    for (var position = from; position < articles.length; position += 1) {
+      var source = articles[position];
+      var target = source.cloneNode(false);
+      var node = position === from ? start.node : source.firstChild;
+      while (node) {
+        var following = node.nextSibling;
+        target.appendChild(node);
+        node = following;
+      }
+      next.appendChild(target);
+      if (position > from) {
+        page.removeChild(source);
+      }
+    }
+    // Footnotes and endnotes follow the text to its last page.
+    Array.prototype.slice.call(page.children).forEach(function (child) {
+      if (child.nodeName !== "HEADER" && child.nodeName !== "ARTICLE" && child.nodeName !== "FOOTER") {
+        next.appendChild(child);
+      }
+    });
+    childrenNamed(page, "FOOTER").forEach(function (footer) {
+      next.appendChild(footer.cloneNode(true));
+    });
+    page.parentNode.insertBefore(next, page.nextSibling);
+    return next;
+  }
+
+  function paginatePages(pages) {
+    var result = [];
+    var budget = PAGINATION_LIMIT;
+    pages.forEach(function (page) {
+      var cursor = page;
+      result.push(cursor);
+      while (budget > 0) {
+        budget -= 1;
+        var next = splitPage(cursor);
+        if (!next) {
+          break;
+        }
+        result.push(next);
+        cursor = next;
+      }
+    });
+    return result;
+  }
+
+  // The reader pane stays hidden until the first render finishes, and a hidden
+  // element measures zero, so it is laid out invisibly for the measurement.
+  function paginateMeasurable(pages) {
+    var pane = elements.readerPane;
+    var hidden = pane.hidden;
+    if (hidden) {
+      pane.style.visibility = "hidden";
+      pane.hidden = false;
+    }
+    try {
+      return paginatePages(pages);
+    } finally {
+      if (hidden) {
+        pane.hidden = true;
+        pane.style.visibility = "";
+      }
+    }
+  }
+
   function attachDocument(nodes, view, serial) {
     clearSearch();
     root.dataset.view = view;
@@ -607,6 +809,11 @@
     elements.docStyles.replaceChildren.apply(elements.docStyles, styles);
     if (pages.length <= PROGRESSIVE_PAGES) {
       elements.docBody.replaceChildren.apply(elements.docBody, body);
+      // Splitting measures the attached, unzoomed pages, before
+      // prepareDocumentDom marks them lazy and numbers their page fields.
+      if (view === "page" && pages.length) {
+        pages = paginateMeasurable(pages);
+      }
       prepareDocumentDom(pages.length ? pages : [elements.docBody], 0, Math.max(1, pages.length));
       return Promise.resolve({ movedWhileLoading: false });
     }
