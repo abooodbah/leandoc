@@ -1,5 +1,6 @@
 #include "core/Xml.h"
 
+#include <unordered_set>
 #include <utility>
 
 namespace leandoc::core::detail {
@@ -92,14 +93,55 @@ void FailDoctype(Failure& failure) {
         "This document contains a DTD, which LeanDoc refuses to read.");
 }
 
+// Duplicate attributes make XML ill-formed; pugixml accepts them, browsers
+// and LibreOffice do not.
+bool HasDuplicateAttributes(pugi::xml_node element) {
+    std::size_t count = 0;
+    for (pugi::xml_attribute attribute = element.first_attribute(); attribute;
+         attribute = attribute.next_attribute()) {
+        ++count;
+    }
+    if (count < 2) {
+        return false;
+    }
+    if (count <= 32) {
+        for (pugi::xml_attribute left = element.first_attribute(); left;
+             left = left.next_attribute()) {
+            for (pugi::xml_attribute right = left.next_attribute(); right;
+                 right = right.next_attribute()) {
+                if (std::strcmp(left.name(), right.name()) == 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    std::unordered_set<std::string_view> names;
+    names.reserve(count);
+    for (pugi::xml_attribute attribute = element.first_attribute(); attribute;
+         attribute = attribute.next_attribute()) {
+        if (!names.insert(attribute.name()).second) {
+            return true;
+        }
+    }
+    return false;
+}
+
+enum class Structure { Fine, TooDeep, DuplicateAttribute };
+
 // Counts element nesting only; text inside the deepest element is free.
 // Iterative so that a deep document cannot exhaust the stack here.
-bool WithinDepth(const pugi::xml_document& document, std::uint32_t maximum) {
+Structure CheckStructure(const pugi::xml_document& document, std::uint32_t maximum) {
     pugi::xml_node node = document.first_child();
     std::uint32_t depth = node ? 1 : 0;
     while (node) {
-        if (node.type() == pugi::node_element && depth > maximum) {
-            return false;
+        if (node.type() == pugi::node_element) {
+            if (depth > maximum) {
+                return Structure::TooDeep;
+            }
+            if (HasDuplicateAttributes(node)) {
+                return Structure::DuplicateAttribute;
+            }
         }
         if (node.first_child()) {
             node = node.first_child();
@@ -110,14 +152,14 @@ bool WithinDepth(const pugi::xml_document& document, std::uint32_t maximum) {
             node = node.parent();
             --depth;
             if (node == document) {
-                return true;
+                return Structure::Fine;
             }
         }
         if (node) {
             node = node.next_sibling();
         }
     }
-    return true;
+    return Structure::Fine;
 }
 
 }  // namespace
@@ -214,11 +256,17 @@ bool ParseXmlPart(XmlPart& part, const Limits& limits, Failure& failure) {
         FailMalformedXml(failure);
         return false;
     }
-    if (!WithinDepth(part.document, limits.maximumXmlDepth)) {
-        failure.Set(
-            "xml-too-deep",
-            "This document's XML is nested more deeply than LeanDoc allows.");
-        return false;
+    switch (CheckStructure(part.document, limits.maximumXmlDepth)) {
+        case Structure::Fine:
+            break;
+        case Structure::TooDeep:
+            failure.Set(
+                "xml-too-deep",
+                "This document's XML is nested more deeply than LeanDoc allows.");
+            return false;
+        case Structure::DuplicateAttribute:
+            FailMalformedXml(failure);
+            return false;
     }
     return true;
 }

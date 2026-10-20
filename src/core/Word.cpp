@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <initializer_list>
 #include <unordered_map>
 #include <utility>
 

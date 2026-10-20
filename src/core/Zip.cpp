@@ -1,5 +1,6 @@
 #include "core/Zip.h"
 
+#include <algorithm>
 #include <cstring>
 #include <limits>
 
@@ -49,6 +50,17 @@ void FailTotalTooLarge(Failure& failure, const Limits& limits) {
             std::to_string(
                 limits.maximumTotalUncompressedBytes / (1024ull * 1024ull)) +
             " MB limit.");
+}
+
+std::size_t ReadFromMemory(void* opaque, mz_uint64 offset, void* buffer, std::size_t size) {
+    const auto* bytes = static_cast<const std::string_view*>(opaque);
+    if (offset >= bytes->size()) {
+        return 0;
+    }
+    const auto available =
+        static_cast<std::size_t>(std::min<mz_uint64>(bytes->size() - offset, size));
+    std::memcpy(buffer, bytes->data() + offset, available);
+    return available;
 }
 
 }  // namespace
@@ -110,9 +122,11 @@ ZipReader::~ZipReader() {
 bool ZipReader::Open(std::string_view bytes, Failure& failure) {
     bytes_ = bytes;
     mz_zip_archive& zip = archive_->zip;
-    if (!mz_zip_reader_init_mem(
-            &zip, bytes.data(), bytes.size(),
-            MZ_ZIP_FLAG_DO_NOT_SORT_CENTRAL_DIRECTORY)) {
+    // A user read callback instead of mz_zip_reader_init_mem: miniz's memory
+    // reader forms an out-of-range pointer for offsets past the end.
+    zip.m_pRead = ReadFromMemory;
+    zip.m_pIO_opaque = &bytes_;
+    if (!mz_zip_reader_init(&zip, bytes.size(), MZ_ZIP_FLAG_DO_NOT_SORT_CENTRAL_DIRECTORY)) {
         FailCorruptZip(failure);
         return false;
     }

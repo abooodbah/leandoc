@@ -1,0 +1,467 @@
+{
+  "description": "Public test documents for the LeanDoc corpus run. Files are fetched into tests/corpus/cache/ and never committed. URLs are pinned to upstream commits.",
+  "sources": {
+    "Apache POI": {
+      "repository": "https://github.com/apache/poi",
+      "commit": "d91a76448f0963a93b6cd95fb97fbe1d8bad82c6",
+      "license": "Apache-2.0"
+    },
+    "LibreOffice": {
+      "repository": "https://github.com/LibreOffice/core",
+      "commit": "a5b846213b817aeac7f5dd6b19db6044e38323d7",
+      "license": "MPL-2.0"
+    }
+  },
+  "files": [
+    {
+      "name": "poi/sample.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/sample.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "general text and styles",
+      "expectedErrorCode": "",
+      "sha256": "be4fc1bf778ad8183f714e09b9df40669de34e9ecbc3adecfc8953f00749036f"
+    },
+    {
+      "name": "poi/Numbering.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/Numbering.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "numbering",
+      "expectedErrorCode": "",
+      "sha256": "776a59dcf0e290f1988602e6305e2d9cb2e31f631dc4aa751593c23cddbaad4d"
+    },
+    {
+      "name": "poi/ComplexNumberedLists.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/ComplexNumberedLists.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "multi-level numbering",
+      "expectedErrorCode": "",
+      "sha256": "297a085a7d433af2eeee7661e8db21539452cb585096484774a1e9f5f258b0b6"
+    },
+    {
+      "name": "poi/rtl.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/rtl.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "right-to-left text",
+      "expectedErrorCode": "",
+      "sha256": "d159b6ac6734f14a9ecf8e97ca5029bdcddbfae2d33ba0128aa774924e0b190d"
+    },
+    {
+      "name": "poi/FieldCodes.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/FieldCodes.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "complex fields",
+      "expectedErrorCode": "",
+      "sha256": "9247f85ab90b15f11d0cf14d0070fdcb5cdf47c65d6bc77cc32cb7ee682aad24"
+    },
+    {
+      "name": "poi/FldSimple.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/FldSimple.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "simple fields",
+      "expectedErrorCode": "",
+      "sha256": "6cf7364676d465e702cbbac44ca92331c525476e36a29c26f780cb9d7643b631"
+    },
+    {
+      "name": "poi/footnotes.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/footnotes.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "footnotes",
+      "expectedErrorCode": "",
+      "sha256": "9070094b27ff5201477f4de4b2c027730c66cb889106a1609c5adeed207a59c1"
+    },
+    {
+      "name": "poi/endnotes.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/endnotes.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "endnotes",
+      "expectedErrorCode": "",
+      "sha256": "6e2e1b2dabb0ae6b9b26ddd613dca446ba0710ecc8b4008722abc4ed592934e3"
+    },
+    {
+      "name": "poi/delins.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/delins.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "tracked insertions and deletions",
+      "expectedErrorCode": "",
+      "sha256": "7ecad102602586be7f1371f117fc567ea47f3ed0ca703b353e003002f1ff8d3f"
+    },
+    {
+      "name": "poi/bug56075-changeTracking_on.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/bug56075-changeTracking_on.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "tracked changes",
+      "expectedErrorCode": "",
+      "sha256": "9c837e12aaf3deac10ac20ac1bc08dc6bebdec14b553698063742b9bc12f8920"
+    },
+    {
+      "name": "poi/comment.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/comment.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "comments",
+      "expectedErrorCode": "",
+      "sha256": "23bbfe33e1acf7073253bd87552cbee5be0a07cbd08a479a4bf139f09b1dd6dc"
+    },
+    {
+      "name": "poi/deep-table-cell.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/deep-table-cell.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "deeply nested tables",
+      "expectedErrorCode": "xml-too-deep",
+      "sha256": "31c5bfe1f68c98699cb356891de2e02fe223f633706d666c430ca79fd2cdf6bb"
+    },
+    {
+      "name": "poi/chartex.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/chartex.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "chartex chart",
+      "expectedErrorCode": "",
+      "sha256": "5d7f0ca9aa26d0244eedbc8ff862f08910689ec3848a036c622b17d56a290b57"
+    },
+    {
+      "name": "poi/shapes-with-text.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/shapes-with-text.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "text boxes in shapes",
+      "expectedErrorCode": "",
+      "sha256": "1ef4d8cbfd5e2333897ab3193b58ce445cee7e45476d39e5626a4c7097f72d95"
+    },
+    {
+      "name": "poi/EmbeddedDocument.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/EmbeddedDocument.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "embedded OLE document",
+      "expectedErrorCode": "",
+      "sha256": "3cb521da0faab3b8a9e7c5d155961b4f5506fb2ceda8e69e0790d03ee01767f2"
+    },
+    {
+      "name": "poi/checkboxes.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/checkboxes.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "content control check boxes",
+      "expectedErrorCode": "",
+      "sha256": "06f1dc1370c772a020c6d5183c8b7c4fe30ad7a9fff108cb2f027128ddf5e209"
+    },
+    {
+      "name": "poi/VariousPictures.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/VariousPictures.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "pictures of several types",
+      "expectedErrorCode": "",
+      "sha256": "c1eecbca7de9f99e21c677e1d5b045eaa1d5a442eff4c82f0cbe9af93726a070"
+    },
+    {
+      "name": "poi/ExternalEntityInText.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/ExternalEntityInText.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "an external entity declaration",
+      "expectedErrorCode": "xml-doctype",
+      "sha256": "5cf7340ffd6516c2fd168f445ff78cf64bd86409fe69db68997fc9f94820c223"
+    },
+    {
+      "name": "poi/45690.docm",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/45690.docm",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "macro-enabled document",
+      "expectedErrorCode": "",
+      "sha256": "fb55e9c737e015195fe33f076fabdaca91e44fbdb602e46b6a8d04572ed479f6"
+    },
+    {
+      "name": "poi/ChronologicalResume.dotx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/ChronologicalResume.dotx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "template",
+      "expectedErrorCode": "",
+      "sha256": "e21a1c1e7c1f30176bf03e5228282750afd6a6708f6706eb9906c6254c08fbae"
+    },
+    {
+      "name": "poi/bug53475-password-is-pass.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/bug53475-password-is-pass.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "password-encrypted OOXML",
+      "expectedErrorCode": "",
+      "sha256": "c182f7825ae588fe1c28497588d1bded635a5bef7eb7370fd1c589233a6471d5"
+    },
+    {
+      "name": "poi/truncated62886.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/truncated62886.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "truncated package",
+      "expectedErrorCode": "corrupt-zip",
+      "sha256": "39619851dab09369e91f926a94499caba0749ca2fa57d30b2fc2bc4a937292d0"
+    },
+    {
+      "name": "poi/zero-length.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/zero-length.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "empty file",
+      "expectedErrorCode": "",
+      "sha256": "8e39d68e61deed4d3afcbfc3bcea9b1c3d5a1e50ee0e0af3e15a705c8d186bbe"
+    },
+    {
+      "name": "poi/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4791943399604224.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-4791943399604224.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "fuzzer case",
+      "expectedErrorCode": "corrupt-zip",
+      "sha256": "096a1119c0fd110d7fb7b93db16bd1a302513732d8dd0bd7641ecedafbe36f43"
+    },
+    {
+      "name": "poi/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5564805011079168.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/clusterfuzz-testcase-minimized-POIXWPFFuzzer-5564805011079168.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "fuzzer case",
+      "expectedErrorCode": "corrupt-zip",
+      "sha256": "d9eb560e2285db6cf38c5b2ed0edd7a44b1b4de45343085c9232b82426c51632"
+    },
+    {
+      "name": "poi/crash-517626e815e0afa9decd0ebb6d1dee63fb9907dd.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/crash-517626e815e0afa9decd0ebb6d1dee63fb9907dd.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "fuzzer crash case",
+      "expectedErrorCode": "corrupt-zip",
+      "sha256": "4fa1dc1cd5bddeaa5a14169d9a4f5abdc687d732c3beb06901cf9a701533d466"
+    },
+    {
+      "name": "poi/bib-chernigovka.netdo.ru_download_docs_17459.docx",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/bib-chernigovka.netdo.ru_download_docs_17459.docx",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "real-world Cyrillic document",
+      "expectedErrorCode": "",
+      "sha256": "74575caabe35de9982ed11328ebe556844fcd3da2fed1e425255bfe81dee4c50"
+    },
+    {
+      "name": "poi/SampleDoc.doc",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/SampleDoc.doc",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "Word 97-2003 document",
+      "expectedErrorCode": "",
+      "sha256": "717585c0a88f20862c86220163dd03da87cd743970354c6b29add32725f2e833"
+    },
+    {
+      "name": "poi/PasswordProtected.doc",
+      "url": "https://raw.githubusercontent.com/apache/poi/d91a76448f0963a93b6cd95fb97fbe1d8bad82c6/test-data/document/PasswordProtected.doc",
+      "source": "Apache POI test-data/document",
+      "license": "Apache-2.0",
+      "note": "password-protected Word 97-2003 document",
+      "expectedErrorCode": "",
+      "sha256": "863d2216a6f5bb4cec0ea4131a05ae0822dbce347e2940155ef638c6d64935fe"
+    },
+    {
+      "name": "libreoffice/tdf87533_bidi.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlimport/data/tdf87533_bidi.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlimport/data",
+      "license": "MPL-2.0",
+      "note": "bidi paragraphs",
+      "expectedErrorCode": "",
+      "sha256": "9594bbbc4d50dbc22b2c514fcbd6616b58c5193ffc7ed08ab519fa172b969f1a"
+    },
+    {
+      "name": "libreoffice/math-malformed_xml.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlimport/data/math-malformed_xml.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlimport/data",
+      "license": "MPL-2.0",
+      "note": "malformed math XML",
+      "expectedErrorCode": "xml-malformed",
+      "sha256": "30c88782e665853021b628403cebd395634b2f774c9e59a3089eb7971490aa1d"
+    },
+    {
+      "name": "libreoffice/strict-lockedcanvas.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlimport/data/strict-lockedcanvas.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlimport/data",
+      "license": "MPL-2.0",
+      "note": "Strict OOXML",
+      "expectedErrorCode": "",
+      "sha256": "46598fa4a2c5b12f7ad0312225ea8479e36a4e6863aac6f27610b873dd06a324"
+    },
+    {
+      "name": "libreoffice/ink.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlimport/data/ink.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlimport/data",
+      "license": "MPL-2.0",
+      "note": "ink content part",
+      "expectedErrorCode": "",
+      "sha256": "2eb1e3a85468ceaade3f4c36b22a1d9c4473e2277f18c2a0dad712dd2ea14f9d"
+    },
+    {
+      "name": "libreoffice/linked-picture.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlimport/data/linked-picture.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlimport/data",
+      "license": "MPL-2.0",
+      "note": "linked (remote) picture",
+      "expectedErrorCode": "",
+      "sha256": "e6018138ddea857d770e5dfdad8b26b21a5c67ff0d7623ddb69573c0c5f9fe44"
+    },
+    {
+      "name": "libreoffice/textbox-wps-only.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlimport/data/textbox-wps-only.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlimport/data",
+      "license": "MPL-2.0",
+      "note": "wps text boxes",
+      "expectedErrorCode": "",
+      "sha256": "4729718d131f088e99ec03c8899a6faefdc0ac4d9368f7d86fdb8c0d427b7e95"
+    },
+    {
+      "name": "libreoffice/tdf165348_broken_package.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlimport/data/tdf165348_broken_package.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlimport/data",
+      "license": "MPL-2.0",
+      "note": "broken package",
+      "expectedErrorCode": "xml-malformed",
+      "sha256": "83b81194fee809de43bacf8c54c33bdc1b2bd43fe3261b8c2fc763ed1be55263"
+    },
+    {
+      "name": "libreoffice/tdf152200-bad_fldChar_end.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlimport/data/tdf152200-bad_fldChar_end.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlimport/data",
+      "license": "MPL-2.0",
+      "note": "unbalanced field characters",
+      "expectedErrorCode": "",
+      "sha256": "4f481a79e7bdf648c4701c87f34a4d26a3abc3bf57453ebc5b543b953aa042e1"
+    },
+    {
+      "name": "libreoffice/tdf119039_bad_embedded_compound.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlimport/data/tdf119039_bad_embedded_compound.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlimport/data",
+      "license": "MPL-2.0",
+      "note": "damaged embedded object",
+      "expectedErrorCode": "",
+      "sha256": "cf00dab76363981763545dce5cb62eefa84e24d77fc2abe28ae5163538f52607"
+    },
+    {
+      "name": "libreoffice/smartart.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlexport/data/smartart.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlexport/data",
+      "license": "MPL-2.0",
+      "note": "SmartArt",
+      "expectedErrorCode": "",
+      "sha256": "41f67ce46a753c0762e885546782f786d2bda9815c4263ecbae0e713816d787d"
+    },
+    {
+      "name": "libreoffice/chart.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlexport/data/chart.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlexport/data",
+      "license": "MPL-2.0",
+      "note": "chart",
+      "expectedErrorCode": "",
+      "sha256": "222628bcdb587c232e968d6aa1ba0a70dfd80845a4a2b8050316ec9d142ad33f"
+    },
+    {
+      "name": "libreoffice/activex_checkbox.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlexport/data/activex_checkbox.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlexport/data",
+      "license": "MPL-2.0",
+      "note": "ActiveX check box",
+      "expectedErrorCode": "",
+      "sha256": "0bd0b82e7deef81334dfbfe0cfdf2c27b2e99a9b4c7062b495b1af09dac119a2"
+    },
+    {
+      "name": "libreoffice/test_ole_object.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlexport/data/test_ole_object.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlexport/data",
+      "license": "MPL-2.0",
+      "note": "OLE object",
+      "expectedErrorCode": "",
+      "sha256": "6a40d585c07f47133de7c9377aeb3003eb65974bec001e5faba2f046db6a8d42"
+    },
+    {
+      "name": "libreoffice/table-rtl.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlexport/data/table-rtl.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlexport/data",
+      "license": "MPL-2.0",
+      "note": "right-to-left table",
+      "expectedErrorCode": "",
+      "sha256": "97fe9822a1b5d1a5a9fbcc21a166b9a61306c732ff537c730819f8565250abe7"
+    },
+    {
+      "name": "libreoffice/tdf141231_arabicHebrewNumbering.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlexport/data/tdf141231_arabicHebrewNumbering.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlexport/data",
+      "license": "MPL-2.0",
+      "note": "Arabic and Hebrew numbering",
+      "expectedErrorCode": "",
+      "sha256": "e76c807a4720c03febd0ea50ab29c43cf5d3bbc935fd87c6dda2f2dc8dded46e"
+    },
+    {
+      "name": "libreoffice/tdf146973_arabicDateField.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlexport/data/tdf146973_arabicDateField.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlexport/data",
+      "license": "MPL-2.0",
+      "note": "Arabic date field",
+      "expectedErrorCode": "",
+      "sha256": "5c38e5caa6fd8b0448bc290838d7a454089dec4540a563d463de6c745d2f325e"
+    },
+    {
+      "name": "libreoffice/testTrackChangesDeletedTableRow.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlexport/data/testTrackChangesDeletedTableRow.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlexport/data",
+      "license": "MPL-2.0",
+      "note": "deleted table row",
+      "expectedErrorCode": "",
+      "sha256": "d7836464e3b6e09d13e075a9ab6f945b093e5f3b6784f7f51254db1a6c08715d"
+    },
+    {
+      "name": "libreoffice/99_Fields.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlexport/data/99_Fields.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlexport/data",
+      "license": "MPL-2.0",
+      "note": "many field types",
+      "expectedErrorCode": "",
+      "sha256": "957a5a8cc989cd3183e89cda91a03a9bad78c2102c36f2d99c7d7c8812428a92"
+    },
+    {
+      "name": "libreoffice/math-mso2k7.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlexport/data/math-mso2k7.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlexport/data",
+      "license": "MPL-2.0",
+      "note": "equations",
+      "expectedErrorCode": "",
+      "sha256": "49a16f38ab3fab079f67a1b0fb19dd3adf99baa5bb7dc9358707eb1bf001dead"
+    },
+    {
+      "name": "libreoffice/FileWithInvalidImageLink.docx",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlexport/data/FileWithInvalidImageLink.docx",
+      "source": "LibreOffice sw/qa/extras/ooxmlexport/data",
+      "license": "MPL-2.0",
+      "note": "invalid image link",
+      "expectedErrorCode": "",
+      "sha256": "7740e2c2b5726edf7a031d803b2e4abf18792488c244419f9c8c97543be85a19"
+    },
+    {
+      "name": "libreoffice/tdf134619_numberingProps.doc",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/a5b846213b817aeac7f5dd6b19db6044e38323d7/sw/qa/extras/ooxmlexport/data/tdf134619_numberingProps.doc",
+      "source": "LibreOffice sw/qa/extras/ooxmlexport/data",
+      "license": "MPL-2.0",
+      "note": "Word 97-2003 numbering",
+      "expectedErrorCode": "",
+      "sha256": "d8633892dd3d1137aa2b315c420c9275a1e9d0a4dae5ef0d767d8a2bda21fc71"
+    }
+  ]
+}

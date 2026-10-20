@@ -5,6 +5,7 @@
 #include "core/Zip.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
@@ -523,6 +524,16 @@ void TestXmlSafety() {
 
     auto malformed = MinimalDocx("<w:p>");
     ExpectEqual(OpenEntries(malformed).errorCode, "xml-malformed", "unclosed element");
+    auto duplicate = MinimalDocx("<w:p><w:pPr><w:jc w:val=\"center\" w:val=\"left\"/></w:pPr></w:p>");
+    ExpectEqual(OpenEntries(duplicate).errorCode, "xml-malformed", "duplicate attribute");
+    std::string manyAttributes = "<w:p><w:pPr><w:jc";
+    for (int index = 0; index < 40; ++index) {
+        manyAttributes += " w:a" + std::to_string(index) + "=\"1\"";
+    }
+    Expect(OpenEntries(MinimalDocx(manyAttributes + "/></w:pPr></w:p>")).ok,
+           "forty distinct attributes are fine");
+    ExpectEqual(OpenEntries(MinimalDocx(manyAttributes + " w:a7=\"2\"/></w:pPr></w:p>")).errorCode,
+                "xml-malformed", "a duplicate among forty attributes");
 
     // Depth: document > body > nested sdt pairs > p > r > t.
     const auto nested = [](int pairs) {
