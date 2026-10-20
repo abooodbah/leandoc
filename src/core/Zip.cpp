@@ -236,8 +236,12 @@ bool ZipReader::Read(const ZipEntry& entry, std::string& output, Failure& failur
         FailPartTooLarge(failure, limits_);
         return false;
     }
+    // Divided rather than multiplied, so a forged compressed size cannot
+    // overflow the comparison.
+    const std::uint64_t ratio =
+        limits_.maximumCompressionRatio == 0 ? 1 : limits_.maximumCompressionRatio;
     if (declared > kRatioThresholdBytes &&
-        declared > entry.compressedSize * limits_.maximumCompressionRatio) {
+        (entry.compressedSize == 0 || (declared - 1) / ratio >= entry.compressedSize)) {
         failure.Set(
             "compression-ratio",
             "A part of this document is compressed more than LeanDoc allows.");
