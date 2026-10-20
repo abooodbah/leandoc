@@ -1160,10 +1160,17 @@ describe("page view lays out documents that carry no page breaks", () => {
           shortest: Math.min(...heights),
           paragraphs: document.querySelectorAll("#docBody section.docx article > p").length,
           finalMarkers: text.split("Final marker otter.").length - 1,
-          firstParagraphs: text.split("Page 1, paragraph 1.").length - 1
+          firstParagraphs: text.split("Page 1, paragraph 1.").length - 1,
+          firstPage: pages[0] ? {
+            minHeight: getComputedStyle(pages[0]).minHeight,
+            height: pages[0].offsetHeight,
+            children: Array.from(pages[0].children).map((node) => node.nodeName + ":" + node.children.length),
+            wrapperZoom: pages[0].parentNode.style.zoom || "",
+            view: document.documentElement.dataset.view || ""
+          } : null
         };
       });
-      assert.ok(result.pages >= 20, `${result.pages} pages`);
+      assert.ok(result.pages >= 20, `${result.pages} pages; first page ${JSON.stringify(result.firstPage)}`);
       // Every page is the page height: none grew to hold the rest of the text.
       assert.ok(result.tallest - result.shortest <= 1, `page heights ${result.shortest} to ${result.tallest}`);
       // 30 x 7 body paragraphs and 3 chapter headings, each shown once.
