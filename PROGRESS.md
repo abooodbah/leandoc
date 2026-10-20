@@ -15,12 +15,15 @@ Updated: 2026-10-20
 
 ## In progress
 
-- Phase 1: streams A (core), B (reader), C (hosts, packaging, CI).
+- Phase 1: stream B (reader) done on `stream/b-reader`; streams A (core) and
+  C (hosts, packaging, CI) running.
 
 ## Remaining
 
-- Phase 2 integration review, phase 3 README and site, phase 4 CI on three
-  platforms, phase 5 v0.1.0 release, phase 6 winget and companion PRs.
+- Phase 2 integration review; phase 3 thorough testing of usage, UI,
+  performance, and memory ([docs/TEST_PLAN.md](docs/TEST_PLAN.md)); phase 4
+  README and site; phase 5 CI on three platforms and release candidate check;
+  phase 6 v0.1.0 release; phase 7 winget and companion PRs.
 
 ## Open questions for the owner
 
