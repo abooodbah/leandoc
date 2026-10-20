@@ -13,11 +13,17 @@ Updated: 2026-10-20
   [ACCEPTANCE.md](docs/ACCEPTANCE.md), and the core contract
   [src/core/DocCore.h](src/core/DocCore.h).
 
+- Stream A (core) done and merged into `integrate/v0.1`: 9,723 core checks,
+  50-file corpus clean, ASan/UBSan clean, 10 minutes of fuzz smoke clean.
+- Stream B (reader) merged into `integrate/v0.1`; 53 reader tests pass with
+  static reports and with the real core's reports and sanitized packages.
+- Integration fixes: file names keep extensions on the right in RTL names;
+  equations the reader cannot draw become an [Equation] marker instead of
+  blanking the document; reader and core pair outline paragraphs the same way.
+
 ## In progress
 
-- Phase 1: stream B (reader) done on `stream/b-reader`. Streams A (core,
-  `stream/a-core`) and C (hosts, packaging, CI, `stream/hosts`) resumed
-  from their pushed work after a session restart.
+- Phase 1: stream C (hosts, packaging, CI) on `stream/hosts`.
 
 ## Remaining
 
