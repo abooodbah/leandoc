@@ -72,6 +72,44 @@ jobs:
           $zip = (Get-Item release/*.zip | Select-Object -First 1).FullName
           node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/hosts/Test-WindowsLifecycle.ps1 -ZipPath $zip
 
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v7
+        with:
+          name: LeanDoc-v${{ steps.package.outputs.version }}-windows-x64
+          path: |
+            release/*.zip
+            release/*.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Report the failure log as annotations
+        if: failure()
+        shell: bash
+        run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "Windows"
+
+  windows-visual:
+    # The UI-01 captures launch LeanDoc once per fixture. After the build job's
+    # smoke, lifecycle, and browser-argument launches, the runner's desktop
+    # could run out and later processes failed to start with 0xC0000142, so
+    # the captures run on a fresh runner.
+    name: Windows screenshots (UI-01)
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Build and stage Windows files
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./scripts/build.ps1 -Configuration Release -Platform x64
+
       - name: Capture every feature fixture in the real window (UI-01)
         if: always()
         timeout-minutes: 10
@@ -91,20 +129,10 @@ jobs:
         shell: bash
         run: node tests/visual/check-captures.mjs artifacts/visual/windows Windows
 
-      - name: Upload Windows package
-        uses: actions/upload-artifact@v7
-        with:
-          name: LeanDoc-v${{ steps.package.outputs.version }}-windows-x64
-          path: |
-            release/*.zip
-            release/*.zip.sha256
-          if-no-files-found: error
-          retention-days: 30
-
       - name: Report the failure log as annotations
         if: failure()
         shell: bash
-        run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "Windows"
+        run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "Windows screenshots"
 
   windows-usage:
     # S-02 and the usage subset launch LeanDoc about 60 times; in the same job
