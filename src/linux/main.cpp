@@ -1,0 +1,172 @@
+#include <gtk/gtk.h>
+
+#include <filesystem>
+#include <iostream>
+#include <string>
+#include <vector>
+
+#include "LinuxApp.h"
+
+namespace {
+
+constexpr char kApplicationId[] = "io.github.abooodbah.leandoc";
+
+struct ApplicationState {
+    std::vector<std::filesystem::path> documents;
+    leandoc::linux_host::LinuxApp* window = nullptr;
+    bool smokeTest = false;
+    int smokeExitCode = 1;
+};
+
+bool ParseArguments(int argc, char** argv, ApplicationState* state, bool* showHelp) {
+    bool afterSeparator = false;
+    for (int index = 1; index < argc; ++index) {
+        const std::string argument(argv[index]);
+        if (!afterSeparator && argument == "--") {
+            afterSeparator = true;
+            continue;
+        }
+        if (!afterSeparator && argument == "--help") {
+            *showHelp = true;
+            continue;
+        }
+        if (!afterSeparator && argument == "--smoke-test") {
+            if (state->smokeTest || index + 1 >= argc) {
+                std::cerr << "--smoke-test requires exactly one document path.\n";
+                return false;
+            }
+            state->smokeTest = true;
+            state->documents.emplace_back(argv[++index]);
+            continue;
+        }
+        if (!afterSeparator && !argument.empty() && argument.front() == '-') {
+            std::cerr << "Unknown option: " << argument << '\n';
+            return false;
+        }
+        state->documents.emplace_back(argument);
+    }
+    if (state->smokeTest && state->documents.size() != 1) {
+        std::cerr << "--smoke-test accepts exactly one document path.\n";
+        return false;
+    }
+    return true;
+}
+
+leandoc::linux_host::LinuxApp* EnsureWindow(
+    GtkApplication* application, ApplicationState* state) {
+    if (state->window == nullptr) {
+        state->window = leandoc::linux_host::LinuxApp::Create(
+            application, state->smokeTest, &state->smokeExitCode);
+    }
+    return state->window;
+}
+
+void Activate(GtkApplication* application, gpointer data) {
+    EnsureWindow(application, static_cast<ApplicationState*>(data))->Present();
+}
+
+// A later launch arrives here through D-Bus with its files, so they open as
+// tabs of the running window instead of starting another web process.
+void Open(GApplication* application, GFile** files, gint count, const gchar*, gpointer data) {
+    auto* state = static_cast<ApplicationState*>(data);
+    std::vector<std::filesystem::path> paths;
+    for (gint index = 0; index < count; ++index) {
+        char* path = g_file_get_path(files[index]);
+        if (path != nullptr) {
+            paths.emplace_back(path);
+            g_free(path);
+        }
+    }
+    auto* window = EnsureWindow(GTK_APPLICATION(application), state);
+    window->OpenPaths(paths);
+    window->Present();
+}
+
+void ForgetWindow(GtkApplication*, GtkWindow*, gpointer data) {
+    // The window owns its LinuxApp; once it is gone a new one is created on
+    // the next activation.
+    static_cast<ApplicationState*>(data)->window = nullptr;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    ApplicationState state;
+    bool showHelp = false;
+    if (!ParseArguments(argc, argv, &state, &showHelp)) {
+        return 2;
+    }
+    if (showHelp) {
+        std::cout << "Usage: leandoc [--] [DOCUMENT ...]\n"
+                  << "       leandoc --smoke-test DOCUMENT\n";
+        return 0;
+    }
+
+    // The smoke test runs as its own instance so it never hands its file to a
+    // reader the user already has open.
+    GApplicationFlags flags = G_APPLICATION_HANDLES_OPEN;
+    if (state.smokeTest) {
+        flags = static_cast<GApplicationFlags>(flags | G_APPLICATION_NON_UNIQUE);
+    }
+    GtkApplication* application = gtk_application_new(kApplicationId, flags);
+    g_signal_connect(application, "activate", G_CALLBACK(Activate), &state);
+    g_signal_connect(application, "open", G_CALLBACK(Open), &state);
+    g_signal_connect(application, "window-removed", G_CALLBACK(ForgetWindow), &state);
+
+    GError* error = nullptr;
+    if (!g_application_register(G_APPLICATION(application), nullptr, &error)) {
+        // Without a session bus there is no single instance; run on our own.
+        g_message("LeanDoc runs without single-instance support: %s", error->message);
+        g_clear_error(&error);
+        g_object_unref(application);
+        flags = static_cast<GApplicationFlags>(flags | G_APPLICATION_NON_UNIQUE);
+        application = gtk_application_new(kApplicationId, flags);
+        g_signal_connect(application, "activate", G_CALLBACK(Activate), &state);
+        g_signal_connect(application, "open", G_CALLBACK(Open), &state);
+        g_signal_connect(application, "window-removed", G_CALLBACK(ForgetWindow), &state);
+        if (!g_application_register(G_APPLICATION(application), nullptr, &error)) {
+            std::cerr << "LeanDoc could not start: " << error->message << '\n';
+            g_clear_error(&error);
+            g_object_unref(application);
+            return 1;
+        }
+    }
+
+    // LeanDoc parses its own arguments, so dash-prefixed names after `--` stay
+    // file names and GTK never reads a document name as an option.
+    std::vector<GFile*> files;
+    for (const auto& document : state.documents) {
+        files.push_back(g_file_new_for_path(document.c_str()));
+    }
+
+    int status = 0;
+    if (g_application_get_is_remote(G_APPLICATION(application))) {
+        if (files.empty()) {
+            g_application_activate(G_APPLICATION(application));
+        } else {
+            g_application_open(
+                G_APPLICATION(application), files.data(), static_cast<gint>(files.size()), "");
+        }
+        GDBusConnection* connection =
+            g_application_get_dbus_connection(G_APPLICATION(application));
+        if (connection != nullptr) {
+            g_dbus_connection_flush_sync(connection, nullptr, nullptr);
+        }
+    } else {
+        if (!files.empty()) {
+            g_application_open(
+                G_APPLICATION(application), files.data(), static_cast<gint>(files.size()), "");
+        }
+        char* applicationArguments[] = {argv[0], nullptr};
+        status = g_application_run(G_APPLICATION(application), 1, applicationArguments);
+    }
+    for (GFile* file : files) {
+        g_object_unref(file);
+    }
+    g_object_unref(application);
+
+    if (state.smokeTest) {
+        return state.smokeExitCode;
+    }
+    return status;
+}
