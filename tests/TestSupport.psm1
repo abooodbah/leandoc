@@ -398,7 +398,8 @@ function Measure-LeanDocLaunch {
         [int]$SettleMilliseconds = 2000,
         [int]$SampleCount = 5,
         [int]$SampleIntervalMilliseconds = 200,
-        [int]$TimeoutSeconds = 60
+        [int]$TimeoutSeconds = 60,
+        [hashtable]$Environment = @{}
     )
     $resolvedExe = [System.IO.Path]::GetFullPath($ExePath)
     Assert-True (Test-Path -LiteralPath $resolvedExe -PathType Leaf) "LeanDoc executable is missing: $resolvedExe"
@@ -421,6 +422,9 @@ function Measure-LeanDocLaunch {
     $startInfo.UseShellExecute = $false
     $startInfo.RedirectStandardOutput = $true
     $startInfo.WorkingDirectory = Split-Path -Parent $resolvedExe
+    foreach ($name in $Environment.Keys) {
+        $startInfo.EnvironmentVariables[$name] = [string]$Environment[$name]
+    }
 
     $events = [ordered]@{}
     $details = @{}

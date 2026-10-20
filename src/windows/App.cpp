@@ -48,12 +48,14 @@ constexpr wchar_t kSettingsKey[] = L"Software\\LeanDoc";
 constexpr wchar_t kDocxContentType[] =
     L"application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-// LeanMark's measured choices, kept until the owner re-measures them for
-// LeanDoc (docs/architecture/hosts.md). A static document needs no GPU
-// rasterization; on WebView2 153 the GPU process cost about 55 MiB private.
-// The network service runs in the browser process: the reader's CSP leaves it
-// only LeanDoc's own origin. LEANDOC_BROWSER_PROFILE=gpu keeps the GPU on so
-// tests/owner/Measure-Performance.ps1 can compare both.
+// Browser arguments, re-measured for LeanDoc rather than copied from LeanMark
+// (docs/architecture/hosts.md records the runner comparison). A static
+// document needs no GPU rasterization, and the network service can run in
+// the browser process because the reader's CSP leaves it only LeanDoc's own
+// origin, which the host answers itself. LEANDOC_BROWSER_PROFILE selects a
+// profile for measurement only: "gpu" keeps the GPU, "plain" passes no
+// arguments. Every LeanDoc process on one profile folder must use the same
+// arguments, so a measurement waits for the previous run to exit.
 constexpr wchar_t kBrowserArguments[] =
     L"--disable-background-networking --disable-component-update "
     L"--disable-sync --no-first-run --disk-cache-size=1048576 "
@@ -416,9 +418,11 @@ void LeanDocApp::InitializeWebView() {
     std::filesystem::create_directories(userData, ignored);
 
     auto options = Make<CoreWebView2EnvironmentOptions>();
-    const bool keepGpu = EnvironmentValue(L"LEANDOC_BROWSER_PROFILE") == L"gpu";
-    options->put_AdditionalBrowserArguments(keepGpu ? kBrowserArgumentsWithGpu
-                                                    : kBrowserArguments);
+    const std::wstring profile = EnvironmentValue(L"LEANDOC_BROWSER_PROFILE");
+    if (profile != L"plain") {
+        options->put_AdditionalBrowserArguments(profile == L"gpu" ? kBrowserArgumentsWithGpu
+                                                                  : kBrowserArguments);
+    }
     // Tracking prevention exists to block third-party web content, which the
     // reader never loads, so skip loading and matching its lists.
     ComPtr<ICoreWebView2EnvironmentOptions5> options5;

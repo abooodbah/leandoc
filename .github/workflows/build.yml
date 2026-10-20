@@ -38,6 +38,10 @@ jobs:
         shell: pwsh
         run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/Test-LeanDoc.ps1 -DistPath ./dist -Smoke -Runtime
 
+      - name: Compare WebView2 browser-argument profiles
+        shell: pwsh
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/hosts/Compare-BrowserArguments.ps1 -ExePath ./dist/LeanDoc.exe
+
       - name: Resolve release package version
         id: package
         shell: pwsh
