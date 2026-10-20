@@ -1,0 +1,64 @@
+name: Tag a release
+
+# Creates the annotated release tag on main from the Actions tab, for when a
+# tag cannot be pushed directly. A tag pushed with this workflow's token starts
+# no other workflow, so the job asks for the release build on the new tag
+# itself. The tag names the project's owner as its tagger.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release from main, without the v. It must match package.json.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  tag:
+    name: Tag main and start the release build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: write
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Create the tag and dispatch the build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LEANDOC_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$LEANDOC_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Not a version number: $LEANDOC_VERSION" >&2
+            exit 1
+          fi
+          git config user.name "Abdulfatah Bahbouh"
+          git config user.email "60443686+abooodbah@users.noreply.github.com"
+          tag="v$LEANDOC_VERSION"
+          manifest=$(node -p "require('./package.json').version")
+          if [[ "$manifest" != "$LEANDOC_VERSION" ]]; then
+            echo "main's package.json says $manifest, not $LEANDOC_VERSION." >&2
+            exit 1
+          fi
+          if [[ ! -f "docs/releases/$tag.md" ]]; then
+            echo "docs/releases/$tag.md is missing on main." >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "$tag already exists." >&2
+            exit 1
+          fi
+          git tag -a "$tag" -m "LeanDoc $LEANDOC_VERSION"
+          git push origin "refs/tags/$tag"
+          gh workflow run build.yml --ref "$tag"
+          echo "Tagged $(git rev-parse --short HEAD) as $tag and started the release build."

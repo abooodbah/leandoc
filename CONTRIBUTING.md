@@ -89,6 +89,14 @@ Reader tests run in Chromium with a fake host: `npm run test:reader`.
   `node scripts/Test-ReleaseEngineering.mjs` checks the wording rules and the
   version pins.
 
+## Release a version
+
+Merge the version bump, the changelog entry, and `docs/releases/v<version>.md`
+to `main`. Then either push an annotated `v<version>` tag on that commit, or run
+the **Tag a release** workflow from the Actions tab with the version number.
+Either route runs the full build on the tag, publishes the GitHub Release with
+every asset and its `.sha256` file, and redeploys the website.
+
 ## Submit a pull request
 
 Keep the change focused, explain its visible effect, and link the issue. The
