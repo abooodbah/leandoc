@@ -1,0 +1,446 @@
+name: Build all platforms
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Build, test, and stage Windows files
+        shell: pwsh
+        run: ./scripts/build.ps1 -Configuration Release -Platform x64
+
+      - name: Run Windows static, payload, installer, and smoke checks
+        shell: pwsh
+        run: ./tests/Test-LeanDoc.ps1 -DistPath ./dist -Smoke -Runtime
+
+      - name: Resolve release package version
+        id: package
+        shell: pwsh
+        env:
+          LEANDOC_REF_TYPE: ${{ github.ref_type }}
+          LEANDOC_REF_NAME: ${{ github.ref_name }}
+        run: |
+          $manifestVersion = [string](Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
+          $version = $manifestVersion
+          if ($env:LEANDOC_REF_TYPE -eq 'tag') {
+            if (-not $env:LEANDOC_REF_NAME.StartsWith('v')) {
+              throw ('Release tags must start with v: {0}' -f $env:LEANDOC_REF_NAME)
+            }
+            $version = $env:LEANDOC_REF_NAME.Substring(1)
+            if ($version -cne $manifestVersion) {
+              throw ('Tag version {0} does not match package.json version {1}.' -f $version, $manifestVersion)
+            }
+          }
+          ('version={0}' -f $version) | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Create Windows release package
+        shell: pwsh
+        run: ./scripts/package-release.ps1 -Version '${{ steps.package.outputs.version }}' -Platform x64
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v7
+        with:
+          name: LeanDoc-v${{ steps.package.outputs.version }}-windows-x64
+          path: |
+            release/*.zip
+            release/*.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  winget-validate:
+    name: winget manifests
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Validate the winget manifests
+        shell: pwsh
+        run: |
+          $manifest = 'packaging/winget/abooodbah.LeanDoc/0.1.0'
+          $winget = Get-Command winget -ErrorAction SilentlyContinue
+          if ($null -eq $winget) {
+            Write-Output '::notice title=winget validate skipped::winget is not installed on this runner image. Validate with winget validate --manifest on a Windows 11 machine before the winget PR.'
+            exit 0
+          }
+          & $winget.Source --version
+          & $winget.Source validate --manifest $manifest --disable-interactivity
+          if ($LASTEXITCODE -ne 0) {
+            throw "winget validate failed with exit code $LASTEXITCODE."
+          }
+
+  linux:
+    name: Linux x86-64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install GTK, WebKitGTK, and package tools
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            appstream build-essential cmake dbus-x11 desktop-file-utils \
+            libgtk-4-dev libwebkitgtk-6.0-dev ninja-build pkg-config xvfb
+
+      - name: Install pinned reader assets
+        shell: bash
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Resolve release package version
+        id: package
+        shell: bash
+        env:
+          LEANDOC_REF_TYPE: ${{ github.ref_type }}
+          LEANDOC_REF_NAME: ${{ github.ref_name }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [[ "$LEANDOC_REF_TYPE" == "tag" ]]; then
+            [[ "$LEANDOC_REF_NAME" == "v$version" ]] || {
+              echo "Tag $LEANDOC_REF_NAME does not match package.json $version." >&2
+              exit 1
+            }
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Configure Linux Release build
+        shell: bash
+        run: |
+          cmake -S . -B build/linux -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DBUILD_TESTING=ON \
+            -DLEANDOC_ENABLE_GUI_TESTS=ON
+
+      - name: Build and run Linux tests
+        shell: bash
+        run: |
+          cmake --build build/linux --parallel
+          original_userns_restriction=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          trap 'sudo sysctl -w "kernel.apparmor_restrict_unprivileged_userns=${original_userns_restriction}" >/dev/null' EXIT
+          dbus-run-session -- ctest --test-dir build/linux --output-on-failure
+
+      - name: Validate desktop entry and AppStream metadata
+        shell: bash
+        run: |
+          desktop-file-validate packaging/linux/io.github.abooodbah.leandoc.desktop
+          appstreamcli validate --no-net --pedantic \
+            build/linux/io.github.abooodbah.leandoc.metainfo.xml
+
+      - name: Create and verify Debian package
+        shell: bash
+        run: |
+          bash ./scripts/package-linux.sh \
+            --version "${{ steps.package.outputs.version }}" \
+            --build-dir "${RUNNER_TEMP}/leandoc-linux-package" \
+            --output-dir "${GITHUB_WORKSPACE}/release"
+
+      - name: Upload Linux package
+        uses: actions/upload-artifact@v7
+        with:
+          name: LeanDoc-v${{ steps.package.outputs.version }}-linux-x86_64
+          path: |
+            release/*.deb
+            release/*.deb.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  macos:
+    name: macOS universal preview
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install pinned reader assets
+        shell: bash
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Resolve release package version
+        id: package
+        shell: bash
+        env:
+          LEANDOC_REF_TYPE: ${{ github.ref_type }}
+          LEANDOC_REF_NAME: ${{ github.ref_name }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [[ "$LEANDOC_REF_TYPE" == "tag" ]]; then
+            [[ "$LEANDOC_REF_NAME" == "v$version" ]] || {
+              echo "Tag $LEANDOC_REF_NAME does not match package.json $version." >&2
+              exit 1
+            }
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Configure universal macOS Release build
+        shell: bash
+        run: |
+          cmake -S . -B build/macos -G Xcode \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DBUILD_TESTING=ON
+
+      - name: Build and run macOS tests
+        shell: bash
+        run: |
+          cmake --build build/macos --config Release
+          ctest --test-dir build/macos -C Release --output-on-failure
+
+      - name: Create ad-hoc-signed macOS preview
+        shell: bash
+        run: cmake --build build/macos --config Release --target package_macos
+
+      - name: Verify macOS checksum and trust metadata
+        shell: bash
+        env:
+          LEANDOC_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          archive="LeanDoc-v${LEANDOC_VERSION}-macos-universal-preview.zip"
+          metadata="release/${archive}.metadata.json"
+          (
+            cd release
+            shasum -a 256 -c "${archive}.sha256"
+          )
+          digest=$(shasum -a 256 "release/${archive}" | awk '{print $1}')
+          jq -e \
+            --arg version "${LEANDOC_VERSION}" \
+            --arg artifact "${archive}" \
+            --arg digest "${digest}" '
+            .schemaVersion == 1 and
+            .product == "LeanDoc" and
+            .version == $version and
+            .platform == "macOS" and
+            .releaseChannel == "preview" and
+            .architectures == ["arm64", "x86_64"] and
+            .artifact.file == $artifact and
+            .artifact.sha256 == $digest and
+            .signing.mode == "ad-hoc" and
+            .signing.developerID == false and
+            .signing.hardenedRuntime == true and
+            .signing.trustedPublisher == false and
+            .notarization.status == "not-attempted" and
+            .notarization.ticketStapled == false and
+            .publicDistributionReady == false
+          ' "${metadata}"
+
+      - name: Upload macOS preview
+        uses: actions/upload-artifact@v7
+        with:
+          name: LeanDoc-v${{ steps.package.outputs.version }}-macos-universal-preview
+          path: |
+            release/*.zip
+            release/*.zip.sha256
+            release/*.zip.metadata.json
+          if-no-files-found: error
+          retention-days: 30
+
+  reader:
+    name: Reader in Chromium
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install pinned reader assets and test tools
+        shell: bash
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Run reader tests
+        shell: bash
+        run: |
+          if ! node -e "process.exit(require('./package.json').scripts?.['test:reader'] ? 0 : 1)"; then
+            echo "::notice title=Reader tests skipped::package.json has no test:reader script on this commit."
+            exit 0
+          fi
+          npm run test:reader
+
+  release-engineering:
+    name: Release engineering
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Check versions, notices, names, and wording
+        shell: bash
+        run: node scripts/Test-ReleaseEngineering.mjs
+
+  release:
+    name: Publish one verified release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - build
+      - linux
+      - macos
+      - reader
+      - release-engineering
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out release notes
+        uses: actions/checkout@v7
+
+      - name: Download all verified packages
+        uses: actions/download-artifact@v7
+        with:
+          pattern: LeanDoc-v${{ needs.build.outputs.version }}-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify complete artifact set and checksums
+        shell: bash
+        env:
+          LEANDOC_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          expected=(
+            "LeanDoc-v${LEANDOC_VERSION}-windows-x64.zip"
+            "LeanDoc-v${LEANDOC_VERSION}-windows-x64.zip.sha256"
+            "LeanDoc-v${LEANDOC_VERSION}-linux-x86_64.deb"
+            "LeanDoc-v${LEANDOC_VERSION}-linux-x86_64.deb.sha256"
+            "LeanDoc-v${LEANDOC_VERSION}-macos-universal-preview.zip"
+            "LeanDoc-v${LEANDOC_VERSION}-macos-universal-preview.zip.sha256"
+            "LeanDoc-v${LEANDOC_VERSION}-macos-universal-preview.zip.metadata.json"
+          )
+          for file in "${expected[@]}"; do
+            test -f "release-assets/$file"
+          done
+          (
+            cd release-assets
+            sha256sum -c *.sha256
+          )
+          mac_archive="LeanDoc-v${LEANDOC_VERSION}-macos-universal-preview.zip"
+          mac_metadata="release-assets/${mac_archive}.metadata.json"
+          mac_digest=$(sha256sum "release-assets/${mac_archive}" | awk '{print $1}')
+          jq -e \
+            --arg version "${LEANDOC_VERSION}" \
+            --arg artifact "${mac_archive}" \
+            --arg digest "${mac_digest}" '
+            .version == $version and
+            .releaseChannel == "preview" and
+            .architectures == ["arm64", "x86_64"] and
+            .artifact.file == $artifact and
+            .artifact.sha256 == $digest and
+            .publicDistributionReady == false
+          ' "${mac_metadata}"
+
+      - name: Publish the GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LEANDOC_TAG: ${{ github.ref_name }}
+        run: |
+          notes="docs/releases/${LEANDOC_TAG}.md"
+          test -f "$notes"
+          gh release create "$LEANDOC_TAG" \
+            release-assets/* \
+            --verify-tag \
+            --latest \
+            --title "LeanDoc $LEANDOC_TAG" \
+            --notes-file "$notes"
+
+  pages:
+    name: Deploy release website
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Check out released source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Verify launch site
+        shell: bash
+        run: |
+          test -f site/index.html
+          if [[ -f site/validate.mjs ]]; then
+            node site/validate.mjs
+          fi
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload static site
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
