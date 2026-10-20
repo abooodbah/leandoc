@@ -1,7 +1,13 @@
 [CmdletBinding()]
 param(
     [string]$ExePath,
-    [string]$OutputDirectory = 'artifacts/visual/windows'
+    [string]$OutputDirectory = 'artifacts/visual/windows',
+    # CI captures one theme and view per runner: about 90 launches on one
+    # runner could exhaust its desktop heap (0xC0000142).
+    [ValidateSet('light', 'dark')]
+    [string[]]$Themes = @('light', 'dark'),
+    [ValidateSet('page', 'reading')]
+    [string[]]$Views = @('page', 'reading')
 )
 
 # UI-01 on Windows: every feature fixture in page and reading view, light and
@@ -45,8 +51,8 @@ foreach ($left in @(Get-LeanDocProcessesByPath -ExePath $ExePath)) {
 $saved = Get-ItemProperty -LiteralPath $settingsKey -ErrorAction SilentlyContinue
 
 try {
-    foreach ($theme in @('light', 'dark')) {
-        foreach ($view in @('page', 'reading')) {
+    foreach ($theme in $Themes) {
+        foreach ($view in $Views) {
             New-Item -Path $settingsKey -Force | Out-Null
             Set-ItemProperty -LiteralPath $settingsKey -Name Theme -Value $theme
             Set-ItemProperty -LiteralPath $settingsKey -Name View -Value $view
@@ -122,4 +128,4 @@ try {
 }
 $count = @(Get-ChildItem -LiteralPath $out -Filter *.png).Count
 Write-Output ('{0} Windows screenshots in {1}' -f $count, $out)
-if ($count -lt $fixtures.Count * 4) { throw 'Some fixtures were not captured.' }
+if ($count -lt $fixtures.Count * $Themes.Count * $Views.Count) { throw 'Some fixtures were not captured.' }

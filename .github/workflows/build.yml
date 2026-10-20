@@ -88,13 +88,18 @@ jobs:
         run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "Windows"
 
   windows-visual:
-    # The UI-01 captures launch LeanDoc once per fixture. After the build job's
-    # smoke, lifecycle, and browser-argument launches, the runner's desktop
-    # could run out and later processes failed to start with 0xC0000142, so
-    # the captures run on a fresh runner.
-    name: Windows screenshots (UI-01)
+    # The UI-01 captures launch LeanDoc once per fixture, theme, and view. About
+    # 90 launches on one runner could exhaust its desktop heap, and later
+    # processes failed to start with 0xC0000142, so each theme and view runs
+    # on its own fresh runner and windows-visual-check reviews them together.
+    name: Windows screenshots (UI-01, ${{ matrix.theme }} ${{ matrix.view }})
     runs-on: windows-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        theme: [light, dark]
+        view: [page, reading]
 
     steps:
       - name: Check out source
@@ -111,28 +116,49 @@ jobs:
         run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./scripts/build.ps1 -Configuration Release -Platform x64
 
       - name: Capture every feature fixture in the real window (UI-01)
-        if: always()
         timeout-minutes: 10
         shell: pwsh
-        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/visual/Capture-Windows.ps1 -ExePath ./dist/LeanDoc.exe
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./tests/visual/Capture-Windows.ps1 -ExePath ./dist/LeanDoc.exe -Themes ${{ matrix.theme }} -Views ${{ matrix.view }}
 
       - name: Upload Windows screenshots
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: visual-windows
+          name: visual-windows-${{ matrix.theme }}-${{ matrix.view }}
           path: artifacts/visual/windows/
           retention-days: 14
-
-      - name: Check the Windows screenshots (UI-01)
-        if: always()
-        shell: bash
-        run: node tests/visual/check-captures.mjs artifacts/visual/windows Windows
 
       - name: Report the failure log as annotations
         if: failure()
         shell: bash
         run: node scripts/ci-log.mjs annotate "$RUNNER_TEMP/ci.log" "Windows screenshots"
+
+  windows-visual-check:
+    name: Windows screenshots (UI-01)
+    needs:
+      - windows-visual
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Download every Windows screenshot
+        uses: actions/download-artifact@v7
+        with:
+          pattern: visual-windows-*
+          path: artifacts/visual/windows
+          merge-multiple: true
+
+      - name: Check the Windows screenshots (UI-01)
+        shell: bash
+        run: node tests/visual/check-captures.mjs artifacts/visual/windows Windows
 
   windows-usage:
     # S-02 and the usage subset launch LeanDoc about 60 times; in the same job
