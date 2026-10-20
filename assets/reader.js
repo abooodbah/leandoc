@@ -521,22 +521,45 @@
 
   // Parses into docx-preview's model, applies LeanDoc's model fixes, renders
   // detached nodes, and attaches them only if no newer request arrived.
+  // Lets the page handle input and paint between the long steps of a render,
+  // so the window stays responsive while a long document loads (P-04).
+  function yieldToPage() {
+    return new Promise(function (resolve) {
+      window.setTimeout(resolve, 0);
+    });
+  }
+
   function renderPackage(serial, ratio, started, firstRender) {
     var options = renderOptions();
     var view = currentView;
     var expected = current;
-    return window.docx.parseAsync(packageCache.buffer, options).then(function (parsed) {
+    var parsed = null;
+    return window.docx.parseAsync(packageCache.buffer, options).then(function (result) {
+      parsed = result;
+      return yieldToPage();
+    }).then(function () {
       if (serial !== renderSerial) {
         return null;
       }
       Fixups.prepareModel(parsed);
-      return window.docx.renderDocument(parsed, options).then(function (nodes) {
+      return yieldToPage().then(function () {
+        if (serial !== renderSerial) {
+          return null;
+        }
+        return window.docx.renderDocument(parsed, options);
+      }).then(function (nodes) {
+        if (!nodes) {
+          return null;
+        }
         if (serial !== renderSerial) {
           revokeBlobUrls(collectBlobUrls(nodes));
-          return;
+          return null;
         }
-        attachDocument(nodes, view);
-        finishRender(expected, ratio, started, firstRender);
+        return attachDocument(nodes, view, serial).then(function (attached) {
+          if (attached) {
+            finishRender(expected, ratio, started, firstRender, attached.movedWhileLoading);
+          }
+        });
       });
     });
   }
@@ -557,7 +580,15 @@
     });
   }
 
-  function attachDocument(nodes, view) {
+  // Long documents are attached a batch of pages at a time, one batch per
+  // frame, with the first pages shown at once. Laying out and styling a
+  // thousand pages in one task froze the page for seconds. "rendered" is
+  // still posted only when every page is in place.
+  var PROGRESSIVE_PAGES = 60;
+  var FIRST_BATCH = 8;
+  var BATCH = 20;
+
+  function attachDocument(nodes, view, serial) {
     clearSearch();
     root.dataset.view = view;
     revokeBlobUrls(blobUrls);
@@ -567,12 +598,76 @@
     nodes.forEach(function (node) {
       (node.nodeName === "STYLE" ? styles : body).push(node);
     });
+    var wrapper = body.filter(function (node) {
+      return node.classList && node.classList.contains("docx-wrapper");
+    })[0];
+    var pages = wrapper ? Array.prototype.filter.call(wrapper.children, function (child) {
+      return child.nodeName === "SECTION";
+    }) : [];
     elements.docStyles.replaceChildren.apply(elements.docStyles, styles);
+    if (pages.length <= PROGRESSIVE_PAGES) {
+      elements.docBody.replaceChildren.apply(elements.docBody, body);
+      prepareDocumentDom(pages.length ? pages : [elements.docBody], 0, Math.max(1, pages.length));
+      return Promise.resolve({ movedWhileLoading: false });
+    }
+    var later = pages.slice(FIRST_BATCH);
+    later.forEach(function (page) {
+      wrapper.removeChild(page);
+    });
     elements.docBody.replaceChildren.apply(elements.docBody, body);
-    prepareDocumentDom();
+    prepareDocumentDom(pages.slice(0, FIRST_BATCH), 0, pages.length);
+    showLoadingPages(current && current.report);
+    var startTop = elements.docScroller.scrollTop;
+    var next = 0;
+    return new Promise(function (resolve) {
+      function step() {
+        if (serial !== renderSerial) {
+          resolve(null);
+          return;
+        }
+        var batch = later.slice(next, next + BATCH);
+        var fragment = document.createDocumentFragment();
+        batch.forEach(function (page) {
+          fragment.appendChild(page);
+        });
+        wrapper.appendChild(fragment);
+        prepareDocumentDom(batch, FIRST_BATCH + next, pages.length);
+        // Lay out this batch now. WebKit lays out pages below the window
+        // only when something asks, so without this the whole document was
+        // laid out in one long task when the render finished.
+        void wrapper.offsetHeight;
+        next += batch.length;
+        if (next < later.length) {
+          window.requestAnimationFrame(function () {
+            window.setTimeout(step, 0);
+          });
+        } else {
+          resolve({ movedWhileLoading: elements.docScroller.scrollTop !== startTop });
+        }
+      }
+      window.requestAnimationFrame(function () {
+        window.setTimeout(step, 0);
+      });
+    });
   }
 
-  function finishRender(expected, ratio, started, firstRender) {
+  // The first pages of a long document, readable and scrollable while the
+  // rest arrives. Find, zoom, and the view switch wait for the whole document.
+  function showLoadingPages(report) {
+    elements.statePane.hidden = true;
+    elements.readerPane.hidden = false;
+    delete elements.statePane.dataset.state;
+    root.setAttribute("data-has-document", "");
+    // The outline pane takes its place now, so the page width and the fit
+    // zoom are final from the first batch: changing the zoom at the end
+    // would lay out every page again.
+    var outline = report && Array.isArray(report.outline) ? report.outline : [];
+    elements.outline.hidden = outline.length === 0;
+    applyZoom(false);
+    focusDocumentIfIdle();
+  }
+
+  function finishRender(expected, ratio, started, firstRender, movedWhileLoading) {
     var pages = elements.docBody.querySelectorAll(".docx-wrapper > section.docx").length;
     expected.pages = pages;
     var size = formatBytes(expected.report.sourceBytes);
@@ -598,11 +693,18 @@
     updateFidelity(firstRender);
     applyZoom(false);
     elements.docBody.setAttribute("aria-busy", "false");
-    elements.docScroller.scrollLeft = 0;
-    scrollToRatio(ratio);
+    // A reader who scrolled the first pages while the rest loaded keeps
+    // that position.
+    var keepPosition = movedWhileLoading && !ratio;
+    if (!keepPosition) {
+      elements.docScroller.scrollLeft = 0;
+      scrollToRatio(ratio);
+    }
     window.requestAnimationFrame(function () {
       if (current === expected) {
-        scrollToRatio(ratio);
+        if (!keepPosition) {
+          scrollToRatio(ratio);
+        }
         updateOutlineCurrent();
       }
     });
@@ -665,62 +767,62 @@
 
   // PAGE, NUMPAGES, and SECTIONPAGES results arrive as markers (fixups.js
   // markPageFields); each page gets its own number here.
-  function numberPageFields() {
-    var pages = elements.docBody.querySelectorAll(".docx-wrapper > section.docx");
-    for (var index = 0; index < pages.length; index += 1) {
-      var walker = document.createTreeWalker(pages[index], NodeFilter.SHOW_TEXT);
-      var node;
-      while ((node = walker.nextNode())) {
-        if (node.nodeValue.indexOf(Fixups.PAGE_FIELD_START) >= 0) {
-          node.nodeValue = Fixups.fillPageFields(node.nodeValue, index + 1, pages.length);
-        }
+  function numberPageFields(page, pageNumber, pageCount) {
+    var walker = document.createTreeWalker(page, NodeFilter.SHOW_TEXT);
+    var node;
+    while ((node = walker.nextNode())) {
+      if (node.nodeValue.indexOf(Fixups.PAGE_FIELD_START) >= 0) {
+        node.nodeValue = Fixups.fillPageFields(node.nodeValue, pageNumber, pageCount);
       }
     }
   }
 
-  function prepareDocumentDom() {
-    if (currentView === "page") {
-      elements.docBody.querySelectorAll(".docx-wrapper > section.docx").forEach(function (section) {
-        if (!section.querySelector("p[class*='docx-num-']")) {
-          var size = lazyPageSize(section);
-          if (size) {
-            section.style.containIntrinsicSize = size;
-          }
-          section.classList.add("ld-lazy");
+  // Prepares newly attached pages: lazy layout, page numbers, document ids
+  // moved aside, and links. `first` is the index of pages[0] in the document.
+  function prepareDocumentDom(pages, first, pageCount) {
+    pages.forEach(function (page, offset) {
+      if (currentView === "page" && page.nodeName === "SECTION" &&
+          !page.querySelector("p[class*='docx-num-']")) {
+        var size = lazyPageSize(page);
+        if (size) {
+          page.style.containIntrinsicSize = size;
         }
+        page.classList.add("ld-lazy");
+      }
+      numberPageFields(page, first + offset + 1, pageCount);
+      // Document ids (bookmarks) move to a data attribute so they can never
+      // collide with the reader's own element ids.
+      page.querySelectorAll("[id]").forEach(function (node) {
+        node.setAttribute("data-ld-anchor", node.id);
+        node.removeAttribute("id");
       });
+      page.querySelectorAll("a").forEach(prepareLink);
+    });
+  }
+
+  function prepareLink(link) {
+    link.removeAttribute("target");
+    link.removeAttribute("download");
+    link.removeAttribute("ping");
+    var raw = link.getAttribute("href");
+    if (raw === null) {
+      return;
     }
-    numberPageFields();
-    // Document ids (bookmarks) move to a data attribute so they can never
-    // collide with the reader's own element ids.
-    elements.docBody.querySelectorAll("[id]").forEach(function (node) {
-      node.setAttribute("data-ld-anchor", node.id);
-      node.removeAttribute("id");
-    });
-    elements.docBody.querySelectorAll("a").forEach(function (link) {
-      link.removeAttribute("target");
-      link.removeAttribute("download");
-      link.removeAttribute("ping");
-      var raw = link.getAttribute("href");
-      if (raw === null) {
-        return;
-      }
-      var target = Fixups.classifyHref(raw);
-      if (target.kind === "external") {
-        link.setAttribute("href", target.href);
-        link.setAttribute("rel", "noopener noreferrer");
-        link.setAttribute("title", target.href);
-        link.dataset.ldLink = "external";
-      } else if (target.kind === "internal") {
-        link.setAttribute("href", "#" + target.anchor);
-        link.dataset.ldLink = "internal";
-      } else {
-        // Anything else reads as plain text and cannot be activated.
-        link.removeAttribute("href");
-        link.dataset.ldLink = "none";
-        link.setAttribute("title", "LeanDoc opens only web and email links.");
-      }
-    });
+    var target = Fixups.classifyHref(raw);
+    if (target.kind === "external") {
+      link.setAttribute("href", target.href);
+      link.setAttribute("rel", "noopener noreferrer");
+      link.setAttribute("title", target.href);
+      link.dataset.ldLink = "external";
+    } else if (target.kind === "internal") {
+      link.setAttribute("href", "#" + target.anchor);
+      link.dataset.ldLink = "internal";
+    } else {
+      // Anything else reads as plain text and cannot be activated.
+      link.removeAttribute("href");
+      link.dataset.ldLink = "none";
+      link.setAttribute("title", "LeanDoc opens only web and email links.");
+    }
   }
 
   function findAnchor(name) {
@@ -839,10 +941,23 @@
     return actual.indexOf(probe) === 0 || expected.indexOf(actual) === 0;
   }
 
-  function findOutlineTarget(entry, previous, paragraphs) {
+  // Paragraphs by the core's paragraph index (class ld-pi-N), built once per
+  // outline: a query per heading over a 1,000-page document took a second.
+  function paragraphIndexMap() {
+    var map = new Map();
+    elements.docBody.querySelectorAll("p.ld-p").forEach(function (paragraph) {
+      var match = /(?:^|\s)ld-pi-(\d+)(?:\s|$)/.exec(paragraph.className);
+      if (match && !map.has(Number(match[1]))) {
+        map.set(Number(match[1]), paragraph);
+      }
+    });
+    return map;
+  }
+
+  function findOutlineTarget(entry, previous, paragraphs, indexMap) {
     var index = entry.paragraph;
     var candidate = Number.isInteger(index) && index >= 0
-      ? elements.docBody.querySelector("p.ld-pi-" + index)
+      ? indexMap.get(index) || null
       : null;
     if (candidate && textMatches(candidate, entry.text)) {
       return candidate;
@@ -876,6 +991,7 @@
     var fragment = document.createDocumentFragment();
     var previous = null;
     var paragraphs = null;
+    var indexMap = entries.length ? paragraphIndexMap() : new Map();
     entries.slice(0, 2000).forEach(function (raw) {
       if (!raw || typeof raw !== "object") {
         return;
@@ -886,11 +1002,11 @@
         text: String(raw.text || "").trim(),
         paragraph: Number.isInteger(paragraph) ? paragraph : -1
       };
-      var candidate = elements.docBody.querySelector("p.ld-pi-" + entry.paragraph);
+      var candidate = indexMap.get(entry.paragraph) || null;
       if (!candidate || !textMatches(candidate, entry.text)) {
         paragraphs = paragraphs || bodyParagraphs();
       }
-      var target = findOutlineTarget(entry, previous, paragraphs || []);
+      var target = findOutlineTarget(entry, previous, paragraphs || [], indexMap);
       if (target) {
         target.setAttribute("data-ld-target", String(outlineEntries.length));
         previous = target;

@@ -1009,6 +1009,31 @@ describe("chrome interactions (VIEW-01)", () => {
 });
 
 describe("generations and scale", () => {
+  test("a 1,000-page document shows its first pages at once and never blocks the page for long (P-04)", async () => {
+    await withHost({}, async (host) => {
+      await host.page.evaluate(() => {
+        window.__longTasks = [];
+        new PerformanceObserver((list) => list.getEntries().forEach((entry) =>
+          window.__longTasks.push(Math.round(entry.duration)))).observe({ type: "longtask" });
+      });
+      const { bytes, report } = await makeBigDocx(1000);
+      await host.openDocument({ bytes, report, fileName: "thousand.docx", wait: false });
+      await host.page.waitForFunction(() => !document.getElementById("readerPane").hidden &&
+        document.querySelectorAll("#docBody section.docx").length > 0, null, { timeout: 30000 });
+      const early = await host.page.evaluate(() => ({
+        pages: document.querySelectorAll("#docBody section.docx").length,
+        state: document.documentElement.dataset.renderState
+      }));
+      const rendered = await host.waitFor((message) => message.type === "rendered", 60000, { includePast: true });
+      const longest = await host.page.evaluate(() => Math.max(0, ...window.__longTasks));
+      assert.ok(early.pages < 1000 && early.state === "loading", `first pages before the rest: ${JSON.stringify(early)}`);
+      assert.equal(rendered.pages, 1000);
+      assert.equal(await host.page.$$eval("#docBody section.docx", (nodes) => nodes.length), 1000);
+      assert.ok(longest < 800, `longest task ${longest} ms`);
+      console.log(`# 1,000 pages: reader ${rendered.ms} ms, longest task ${longest} ms, ${early.pages} pages shown first`);
+    });
+  });
+
   test("a stale generation is discarded", async () => {
     await withHost({}, async (host) => {
       const first = fixture("tables.docx");
