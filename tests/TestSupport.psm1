@@ -351,6 +351,132 @@ function Wait-WebView2Idle {
     return $false
 }
 
+function Get-LeanDocMachineSummary {
+    # The machine details every published figure must name.
+    $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+    $cpu = @(Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue)[0]
+    $system = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+    $runtime = $null
+    foreach ($key in @(
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+        'HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+        'HKCU:\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}')) {
+        $value = Get-ItemProperty -LiteralPath $key -Name pv -ErrorAction SilentlyContinue
+        if ($null -ne $value -and -not [string]::IsNullOrWhiteSpace($value.pv)) { $runtime = $value.pv; break }
+    }
+    [pscustomobject]@{
+        Computer = if ($null -ne $system) { '{0} {1}' -f $system.Manufacturer, $system.Model } else { 'unknown' }
+        Processor = if ($null -ne $cpu) { $cpu.Name.Trim() } else { 'unknown' }
+        LogicalProcessors = [Environment]::ProcessorCount
+        MemoryGiB = if ($null -ne $system) { [Math]::Round($system.TotalPhysicalMemory / 1GB, 1) } else { 0 }
+        OperatingSystem = if ($null -ne $os) { '{0} {1} (build {2})' -f $os.Caption, $os.Version, $os.BuildNumber } else { [Environment]::OSVersion.VersionString }
+        WebView2Runtime = if ($null -ne $runtime) { $runtime } else { 'not found' }
+        PowerShell = $PSVersionTable.PSVersion.ToString()
+    }
+}
+
+function Get-LeanDocMedian {
+    param([double[]]$Values)
+    if ($null -eq $Values -or $Values.Count -eq 0) { return [double]::NaN }
+    $sorted = @($Values | Sort-Object)
+    $middle = [int][Math]::Floor($sorted.Count / 2)
+    if ($sorted.Count % 2 -eq 1) { return [double]$sorted[$middle] }
+    ([double]$sorted[$middle - 1] + [double]$sorted[$middle]) / 2.0
+}
+
+function Measure-LeanDocLaunch {
+    # One launch with the SPEC section 5 hooks: --trace-timing for the event
+    # times and --exit-after-render so LeanDoc closes itself after the memory
+    # sample. The memory is the private bytes and working set of LeanDoc.exe
+    # and every descendant WebView2 process, sampled SettleMilliseconds after
+    # the first rendered message (or after webview-ready with no document).
+    # A launch whose tree has fewer than three processes (host, browser,
+    # renderer) is marked Complete = $false and must be excluded.
+    param(
+        [Parameter(Mandatory = $true)][string]$ExePath,
+        [string[]]$DocumentPaths = @(),
+        [int]$SettleMilliseconds = 2000,
+        [int]$SampleCount = 5,
+        [int]$SampleIntervalMilliseconds = 200,
+        [int]$TimeoutSeconds = 60
+    )
+    $resolvedExe = [System.IO.Path]::GetFullPath($ExePath)
+    Assert-True (Test-Path -LiteralPath $resolvedExe -PathType Leaf) "LeanDoc executable is missing: $resolvedExe"
+    $quoted = @($DocumentPaths | ForEach-Object {
+        $full = [System.IO.Path]::GetFullPath($_)
+        Assert-True (Test-Path -LiteralPath $full -PathType Leaf) "Document is missing: $full"
+        Assert-True (-not $full.Contains('"')) "A document path unexpectedly contains a quote: $full"
+        '"{0}"' -f $full
+    })
+    $exitAfter = $SettleMilliseconds + $SampleCount * $SampleIntervalMilliseconds + 3000
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $resolvedExe
+    $arguments = @('--trace-timing')
+    if ($quoted.Count -gt 0) {
+        $arguments += ('--exit-after-render={0}' -f $exitAfter)
+        $arguments += '--'
+        $arguments += $quoted
+    }
+    $startInfo.Arguments = $arguments -join ' '
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.WorkingDirectory = Split-Path -Parent $resolvedExe
+
+    $events = [ordered]@{}
+    $details = @{}
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    Assert-True ($null -ne $process) 'Windows did not return a process for LeanDoc.'
+    $complete = $false
+    $failure = $null
+    $sample = $null
+    try {
+        $target = if ($quoted.Count -gt 0) { 'rendered' } else { 'webview-ready' }
+        $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+        $pending = $process.StandardOutput.ReadLineAsync()
+        while (-not $events.Contains($target)) {
+            if ([DateTime]::UtcNow -gt $deadline) { $failure = "no $target event within $TimeoutSeconds s"; break }
+            if (-not $pending.Wait(100)) { continue }
+            $line = $pending.Result
+            if ($null -eq $line) { $failure = "LeanDoc exited before $target"; break }
+            if ($line -match '^LEANDOC_TIMING (\S+) (\d+)(?: (.*))?$' -and -not $events.Contains($Matches[1])) {
+                $events[$Matches[1]] = [int64]$Matches[2]
+                $details[$Matches[1]] = [string]$Matches[3]
+            }
+            $pending = $process.StandardOutput.ReadLineAsync()
+        }
+        if ($null -eq $failure) {
+            Start-Sleep -Milliseconds $SettleMilliseconds
+            $samples = @()
+            for ($index = 0; $index -lt $SampleCount; $index += 1) {
+                $samples += Get-LeanDocProcessSample -RootProcessId $process.Id
+                Start-Sleep -Milliseconds $SampleIntervalMilliseconds
+            }
+            $sample = $samples | Sort-Object PrivateBytes -Descending | Select-Object -First 1
+            $complete = (@($samples | Where-Object { $_.ProcessCount -lt 3 }).Count -eq 0)
+            if (-not $complete) { $failure = 'incomplete process tree' }
+        }
+    } finally {
+        if ($quoted.Count -gt 0 -and $null -eq $failure) {
+            [void]$process.WaitForExit($exitAfter + 10000)
+        }
+        Stop-LeanDocTestProcessTree -RootProcess $process
+    }
+    $pages = $null
+    if ($details.Contains('rendered') -and $details['rendered'] -match 'pages=(\d+)') { $pages = [int]$Matches[1] }
+    [pscustomobject]@{
+        Complete = $complete
+        Failure = $failure
+        Events = $events
+        WindowVisibleMs = if ($events.Contains('window-visible')) { $events['window-visible'] } else { $null }
+        WebViewReadyMs = if ($events.Contains('webview-ready')) { $events['webview-ready'] } else { $null }
+        FirstPageMs = if ($events.Contains('rendered')) { $events['rendered'] } else { $null }
+        Pages = $pages
+        PrivateMiB = if ($null -ne $sample) { [Math]::Round($sample.PrivateBytes / 1MB, 2) } else { $null }
+        WorkingSetMiB = if ($null -ne $sample) { [Math]::Round($sample.WorkingSetBytes / 1MB, 2) } else { $null }
+        ProcessCount = if ($null -ne $sample) { $sample.ProcessCount } else { 0 }
+    }
+}
+
 Export-ModuleMember -Function @(
     'Invoke-LeanDocSmoke', 'Get-LeanDocProcessesByPath', 'Wait-WebView2Idle',
     'Assert-True', 'Assert-Equal', 'Assert-Match', 'Assert-NotMatch',
@@ -358,5 +484,6 @@ Export-ModuleMember -Function @(
     'Get-RegistryValueState', 'Get-LeanDocProcessTreeIds',
     'Start-LeanDocProcess', 'Wait-LeanDocWindow', 'Get-LeanDocWindowClass',
     'Stop-LeanDocTestProcessTree', 'Get-LeanDocProcessSample',
-    'Resolve-EffectiveAssociationExecutable'
+    'Resolve-EffectiveAssociationExecutable', 'Get-LeanDocMachineSummary',
+    'Get-LeanDocMedian', 'Measure-LeanDocLaunch'
 )
