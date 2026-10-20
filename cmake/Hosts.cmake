@@ -230,6 +230,22 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             "LEANDOC_ASSETS_DIR=${LEANDOC_RUNTIME_ASSETS};WEBKIT_DISABLE_COMPOSITING_MODE=1;XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/test-config;GTK_A11Y=none"
           TIMEOUT 60)
       set_tests_properties(leandoc-linux-fallback PROPERTIES WILL_FAIL TRUE)
+      # Fallback pages for every rejected fixture, the context menu, the
+      # renderer crash cap, and non-UTF-8 file names (needs xdotool).
+      find_program(LEANDOC_PYTHON_EXECUTABLE NAMES python3)
+      find_program(LEANDOC_XDOTOOL_EXECUTABLE NAMES xdotool)
+      if(LEANDOC_PYTHON_EXECUTABLE AND LEANDOC_XDOTOOL_EXECUTABLE)
+        add_test(
+          NAME leandoc-linux-regressions
+          COMMAND "${LEANDOC_XVFB_RUN_EXECUTABLE}" -a -s "-screen 0 1600x1200x24"
+                  "${LEANDOC_PYTHON_EXECUTABLE}"
+                  "${LEANDOC_ROOT}/tests/hosts/linux_regressions.py" "$<TARGET_FILE_DIR:leandoc>")
+        set_tests_properties(leandoc-linux-regressions PROPERTIES
+          ENVIRONMENT "WEBKIT_DISABLE_COMPOSITING_MODE=1;GTK_A11Y=none"
+          TIMEOUT 300)
+      else()
+        message(STATUS "python3 or xdotool is missing; leandoc-linux-regressions is not added.")
+      endif()
     endif()
   endif()
 
