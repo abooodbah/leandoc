@@ -20,6 +20,7 @@
     "jszip": "3.10.2"
   },
   "devDependencies": {
+    "axe-core": "4.13.0",
     "playwright-core": "1.64.1"
   }
 }

@@ -121,6 +121,7 @@
   --notice-surface: #fdf8ef;
   --notice-border: #efe3cc;
   --notice-icon: var(--warning-500);
+  --warning-text: var(--warning-500);
   --wordmark-surface: var(--neutral-900);
   --wordmark-ink: var(--neutral-0);
 
@@ -162,6 +163,7 @@
     --notice-surface: #221d14;
     --notice-border: #3a2f1c;
     --notice-icon: #f59e0b;
+    --warning-text: #fbbf24;
     --wordmark-surface: var(--neutral-50);
     --wordmark-ink: var(--neutral-950);
   }
@@ -186,6 +188,7 @@
   --notice-surface: #221d14;
   --notice-border: #3a2f1c;
   --notice-icon: #f59e0b;
+  --warning-text: #fbbf24;
   --wordmark-surface: var(--neutral-50);
   --wordmark-ink: var(--neutral-950);
 }
@@ -891,6 +894,12 @@ body {
   overscroll-behavior: contain;
 }
 
+/* The document is in the Tab order so the keyboard can reach and scroll it. */
+.doc-scroller:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
 .doc-body {
   min-height: 100%;
 }
@@ -1088,7 +1097,7 @@ body {
 }
 
 .state-pane[data-state="fallback"] .state-eyebrow {
-  color: var(--warning-500);
+  color: var(--warning-text);
 }
 
 .recent {

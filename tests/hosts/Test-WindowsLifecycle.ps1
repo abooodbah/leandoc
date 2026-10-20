@@ -49,6 +49,16 @@ function Get-State {
     $lines
 }
 
+# Earlier steps of the same CI job run the portable build, which writes its
+# settings and WebView2 folder. L-02 starts from a clean account, so those
+# traces go first; the uninstall must then leave the account exactly so.
+[void](Wait-WebView2Idle -TimeoutSeconds 30)
+foreach ($trace in @('HKCU:\Software\LeanDoc', $dataDir)) {
+    if (Test-Path -LiteralPath $trace) {
+        Write-TestNote "Removing a trace of an earlier portable run: $trace"
+        Remove-Item -LiteralPath $trace -Recurse -Force
+    }
+}
 $before = @(Get-State)
 Assert-True (-not (Test-Path -LiteralPath $installDir)) "A previous install exists at $installDir."
 

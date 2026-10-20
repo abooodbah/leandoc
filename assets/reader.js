@@ -1458,12 +1458,13 @@
       var label = document.createElement("span");
       label.className = "tab-label";
       label.textContent = tabLabel(tab, duplicates);
-      var close = document.createElement("button");
-      close.type = "button";
+      var close = document.createElement("span");
       close.className = "tab-close";
-      close.tabIndex = -1;
+      // A tab may not contain a control (ARIA), so the close button is for
+      // the pointer only; the keyboard closes a tab with Delete or Ctrl+W.
       close.title = shortcut("Close (Ctrl+W)");
-      close.setAttribute("aria-label", "Close " + tab.name);
+      close.setAttribute("aria-hidden", "true");
+      item.setAttribute("aria-keyshortcuts", isMac ? "Delete Meta+W" : "Delete Control+W");
       item.append(label, close);
       fragment.appendChild(item);
     });
