@@ -36,6 +36,12 @@ $out = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputDirectory))
 New-Item -ItemType Directory -Path $out -Force | Out-Null
 $fixtures = @(Get-ChildItem -LiteralPath (Join-Path $testsRoot 'fixtures\features') -Filter *.docx | Sort-Object Name)
 $settingsKey = 'HKCU:\Software\LeanDoc'
+# A LeanDoc of the same path left running by an earlier step would take every
+# launch as a later one (single instance). Close it first.
+foreach ($left in @(Get-LeanDocProcessesByPath -ExePath $ExePath)) {
+    Write-Warning ('Stopping LeanDoc process {0} left by an earlier step.' -f $left.Id)
+    Stop-LeanDocTestProcessTree -RootProcess $left
+}
 $saved = Get-ItemProperty -LiteralPath $settingsKey -ErrorAction SilentlyContinue
 
 try {
@@ -55,8 +61,13 @@ try {
                 try {
                     $deadline = [DateTime]::UtcNow.AddSeconds(40)
                     $rendered = $false
+                    # Never block on the pipe: a launch that hangs must not
+                    # hold the step until the job times out.
                     while (-not $rendered -and [DateTime]::UtcNow -lt $deadline) {
-                        $line = $process.StandardOutput.ReadLine()
+                        $read = $process.StandardOutput.ReadLineAsync()
+                        $left = [Math]::Max(1, [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds)
+                        if (-not $read.Wait($left)) { break }
+                        $line = $read.Result
                         if ($null -eq $line) { break }
                         $rendered = $line -like 'LEANDOC_TIMING rendered *'
                     }

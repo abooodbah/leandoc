@@ -30,6 +30,12 @@ if ([string]::IsNullOrWhiteSpace($ExePath)) { $ExePath = Join-Path $repoRoot 'di
 $ExePath = [System.IO.Path]::GetFullPath($ExePath)
 $out = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputDirectory))
 New-Item -ItemType Directory -Path $out -Force | Out-Null
+# A LeanDoc of the same path left running by an earlier step would take every
+# launch as a later one (single instance). Close it first.
+foreach ($left in @(Get-LeanDocProcessesByPath -ExePath $ExePath)) {
+    Write-Warning ('Stopping LeanDoc process {0} left by an earlier step.' -f $left.Id)
+    Stop-LeanDocTestProcessTree -RootProcess $left
+}
 $fixturesRoot = Join-Path $testsRoot 'fixtures'
 $expected = Get-Content -LiteralPath (Join-Path $fixturesRoot 'expected.json') -Raw | ConvertFrom-Json
 $renderable = @('docx', 'docm', 'dotx', 'dotm')
