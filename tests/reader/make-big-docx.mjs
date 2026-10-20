@@ -55,7 +55,9 @@ function paragraph(text, style) {
   return `<w:p>${properties}<w:r><w:t xml:space="preserve">${text}</w:t></w:r></w:p>`;
 }
 
-export async function makeBigDocx(pages = 300, { sectionHeadings = false } = {}) {
+// pageBreaks: false writes the same text with no page break at all, as python-docx,
+// pandoc, and other generators do; Word's own pages exist only after Word lays it out.
+export async function makeBigDocx(pages = 300, { sectionHeadings = false, pageBreaks = true } = {}) {
   const body = [];
   const outline = [];
   let index = 0;
@@ -76,7 +78,7 @@ export async function makeBigDocx(pages = 300, { sectionHeadings = false } = {})
       body.push(paragraph(`Page ${page}, paragraph ${line + 1}. ${sentence(page + line, 40)} ${sentence(page * 3 + line, 24)}${marker}`));
       index += 1;
     }
-    if (page < pages) {
+    if (page < pages && pageBreaks) {
       body.push(`<w:p><w:r><w:br w:type="page"/></w:r></w:p>`);
       index += 1;
     }
