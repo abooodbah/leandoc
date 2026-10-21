@@ -483,6 +483,20 @@ test("Table borders go on the table's edges, inside borders between cells", () =
   assert.equal(threeLine.cellStyle["padding-left"], "5pt");
 });
 
+test("A right-to-left table keeps docx-preview's borders", () => {
+  const xml = el("body", [el("tbl", [
+    el("tblPr", [el("bidiVisual"), el("tblBorders", [el("left", [], { val: "single", sz: "8" })])]),
+    el("tr", [el("tc", [el("p")]), el("tc", [el("p")])])
+  ])]);
+  const cell = () => ({ type: "cell", cssStyle: {}, children: [{ type: "paragraph", children: [] }] });
+  const table = { type: "table", cssStyle: {}, cellStyle: { "border-left": "1pt solid black" }, children: [{ type: "row", children: [cell(), cell()] }] };
+  const result = Fixups.annotateBody({ children: [table] }, xml);
+  assert.equal(result.bidiVisualTables, 1);
+  assert.equal(result.borderedTables, 0);
+  assert.equal(table.cellStyle["border-left"], "1pt solid black");
+  assert.equal(table.children[0].children[1].cssStyle["border-left"], undefined);
+});
+
 test("A vertically merged cell takes the bottom border of the last row it covers", () => {
   const xml = el("body", [el("tbl", [
     el("tblPr", [el("tblBorders", [el("bottom", [], { val: "single", sz: "8" }), el("insideH", [], { val: "single", sz: "4" })])]),
