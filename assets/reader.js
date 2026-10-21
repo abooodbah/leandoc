@@ -755,7 +755,8 @@
   // A long table's continuation keeps about a page of rows; the rest wait in
   // a queue on it, as blocks wait on their section. Moving every remaining
   // row to each new page laid them all out again at every split: a table of
-  // 4,000 rows took 47 seconds. Only a continuation is queued, after its
+  // 4,000 rows took 27 seconds in 0.1.1, and 47 with the block queue but no
+  // row queue. Only a continuation is queued, after its
   // first part has fixed the column widths with every row present.
   var ROWS = "__ldRows";
   var ROW_CHUNK = 80;
@@ -838,8 +839,8 @@
             continue;
           }
           // Characters past the area come after every character inside it,
-          // so the first one is found by halving: a scan from the start made
-          // a 60,000-word paragraph take 12 seconds.
+          // so the first one is found by halving: with a scan from the start,
+          // a 60,000-word paragraph took 12 seconds to split into pages.
           // Spaces are measured at the next character that is not a space.
           var visible = function (at) {
             while (at < last && /\s/.test(text.charAt(at))) {
