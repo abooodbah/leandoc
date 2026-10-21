@@ -99,6 +99,74 @@ function table() {
 ${row("Dimension", "Question", "Measure")}${row("Speedup", "How fast", "Ratio")}${row("Energy", "What it costs", "Joules")}</w:tbl>`;
 }
 
+async function packDocx(documentXml) {
+  const zip = new JSZip();
+  const options = { date: FIXED_DATE };
+  zip.file("[Content_Types].xml", CONTENT_TYPES, options);
+  zip.file("_rels/.rels", ROOT_RELS, options);
+  zip.file("word/document.xml", documentXml, options);
+  zip.file("word/_rels/document.xml.rels", DOCUMENT_RELS, options);
+  zip.file("word/styles.xml", STYLES, options);
+  zip.file("word/footnotes.xml", FOOTNOTES, options);
+  return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+}
+
+function report(bytes, outline) {
+  return {
+    ok: true,
+    errorCode: "",
+    errorMessage: "",
+    kind: "docx",
+    sourceBytes: bytes.length,
+    features: [],
+    outline,
+    properties: { title: "", creator: "", rightToLeft: false }
+  };
+}
+
+const M = "http://schemas.openxmlformats.org/officeDocument/2006/math";
+
+// Pandoc's table shape: automatic width, equal grid columns, no cell widths,
+// rules above and below the table and under the header row, 8 pt cell text.
+function pandocTable(rows, { header }) {
+  const rule = `<w:tcBorders><w:bottom w:val="single" w:sz="4" w:color="000000"/></w:tcBorders>`;
+  const cell = (text, isHeader) => `<w:tc><w:tcPr>${isHeader ? rule : ""}<w:tcMar><w:left w:w="50" w:type="dxa"/><w:right w:w="50" w:type="dxa"/></w:tcMar></w:tcPr>` +
+    `<w:p><w:pPr><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">${text}</w:t></w:r></w:p></w:tc>`;
+  const columns = header.length;
+  const grid = Array.from({ length: columns }, () => `<w:gridCol w:w="1584"/>`).join("");
+  const row = (cells, isHeader) => `<w:tr>${cells.map((text) => cell(text, isHeader)).join("")}</w:tr>`;
+  return `<w:tbl><w:tblPr><w:tblW w:type="auto" w:w="0"/><w:tblBorders><w:top w:val="single" w:sz="8" w:color="000000"/>` +
+    `<w:bottom w:val="single" w:sz="8" w:color="000000"/></w:tblBorders><w:jc w:val="center"/></w:tblPr><w:tblGrid>${grid}</w:tblGrid>` +
+    row(header, true) + rows.map((cells) => row(cells, false)).join("") + `</w:tbl>`;
+}
+
+// A paragraph with an inline equation whose subscript is four runs, as pandoc
+// writes E_sess; a three-line table; and a table long enough to split across
+// pages, all in one column.
+export async function makeTablesDocx({ longRows = 90 } = {}) {
+  const run = (text) => `<m:r><m:rPr><m:sty m:val="p"/></m:rPr><m:t>${text}</m:t></m:r>`;
+  const equation = `<m:oMath><m:sSub><m:e><m:r><m:t>E</m:t></m:r></m:e><m:sub>${["s", "e", "s", "s"].map(run).join("")}</m:sub></m:sSub></m:oMath>`;
+  const body = [
+    `<w:p><w:r><w:t xml:space="preserve">Equation marker newt: the session efficiency </w:t></w:r>${equation}<w:r><w:t xml:space="preserve"> is computed per run.</w:t></w:r></w:p>`,
+    paragraph("TABLE A", { style: "Heading1" }),
+    pandocTable([
+      ["Speedup", "How fast does it do my work?", "Speedup or efficiency, scored 1 to 5", "Efficiency on a stated part of the job, and retention"],
+      ["Scalability", "Do more processors keep paying off?", "Slope of efficiency against scale", "Average efficiency over each doubling of processors"],
+      ["Energy", "What does the work consume?", "Utilization, scored 1 to 5", "Energy per unit of work at scale"]
+    ], { header: ["Dimension", "Question for the user", "Original measure", "Bounded measure"] }),
+    paragraph("TABLE B", { style: "Heading1" }),
+    pandocTable(Array.from({ length: longRows }, (_, index) => [`Row ${index + 1}`, "ok", `A longer description of row ${index + 1} that fills its cell`]),
+      { header: ["Run", "State", "Description"] }),
+    paragraph("Closing paragraph lynx.")
+  ];
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${W}" xmlns:r="${R}" xmlns:m="${M}"><w:body>${body.join("\n")}
+<w:sectPr>${PAGE}<w:cols w:space="720"/></w:sectPr>
+</w:body></w:document>`;
+  const bytes = await packDocx(documentXml);
+  return { bytes, longRows, report: report(bytes, []) };
+}
+
 // longParagraphs: paragraphs in the long two-column section (S2), which runs over
 // several pages. Every paragraph carries its section and index, so tests can find it.
 export async function makeColumnsDocx({ longParagraphs = 60 } = {}) {
@@ -124,27 +192,6 @@ export async function makeColumnsDocx({ longParagraphs = 60 } = {}) {
 <w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${body.join("\n")}
 <w:sectPr><w:type w:val="continuous"/>${PAGE}<w:cols w:num="2" w:space="360"/></w:sectPr>
 </w:body></w:document>`;
-  const zip = new JSZip();
-  const options = { date: FIXED_DATE };
-  zip.file("[Content_Types].xml", CONTENT_TYPES, options);
-  zip.file("_rels/.rels", ROOT_RELS, options);
-  zip.file("word/document.xml", documentXml, options);
-  zip.file("word/_rels/document.xml.rels", DOCUMENT_RELS, options);
-  zip.file("word/styles.xml", STYLES, options);
-  zip.file("word/footnotes.xml", FOOTNOTES, options);
-  const bytes = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
-  return {
-    bytes,
-    longParagraphs,
-    report: {
-      ok: true,
-      errorCode: "",
-      errorMessage: "",
-      kind: "docx",
-      sourceBytes: bytes.length,
-      features: [],
-      outline: [{ level: 1, text: "I. Introduction", paragraph: 2 }],
-      properties: { title: "", creator: "", rightToLeft: false }
-    }
-  };
+  const bytes = await packDocx(documentXml);
+  return { bytes, longParagraphs, report: report(bytes, [{ level: 1, text: "I. Introduction", paragraph: 2 }]) };
 }

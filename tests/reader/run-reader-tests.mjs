@@ -15,7 +15,7 @@ import {
   stageAssets
 } from "./fake-host.mjs";
 import { makeBigDocx } from "./make-big-docx.mjs";
-import { makeColumnsDocx } from "./make-columns-docx.mjs";
+import { makeColumnsDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
 let browser;
@@ -1159,7 +1159,10 @@ describe("page view lays out documents that carry no page breaks", () => {
           pages: pages.length,
           tallest: Math.max(...heights),
           shortest: Math.min(...heights),
-          paragraphs: document.querySelectorAll("#docBody section.docx article > p").length,
+          // A paragraph split at a page bottom continues in a part marked data-ld-continued.
+          paragraphs: document.querySelectorAll("#docBody section.docx article > p:not([data-ld-continued])").length,
+          continued: Array.from(document.querySelectorAll("#docBody section.docx article > p[data-ld-continued]"))
+            .map((p) => p.textContent).filter((t) => /Page \d+, paragraph \d+\./.test(t)).length,
           finalMarkers: text.split("Final marker otter.").length - 1,
           firstParagraphs: text.split("Page 1, paragraph 1.").length - 1,
           firstPage: pages[0] ? {
@@ -1176,6 +1179,8 @@ describe("page view lays out documents that carry no page breaks", () => {
       assert.ok(result.tallest - result.shortest <= 1, `page heights ${result.shortest} to ${result.tallest}`);
       // 30 x 7 body paragraphs and 3 chapter headings, each shown once.
       assert.equal(result.paragraphs, 213);
+      // A continued part never repeats its paragraph's opening.
+      assert.equal(result.continued, 0);
       assert.equal(result.firstParagraphs, 1);
       assert.equal(result.finalMarkers, 1);
       const meta = await host.page.evaluate(() => {
@@ -1183,6 +1188,35 @@ describe("page view lays out documents that carry no page breaks", () => {
         return node ? node.textContent : null;
       });
       assert.ok(meta && meta.includes(`${result.pages} pages`), `header shows the page count: ${meta}`);
+    });
+  });
+
+  test("a paragraph split between pages copies as one line", async () => {
+    await withHost({}, async (host) => {
+      await host.context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: READER_URL });
+      const { bytes, report } = await makeBigDocx(30, { pageBreaks: false });
+      await host.openDocument({ bytes, report, fileName: "unbroken.docx" });
+      // The continued part opens the next page; its first part ends the page before.
+      const split = await host.page.evaluate(() => {
+        const paragraphs = Array.from(document.querySelectorAll("#docBody article > p"));
+        return paragraphs.map((rest, index) => (rest.hasAttribute("data-ld-continued") && index > 0
+          ? { first: paragraphs[index - 1].textContent, whole: paragraphs[index - 1].textContent + rest.textContent } : null)).filter(Boolean);
+      });
+      assert.ok(split.length > 0 && split.every((part) => /^Page \d+, paragraph \d+\./.test(part.first)), JSON.stringify(split.slice(0, 2)));
+      await host.page.locator("#docScroller").click({ position: { x: 5, y: 5 } });
+      await host.page.keyboard.press("Control+Shift+C");
+      await host.page.waitForFunction(() => document.getElementById("liveStatus").textContent === "Document copied as text.");
+      // The Windows clipboard ends lines with CRLF.
+      const lines = (await host.page.evaluate(() => navigator.clipboard.readText())).split(/\r?\n/);
+      for (const part of split) {
+        assert.ok(lines.includes(part.whole), `one line: ${part.whole.slice(0, 40)}`);
+      }
+      for (let page = 1; page <= 30; page += 1) {
+        for (let paragraph = 1; paragraph <= 7; paragraph += 1) {
+          const opening = `Page ${page}, paragraph ${paragraph}.`;
+          assert.equal(lines.filter((line) => line.startsWith(opening)).length, 1, opening);
+        }
+      }
     });
   });
 });
@@ -1256,6 +1290,20 @@ describe("page view follows Word's column and section layout", () => {
     });
   });
 
+  // docx-preview's style sheet hyphenates every document; Word hyphenates only
+  // when settings.xml turns automatic hyphenation on, and this one does not.
+  test("text is not hyphenated unless the document turns hyphenation on", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeColumnsDocx();
+      await host.openDocument({ bytes, report, fileName: "columns.docx" });
+      const hyphens = await host.page.evaluate(() => {
+        const paragraph = Array.from(document.querySelectorAll("#docBody article p")).find((p) => p.textContent.startsWith("S2 para 1."));
+        return [getComputedStyle(paragraph).hyphens, getComputedStyle(paragraph.querySelector("span")).hyphens];
+      });
+      assert.deepEqual(hyphens, ["manual", "manual"]);
+    });
+  });
+
   test("a two-column section fills left then right, balances where it ends, and keeps every paragraph", async () => {
     await withHost({}, async (host) => {
       const { bytes, report, longParagraphs } = await makeColumnsDocx();
@@ -1317,6 +1365,98 @@ describe("page view follows Word's column and section layout", () => {
       const lowestText = Math.max(...withNote[0].articles.flatMap((a) => a.paras.map((p) => p.bottom)));
       assert.ok(withNote[0].noteTop >= lowestText, "the footnote sits below the page's text");
       assert.equal(sectionOn(pages[0], "S2").paras[0].n, 1, "the reference (S2 para 1) is on page 1");
+    });
+  });
+});
+
+describe("page view follows Word's tables and equations", () => {
+  async function openTables(host) {
+    const { bytes, report, longRows } = await makeTablesDocx();
+    await host.openDocument({ bytes, report, fileName: "tables-layout.docx" });
+    return longRows;
+  }
+
+  function tablesWith(host, text) {
+    return host.page.evaluate((text) => {
+      return Array.from(document.querySelectorAll("#docBody table"))
+        .filter((table) => table.textContent.includes(text))
+        .map((table) => ({
+          page: Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx")).indexOf(table.closest("section.docx")) + 1,
+          rows: Array.from(table.rows).map((row) => Array.from(row.cells).map((cell) => {
+            const style = getComputedStyle(cell);
+            return {
+              text: cell.textContent.trim(), width: cell.getBoundingClientRect().width,
+              top: style.borderTopStyle, bottom: style.borderBottomStyle,
+              paddingTop: style.paddingTop, paddingBottom: style.paddingBottom
+            };
+          }))
+        }));
+    }, text);
+  }
+
+  // docx-preview wrote a subscript of several runs as an <mn> holding one <ms>
+  // per run, which Chrome stacks: "sess" printed one letter per line.
+  test("a subscript written run by run sets on one line", async () => {
+    await withHost({}, async (host) => {
+      await openTables(host);
+      const result = await host.page.evaluate(() => {
+        const math = Array.from(document.querySelectorAll("#docBody math")).find((m) => m.textContent === "Esess");
+        const script = math && math.querySelector("msub").lastElementChild;
+        const size = math && parseFloat(getComputedStyle(math).fontSize);
+        return math ? {
+          tokensWithElements: math.querySelectorAll("mn > *, ms > *, mi > *, mo > *, mtext > *").length,
+          scriptName: script.nodeName, height: script.getBoundingClientRect().height, width: script.getBoundingClientRect().width, size
+        } : null;
+      });
+      assert.ok(result, "the equation renders");
+      assert.equal(result.tokensWithElements, 0);
+      assert.equal(result.scriptName, "mrow");
+      assert.ok(result.height < result.size * 1.5, `the subscript is ${result.height}px tall at ${result.size}px type`);
+      assert.ok(result.width > result.height, `the subscript is wider (${result.width}) than tall (${result.height})`);
+    });
+  });
+
+  // Word draws w:tblBorders top above the first row and bottom below the
+  // last; docx-preview drew both on every cell.
+  test("a three-line table is ruled above, under its header, and below only", async () => {
+    await withHost({}, async (host) => {
+      await openTables(host);
+      const [table] = await tablesWith(host, "Dimension");
+      const [header, first, middle, last] = table.rows;
+      assert.ok(header.every((cell) => cell.top === "solid" && cell.bottom === "solid"), JSON.stringify(header));
+      assert.ok(first.every((cell) => cell.top === "none" && cell.bottom === "none"), JSON.stringify(first));
+      assert.ok(middle.every((cell) => cell.top === "none" && cell.bottom === "none"), JSON.stringify(middle));
+      assert.ok(last.every((cell) => cell.top === "none" && cell.bottom === "solid"), JSON.stringify(last));
+      // Word's default top and bottom cell margins are zero; the browser's are 1px.
+      assert.ok([...header, ...first].every((cell) => cell.paddingTop === "0px" && cell.paddingBottom === "0px"));
+    });
+  });
+
+  // Word fits a table of automatic width to its content; docx-preview kept
+  // pandoc's equal grid columns.
+  test("a table of automatic width fits its columns to the content", async () => {
+    await withHost({}, async (host) => {
+      await openTables(host);
+      const [table] = await tablesWith(host, "Dimension");
+      const widths = table.rows[1].map((cell) => cell.width);
+      assert.ok(widths[3] > widths[0] * 1.5, `columns ${widths.map(Math.round)}`);
+    });
+  });
+
+  test("a table split across pages keeps its column widths and every row once", async () => {
+    await withHost({}, async (host) => {
+      const longRows = await openTables(host);
+      const parts = await tablesWith(host, "A longer description of row");
+      assert.ok(parts.length >= 2, `${parts.length} parts`);
+      assert.deepEqual(parts.map((part) => part.page), parts.map((_, index) => parts[0].page + index), "one part per page");
+      const widths = (part) => part.rows[part.rows.length - 1].map((cell) => cell.width);
+      for (const part of parts.slice(1)) {
+        widths(part).forEach((width, index) => {
+          assert.ok(Math.abs(width - widths(parts[0])[index]) <= 0.5, `column ${index}: ${width} against ${widths(parts[0])[index]}`);
+        });
+      }
+      const labels = parts.flatMap((part) => part.rows.map((row) => row[0].text)).filter((text) => /^Row \d+$/.test(text));
+      assert.deepEqual(labels, Array.from({ length: longRows }, (_, index) => `Row ${index + 1}`));
     });
   });
 });
