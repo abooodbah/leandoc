@@ -1494,6 +1494,9 @@ describe("page view splits long documents without freezing the window", () => {
       assert.equal(result.lastParagraphs, 1);
       assert.equal(result.hidden, "", "the pages are shown once they are final");
       assert.ok(result.longest < 400, `longest task ${result.longest} ms`);
+      // Each split lays out about one page: 210 ms here, 1,340 ms when every
+      // split lays out the rest of the document.
+      assert.ok(rendered.ms < 800, `reader ${rendered.ms} ms`);
       console.log(`# unbroken 60 pages: ${rendered.pages} pages, reader ${rendered.ms} ms, longest task ${result.longest} ms`);
     });
   });
@@ -1565,6 +1568,10 @@ describe("page view splits long documents without freezing the window", () => {
       }));
       assert.deepEqual(result.labels, Array.from({ length: 1500 }, (_, index) => `Row ${index + 1}`));
       assert.ok(result.longest < 800, `longest task ${result.longest} ms`);
+      // Waiting rows were once put back all at once on the page where the
+      // table stopped, clipped by the page: 26 pages. The rows split as before
+      // the row queue: 27 pages.
+      assert.equal(rendered.pages, 27);
       console.log(`# 1,500-row table: ${rendered.pages} pages, reader ${rendered.ms} ms, longest task ${result.longest} ms`);
     });
   });
