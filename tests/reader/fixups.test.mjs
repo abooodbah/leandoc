@@ -279,6 +279,33 @@ test("prepareModel fixes numbering, runs, symbols, styles, and theme fonts", () 
   assert.equal(stats.symbols, 2);
 });
 
+// Word formats the runs of a paragraph from its paragraph style. The linked
+// character style ("Heading 1 Char") applies only to a run that names it.
+// docx-preview added the linked style's run properties to every paragraph in
+// the style; pandoc's reference document links Heading 1 (10 pt) to a 20 pt
+// character style, so headings printed at twice Word's size.
+test("A paragraph style does not take its linked character style's run properties", () => {
+  const doc = {
+    stylesPart: {
+      styles: [
+        { id: "Heading1", target: "p", linked: "Heading1Char", styles: [{ target: "span", values: { "font-size": "10pt" } }] },
+        { id: "Heading1Char", target: "span", linked: "Heading1", styles: [{ target: "span", values: { "font-size": "20pt" } }] },
+        { id: "Title", target: "p", linked: "TitleChar", styles: [] }
+      ]
+    },
+    documentPart: { body: { children: [] } },
+    parts: []
+  };
+  Fixups.prepareModel(doc);
+  const [heading, character, title] = doc.stylesPart.styles;
+  assert.equal(heading.linked, null);
+  assert.equal(title.linked, null);
+  // The character style itself is unchanged; a run that names it still gets 20 pt.
+  assert.equal(character.linked, "Heading1");
+  assert.equal(character.styles[0].values["font-size"], "20pt");
+  assert.equal(heading.styles[0].values["font-size"], "10pt");
+});
+
 test("Images resolve only to blob or data URLs", async () => {
   const doc = {
     loadDocumentImage: async (id) => (id === "ok" ? "blob:https://app.leandoc.invalid/1" : null),

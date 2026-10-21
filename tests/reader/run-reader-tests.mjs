@@ -15,6 +15,7 @@ import {
   stageAssets
 } from "./fake-host.mjs";
 import { makeBigDocx } from "./make-big-docx.mjs";
+import { makeColumnsDocx } from "./make-columns-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
 let browser;
@@ -1182,6 +1183,140 @@ describe("page view lays out documents that carry no page breaks", () => {
         return node ? node.textContent : null;
       });
       assert.ok(meta && meta.includes(`${result.pages} pages`), `header shows the page count: ${meta}`);
+    });
+  });
+});
+
+describe("page view follows Word's column and section layout", () => {
+  // Expected values come from Word itself: tests/reader/make-columns-docx.mjs exported
+  // to PDF by Word 16 gives 5 pages. A two-column section that runs past a page
+  // fills the left column, then the right, to the bottom margin; a section that ends
+  // at a continuous break has its columns balanced; the final section is not
+  // balanced; a footnote prints at the foot of the page that refers to it; headings
+  // are 10 pt although their linked character style says 20 pt.
+  async function layout(host) {
+    return host.page.evaluate(() => {
+      const pages = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"));
+      return pages.map((page, index) => {
+        const box = page.getBoundingClientRect();
+        const style = getComputedStyle(page);
+        const footer = Array.from(page.children).filter((c) => c.nodeName === "FOOTER").pop();
+        let limit = box.top + parseFloat(style.minHeight) - parseFloat(style.paddingBottom);
+        if (footer) {
+          const reach = footer.offsetHeight - (parseFloat(getComputedStyle(footer).minHeight) || 0);
+          if (reach > 0) {
+            limit -= reach;
+          }
+        }
+        const notes = Array.from(page.children).filter((c) => c.nodeName === "OL");
+        const noteTop = notes.length ? Math.min(...notes.map((n) => n.getBoundingClientRect().top)) : null;
+        const articles = Array.from(page.children).filter((c) => c.nodeName === "ARTICLE").map((article) => {
+          const a = article.getBoundingClientRect();
+          const columns = parseInt(getComputedStyle(article).columnCount, 10) || 1;
+          const mid = a.left + a.width / 2;
+          const paras = Array.from(article.querySelectorAll(":scope > p")).map((p) => {
+            const m = /^(S\d) para (\d+)\./.exec(p.textContent.trim());
+            const rects = Array.from(p.getClientRects());
+            return m ? {
+              section: m[1], n: Number(m[2]),
+              column: columns > 1 && rects[0].left >= mid ? "R" : "L",
+              top: rects[0].top - box.top, bottom: Math.max(...rects.map((r) => r.bottom)) - box.top
+            } : null;
+          }).filter(Boolean);
+          return { columns, top: a.top - box.top, bottom: a.bottom - box.top, paras };
+        });
+        return {
+          index: index + 1, height: page.offsetHeight, limit: limit - box.top,
+          noteTop: noteTop === null ? null : noteTop - box.top,
+          notes: notes.map((n) => n.textContent), articles
+        };
+      });
+    });
+  }
+
+  function sectionOn(page, section) {
+    const paras = page.articles.flatMap((a) => a.paras.filter((p) => p.section === section));
+    const column = (c) => paras.filter((p) => p.column === c);
+    const lowest = (list) => (list.length ? Math.max(...list.map((p) => p.bottom)) : null);
+    return { paras, left: column("L"), right: column("R"), leftBottom: lowest(column("L")), rightBottom: lowest(column("R")) };
+  }
+
+  test("headings take the paragraph style's size, not the linked character style's", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeColumnsDocx();
+      await host.openDocument({ bytes, report, fileName: "columns.docx" });
+      const sizes = await host.page.evaluate(() => {
+        const find = (text) => Array.from(document.querySelectorAll("#docBody article p")).find((p) => p.textContent.trim() === text);
+        const size = (p) => getComputedStyle(p.querySelector("span") || p).fontSize;
+        return { heading: size(find("I. Introduction")), title: size(find("Columns Paper Title")) };
+      });
+      // 10 pt and 24 pt, as Word prints them; the linked styles say 20 pt and 28 pt.
+      assert.equal(sizes.heading, "13.3333px");
+      assert.equal(sizes.title, "32px");
+    });
+  });
+
+  test("a two-column section fills left then right, balances where it ends, and keeps every paragraph", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report, longParagraphs } = await makeColumnsDocx();
+      await host.openDocument({ bytes, report, fileName: "columns.docx" });
+      const pages = await layout(host);
+      const line = 16;
+      const heights = pages.map((p) => p.height);
+      assert.ok(Math.max(...heights) - Math.min(...heights) <= 1, `page heights ${heights}`);
+      const seen = pages.flatMap((p) => p.articles.flatMap((a) => a.paras.map((q) => `${q.section}-${q.n}`)));
+      assert.equal(seen.length, new Set(seen).size, "no paragraph is shown twice");
+      assert.equal(seen.filter((k) => k.startsWith("S2-")).length, longParagraphs);
+      assert.equal(seen.filter((k) => k.startsWith("S4-")).length, 6);
+      assert.equal(seen.filter((k) => k.startsWith("S5-")).length, 2);
+      assert.equal(pages.length, 5, `pages: ${pages.length}; Word gives 5`);
+
+      const s2Pages = pages.filter((p) => sectionOn(p, "S2").paras.length);
+      const s2Last = s2Pages[s2Pages.length - 1];
+      for (const page of s2Pages.slice(0, -1)) {
+        const s2 = sectionOn(page, "S2");
+        const floor = (page.noteTop ?? page.limit) - 2 * line;
+        assert.ok(s2.leftBottom >= floor, `page ${page.index}: left column ends at ${s2.leftBottom}; text ends at ${floor + 2 * line}`);
+        assert.ok(s2.rightBottom >= floor, `page ${page.index}: right column ends at ${s2.rightBottom}; text ends at ${floor + 2 * line}`);
+        assert.ok(Math.max(...s2.left.map((p) => p.n)) <= Math.min(...s2.right.map((p) => p.n)), `page ${page.index}: columns out of order`);
+      }
+      const end = sectionOn(s2Last, "S2");
+      assert.ok(end.left.length && end.right.length, `page ${s2Last.index}: both columns used where S2 ends`);
+      assert.ok(Math.abs(end.leftBottom - end.rightBottom) <= 2 * line,
+        `page ${s2Last.index}: S2 columns end at ${end.leftBottom} and ${end.rightBottom}`);
+      assert.ok(end.leftBottom < s2Last.limit - 4 * line, `page ${s2Last.index}: balanced columns stop above the bottom`);
+
+      const last = pages[pages.length - 1];
+      const s5 = sectionOn(last, "S5");
+      assert.equal(s5.paras.length, 2);
+      assert.equal(s5.right.length, 0, "the final section keeps to the left column");
+    });
+  });
+
+  test("sections stack without the page's spare space between them", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeColumnsDocx();
+      await host.openDocument({ bytes, report, fileName: "columns.docx" });
+      const pages = await layout(host);
+      const last = pages[pages.length - 1];
+      for (let i = 1; i < last.articles.length; i += 1) {
+        const gap = last.articles[i].top - last.articles[i - 1].bottom;
+        assert.ok(gap <= 2, `page ${last.index}: ${gap}px between sections ${i} and ${i + 1}`);
+      }
+    });
+  });
+
+  test("a footnote prints at the foot of the page that refers to it", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeColumnsDocx();
+      await host.openDocument({ bytes, report, fileName: "columns.docx" });
+      const pages = await layout(host);
+      const withNote = pages.filter((p) => p.notes.some((t) => t.includes("Footnote marker heron")));
+      assert.equal(withNote.length, 1, "the footnote appears once");
+      assert.equal(withNote[0].index, 1, `the footnote is on page ${withNote[0].index}; its reference is on page 1`);
+      const lowestText = Math.max(...withNote[0].articles.flatMap((a) => a.paras.map((p) => p.bottom)));
+      assert.ok(withNote[0].noteTop >= lowestText, "the footnote sits below the page's text");
+      assert.equal(sectionOn(pages[0], "S2").paras[0].n, 1, "the reference (S2 para 1) is on page 1");
     });
   });
 });
