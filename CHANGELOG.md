@@ -3,6 +3,30 @@
 All notable LeanDoc changes are recorded here. The project follows semantic
 versioning.
 
+## [0.1.2] - 2026-10-21
+
+### Fixed
+
+- Page view laid out two-column documents with about half of what Word puts
+  on a page. A column section that runs past a page now fills the left column
+  and then the right; a section that ends on the page is balanced, and the
+  last section is not, as in Word. A paragraph that reaches the bottom of a
+  page continues on the next one instead of moving whole, and a footnote
+  prints at the foot of the page that refers to it.
+- Headings printed at the size of their linked character style, text in
+  unstyled paragraphs at the document default instead of Normal, single
+  spacing at the bare font size, and small-text styles with the body's line
+  height. Each now follows Word.
+- Every document was hyphenated; now only one whose settings ask for it.
+- The empty paragraph that carries a continuous section break took a line.
+- A table of automatic width kept equal grid columns, drew its outer borders
+  under every row, and padded every cell; a table split across pages lost its
+  column widths. Each now follows Word.
+- A subscript made of several runs printed one letter per line.
+
+A 12-page paper in IEEE two-column layout, written by pandoc, showed as 18
+pages in 0.1.1 and shows as 12 pages, as in Word.
+
 ## [0.1.1] - 2026-10-20
 
 ### Fixed
