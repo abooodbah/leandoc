@@ -775,25 +775,34 @@
     rest[ROWS] = nodes.length ? { nodes: nodes, next: 0 } : null;
   }
 
-  // Moves up to `count` waiting rows of a table on the page back into it and
-  // returns the first, or null when no table on the page has waiting rows.
-  function takeRows(articles, count) {
+  // The table on the page that still has rows waiting, or null.
+  function tableWithRows(articles) {
     for (var index = 0; index < articles.length; index += 1) {
       for (var table = articles[index].firstElementChild; table; table = table.nextElementSibling) {
         var queue = table[ROWS];
-        if (!queue || queue.next >= queue.nodes.length) {
-          continue;
+        if (queue && queue.next < queue.nodes.length) {
+          return table;
         }
-        var first = queue.nodes[queue.next];
-        for (var taken = 0; queue.next < queue.nodes.length && taken < count; taken += 1) {
-          table.appendChild(queue.nodes[queue.next]);
-          queue.nodes[queue.next] = null;
-          queue.next += 1;
-        }
-        return first;
       }
     }
     return null;
+  }
+
+  // Moves up to `count` waiting rows of a table on the page back into it and
+  // returns the first, or null when no table on the page has waiting rows.
+  function takeRows(articles, count) {
+    var table = tableWithRows(articles);
+    if (!table) {
+      return null;
+    }
+    var queue = table[ROWS];
+    var first = queue.nodes[queue.next];
+    for (var taken = 0; queue.next < queue.nodes.length && taken < count; taken += 1) {
+      table.appendChild(queue.nodes[queue.next]);
+      queue.nodes[queue.next] = null;
+      queue.next += 1;
+    }
+    return first;
   }
 
   function flushRows(article) {
@@ -1129,10 +1138,18 @@
     var articles = childrenNamed(page, "ARTICLE");
     var batch = FILL_BATCH;
     for (;;) {
+      // A table with rows waiting decides by its own bottom: the blocks after
+      // it can pass the page while its rows do not, and the page then split
+      // after the table, leaving its rows queued on a finished page.
+      var table = tableWithRows(articles);
       var end = -Infinity;
-      articles.forEach(function (article) {
-        end = Math.max(end, article.getBoundingClientRect().bottom);
-      });
+      if (table) {
+        end = table.getBoundingClientRect().bottom;
+      } else {
+        articles.forEach(function (article) {
+          end = Math.max(end, article.getBoundingClientRect().bottom);
+        });
+      }
       if (end > bottom + 0.5) {
         return;
       }
