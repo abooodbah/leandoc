@@ -171,6 +171,22 @@ function Test-StaticInvariants {
     Write-TestPass 'per-user installer, consent-preserving uninstaller, and script parsing'
 }
 
+function Test-ProcessTreeSelection {
+    # Root 100 started at 10:00. 200 and 400 are its child and grandchild. 300
+    # names 100 as its parent but started at 09:00, before 100 existed: its real
+    # parent exited and Windows gave the id to LeanDoc. 500 is 300's child. 600
+    # has no readable start time and is trusted.
+    $base = [datetime]'2026-10-21T10:00:00'
+    $parents = @{ 200 = 100; 300 = 100; 400 = 200; 500 = 300; 600 = 100; 700 = 999 }
+    $starts = @{ 100 = $base; 200 = $base.AddSeconds(1); 300 = $base.AddHours(-1); 400 = $base.AddSeconds(2); 500 = $base.AddMinutes(-50) }
+    $tree = @(Select-LeanDocProcessTree -RootProcessId 100 -ParentMap $parents -StartTime {
+        param([int]$Id)
+        $starts[$Id]
+    }.GetNewClosure() | Sort-Object)
+    Assert-Equal ($tree -join ',') '100,200,400,600' 'A process older than its recorded parent is not in the tree.'
+    Write-TestPass 'process tree skips processes whose parent id was reused'
+}
+
 function Test-Distribution {
     Assert-True (Test-Path -LiteralPath $resolvedDist -PathType Container) "Distribution is missing: $resolvedDist. Run scripts\build.ps1 first."
     $required = @(
@@ -336,6 +352,7 @@ try {
     Write-TestNote "Repository: $repoRoot"
     Write-TestNote "Distribution: $resolvedDist"
     Test-StaticInvariants
+    Test-ProcessTreeSelection
     Test-Distribution
     Test-ValidateOnly
 
