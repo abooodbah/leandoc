@@ -140,22 +140,49 @@ namespace LeanDoc.Tests
 "@
 }
 
-function Get-LeanDocProcessTreeIds {
-    param([Parameter(Mandatory = $true)][int]$RootProcessId)
-    Initialize-LeanDocNativeHelpers
-    $parentMap = [LeanDoc.Tests.NativeMethods]::GetParentProcessMap()
+# A process records only its parent's id, and Windows reuses the id of a
+# process that has exited. A process older than the one now holding its
+# parent's id is not that process's child: on a CI runner, the compiler's
+# telemetry process (vctip) outlived its parent from the build step and was
+# counted in LeanDoc's tree, and its connection failed the S-02 check.
+# $StartTimes maps an id to its start time; an unknown time is trusted.
+function Select-LeanDocProcessTree {
+    param(
+        [Parameter(Mandatory = $true)][int]$RootProcessId,
+        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$ParentMap,
+        [Parameter(Mandatory = $true)][scriptblock]$StartTime
+    )
     $found = [System.Collections.Generic.HashSet[int]]::new()
     [void]$found.Add($RootProcessId)
     $changed = $true
     while ($changed) {
         $changed = $false
-        foreach ($entry in $parentMap.GetEnumerator()) {
-            if ($found.Contains([int]$entry.Value) -and $found.Add([int]$entry.Key)) {
-                $changed = $true
-            }
+        foreach ($entry in $ParentMap.GetEnumerator()) {
+            $child = [int]$entry.Key
+            $parent = [int]$entry.Value
+            if ($found.Contains($child) -or -not $found.Contains($parent)) { continue }
+            $childStart = & $StartTime $child
+            $parentStart = & $StartTime $parent
+            if ($null -ne $childStart -and $null -ne $parentStart -and $childStart -lt $parentStart) { continue }
+            [void]$found.Add($child)
+            $changed = $true
         }
     }
     @($found)
+}
+
+function Get-LeanDocProcessTreeIds {
+    param([Parameter(Mandatory = $true)][int]$RootProcessId)
+    Initialize-LeanDocNativeHelpers
+    $parentMap = [LeanDoc.Tests.NativeMethods]::GetParentProcessMap()
+    $starts = @{}
+    Select-LeanDocProcessTree -RootProcessId $RootProcessId -ParentMap $parentMap -StartTime {
+        param([int]$Id)
+        if (-not $starts.ContainsKey($Id)) {
+            $starts[$Id] = try { (Get-Process -Id $Id -ErrorAction Stop).StartTime } catch { $null }
+        }
+        $starts[$Id]
+    }.GetNewClosure()
 }
 
 function Start-LeanDocProcess {
@@ -490,7 +517,7 @@ Export-ModuleMember -Function @(
     'Invoke-LeanDocSmoke', 'Get-LeanDocProcessesByPath', 'Wait-WebView2Idle',
     'Assert-True', 'Assert-Equal', 'Assert-Match', 'Assert-NotMatch',
     'Read-TextFile', 'Write-TestPass', 'Write-TestNote',
-    'Get-RegistryValueState', 'Get-LeanDocProcessTreeIds',
+    'Get-RegistryValueState', 'Get-LeanDocProcessTreeIds', 'Select-LeanDocProcessTree',
     'Start-LeanDocProcess', 'Wait-LeanDocWindow', 'Get-LeanDocWindowClass',
     'Stop-LeanDocTestProcessTree', 'Get-LeanDocProcessSample',
     'Resolve-EffectiveAssociationExecutable', 'Get-LeanDocMachineSummary',
