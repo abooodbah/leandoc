@@ -943,6 +943,51 @@ body {
   color: #000000;
 }
 
+/* docx-preview hyphenates every document; Word only one whose settings turn
+   automatic hyphenation on (fixups.js documentHyphenates). Hyphenated lines
+   held more text than Word's, and a paper ran a page short. */
+#docBody section.docx {
+  hyphens: manual;
+}
+
+#docBody[data-ld-hyphenate] section.docx {
+  hyphens: auto;
+}
+
+/* Word's default top and bottom cell margins are zero; the browser's are
+   1px, which made every row of a dense 8 pt table a quarter taller than
+   Word's 9.24 pt. :where keeps this below any margin the document sets. */
+:where(#docBody section.docx) :where(td, th) {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* Sections on a page stack as in Word. docx-preview gives every section the
+   page's spare space as a bottom margin, which opened a gap between two
+   sections; only the last one takes it, so the notes and the footer stay at
+   the foot of the page. */
+#docBody .docx-wrapper > section.docx > article {
+  margin-bottom: 0;
+}
+
+#docBody .docx-wrapper > section.docx > article:last-of-type {
+  margin-bottom: auto;
+}
+
+/* Footnotes at the foot of their page, under a short rule as Word prints them. */
+#docBody .docx-wrapper > section.docx > ol.ld-footnotes {
+  margin: 8pt 0 0;
+  padding-inline-start: 2em;
+}
+
+#docBody .docx-wrapper > section.docx > ol.ld-footnotes::before {
+  display: block;
+  width: 2in;
+  margin: 0 0 4pt -2em;
+  border-top: 0.75pt solid currentColor;
+  content: "";
+}
+
 /* Pages are rendered lazily, except pages with list numbering: the style
    containment that content-visibility implies would scope CSS counters to
    the page and restart every list. */
