@@ -434,6 +434,100 @@
       : className;
   }
 
+  var BORDER_STYLES = {
+    dashed: "dashed", dashSmallGap: "dashed", dotted: "dotted", dotDash: "dotted",
+    dotDotDash: "dotted", double: "double", triple: "double", doubleWave: "double",
+    inset: "inset", outset: "outset"
+  };
+
+  function cssBorder(element) {
+    var type = getAttr(element, "val");
+    if (!type || type === "nil" || type === "none") {
+      return "none";
+    }
+    var size = parseInt(getAttr(element, "sz"), 10);
+    var color = getAttr(element, "color");
+    return (size > 0 ? size / 8 : 0.5) + "pt " + (BORDER_STYLES[type] || "solid") + " " +
+      (color && /^[0-9a-f]{6}$/i.test(color) ? "#" + color : "black");
+  }
+
+  function modelChildren(element, type) {
+    return (element.children || []).filter(function (child) {
+      return child && child.type === type;
+    });
+  }
+
+  // The grid column each cell of a row starts at.
+  function cellColumns(row) {
+    var column = row.gridBefore || 0;
+    return modelChildren(row, "cell").map(function (cell) {
+      var start = column;
+      column += cell.span || 1;
+      return start;
+    });
+  }
+
+  // The last row a cell covers, following a vertical merge down.
+  function lastMergedRow(rows, columns, from, column) {
+    var last = from;
+    for (var row = from + 1; row < rows.length; row += 1) {
+      var cells = modelChildren(rows[row], "cell");
+      var at = columns[row].indexOf(column);
+      var cell = at >= 0 ? cells[at] : null;
+      if (!cell || !cell.verticalMerge || cell.verticalMerge === "restart") {
+        break;
+      }
+      last = row;
+    }
+    return last;
+  }
+
+  // docx-preview copies a table's own borders (w:tblBorders) to every cell
+  // and reads no inside borders, so a table ruled only above, below, and
+  // under its header printed a rule under every row. Word draws the top
+  // border above the first row, the bottom one below the last, the left and
+  // right ones on the outer columns, and insideH and insideV between cells.
+  // A cell's own borders still win.
+  function placeTableBorders(table, properties) {
+    var borders = properties && childNamed(properties, "tblBorders");
+    if (!borders || !table.cellStyle) {
+      return false;
+    }
+    var edge = {};
+    ["top", "bottom", "left", "right", "start", "end", "insideH", "insideV"].forEach(function (name) {
+      var element = childNamed(borders, name);
+      if (element) {
+        edge[name] = cssBorder(element);
+      }
+    });
+    edge.left = edge.left || edge.start;
+    edge.right = edge.right || edge.end;
+    ["border-top", "border-bottom", "border-left", "border-right"].forEach(function (name) {
+      delete table.cellStyle[name];
+    });
+    var rows = modelChildren(table, "row");
+    var columns = rows.map(cellColumns);
+    rows.forEach(function (row, rowIndex) {
+      var cells = modelChildren(row, "cell");
+      cells.forEach(function (cell, cellIndex) {
+        var style = cell.cssStyle || (cell.cssStyle = {});
+        var bottomRow = lastMergedRow(rows, columns, rowIndex, columns[rowIndex][cellIndex]);
+        var sides = {
+          "border-top": rowIndex === 0 ? edge.top : edge.insideH,
+          "border-bottom": bottomRow === rows.length - 1 ? edge.bottom : edge.insideH,
+          "border-left": cellIndex === 0 ? edge.left : edge.insideV,
+          "border-right": cellIndex === cells.length - 1 ? edge.right : edge.insideV
+        };
+        Object.keys(sides).forEach(function (name) {
+          if (sides[name] && !style[name]) {
+            style[name] = sides[name];
+          }
+        });
+      });
+    });
+    return true;
+  }
+
   // Pairs body paragraphs and tables of the parsed model with the XML so that
   // each rendered paragraph carries the core's index (class ld-pi-N) and each
   // table with w:bidiVisual carries ld-bidi-visual.
@@ -444,7 +538,8 @@
     var result = {
       paragraphs: modelParagraphs.length,
       paired: false,
-      bidiVisualTables: 0
+      bidiVisualTables: 0,
+      borderedTables: 0
     };
     var xmlParagraphs = [];
     var xmlTables = [];
@@ -461,9 +556,13 @@
       xmlTables.forEach(function (table, position) {
         var properties = childNamed(table, "tblPr");
         var bidi = properties && childNamed(properties, "bidiVisual");
+        // A right-to-left table keeps docx-preview's borders: which of its
+        // sides w:left names has not been checked against Word.
         if (bidi && isOn(bidi)) {
           addClass(modelTables[position], "ld-bidi-visual");
           result.bidiVisualTables += 1;
+        } else if (placeTableBorders(modelTables[position], properties)) {
+          result.borderedTables += 1;
         }
       });
     }
@@ -483,9 +582,28 @@
     return format;
   }
 
+  // Word's "single" line spacing is the font's own line height: Word prints
+  // 10 pt Times New Roman single spaced at 11.52 pt, and Arial the same.
+  // docx-preview writes w:lineRule="auto" spacing as a plain multiple of the
+  // font size, so single spacing printed 13 percent tighter than Word and a
+  // paper fit on fewer pages. Multiples scale that single line instead.
+  // line-height: normal would follow each font, but Chrome rounds the
+  // font's ascent and descent to whole pixels: 16 px lines for 10 pt Times.
+  var SINGLE_LINE = 1.152;
+
+  function wordLineHeight(value) {
+    if (typeof value !== "string" || !/^\d+(\.\d+)?$/.test(value.trim())) {
+      return value;
+    }
+    return String(Math.round(parseFloat(value) * SINGLE_LINE * 1000) / 1000);
+  }
+
   function fixStyleValues(values, target) {
     if (!values) {
       return;
+    }
+    if (values["line-height"]) {
+      values["line-height"] = wordLineHeight(values["line-height"]);
     }
     if (values["font-family"]) {
       values["font-family"] = withFontFallback(values["font-family"]);
@@ -596,6 +714,33 @@
     }
   }
 
+  // Word prints a footnote at the foot of the page that refers to it.
+  // docx-preview renders the reference as a bare <sup> and the note as an
+  // <li> of its page, so both get a bookmark the reader can find when it
+  // splits pages (reader.js placeNotes).
+  var NOTE_REFERENCE_ANCHOR = "ld-fnref-";
+  var NOTE_ANCHOR = "ld-fn-";
+
+  function markNoteReferences(run) {
+    if (!Array.isArray(run.children)) {
+      return;
+    }
+    for (var index = run.children.length - 1; index >= 0; index -= 1) {
+      var child = run.children[index];
+      if (child && child.type === "footnoteReference" && child.id !== undefined) {
+        run.children.splice(index, 0, { type: "bookmarkStart", name: NOTE_REFERENCE_ANCHOR + child.id });
+      }
+    }
+  }
+
+  function markNotes(part) {
+    (part && Array.isArray(part.notes) ? part.notes : []).forEach(function (note) {
+      if (note && note.id !== undefined && Array.isArray(note.children)) {
+        note.children.unshift({ type: "bookmarkStart", name: NOTE_ANCHOR + note.id });
+      }
+    });
+  }
+
   // PAGE, NUMPAGES, and SECTIONPAGES fields differ on every page, but
   // docx-preview shows the result Word cached once, and it renders the same
   // header and footer model on every page, so every footer read "page 1".
@@ -668,12 +813,84 @@
       });
   }
 
+  // A table of automatic width whose cells set no width is fitted to its
+  // content by Word: pandoc writes equal grid columns, and Word prints a
+  // narrow "Dimension" column beside wide description columns. docx-preview
+  // fixed every column at the grid width, which wrapped the long cells and
+  // made such a table twice as tall. Without the grid widths the browser
+  // fits the columns to the content, as Word does.
+  function fitAutoTable(table) {
+    var style = table.cssStyle || {};
+    if (!Array.isArray(table.columns) || (style.width && style.width !== "auto") ||
+        style["table-layout"] === "fixed") {
+      return false;
+    }
+    var sized = (table.children || []).some(function (row) {
+      return row && row.type === "row" && (row.children || []).some(function (cell) {
+        return cell && cell.type === "cell" && cell.cssStyle && cell.cssStyle.width;
+      });
+    });
+    if (sized) {
+      return false;
+    }
+    delete table.columns;
+    return true;
+  }
+
+  var SILENT_TYPES =/^(run|bookmarkStart|bookmarkEnd|commentRangeStart|commentRangeEnd)$/;
+
+  function isEmptyParagraph(paragraph) {
+    if (paragraph.numbering) {
+      return false;
+    }
+    var empty = true;
+    eachModelElement(paragraph.children || [], function (element) {
+      if (element.type === "text") {
+        empty = empty && !element.text;
+      } else if (!SILENT_TYPES.test(element.type || "")) {
+        empty = false;
+      }
+    });
+    return empty;
+  }
+
+  // Word gives no height to an empty paragraph that only carries the break
+  // into a continuous section: in Word's own PDF of a pandoc-style paper the
+  // heading after the title, the table after a two-column section, and the
+  // text after the table sit where they would without it. docx-preview drew
+  // a blank line for each, and pandoc writes one at every section break.
+  function hideSectionBreakParagraphs(body) {
+    var breaks = ((body && body.children) || []).filter(function (block) {
+      return block && block.type === "paragraph" && block.sectionProps;
+    });
+    var hidden = 0;
+    breaks.forEach(function (paragraph, index) {
+      var next = index + 1 < breaks.length ? breaks[index + 1].sectionProps : body.props;
+      if (next && next.type === "continuous" && isEmptyParagraph(paragraph)) {
+        paragraph.cssStyle = paragraph.cssStyle || {};
+        paragraph.cssStyle.display = "none";
+        hidden += 1;
+      }
+    });
+    return hidden;
+  }
+
+  // Word hyphenates only when the document turns on automatic hyphenation;
+  // docx-preview's own style sheet hyphenates every document. An empty
+  // <w:autoHyphenation/> reads as null and means on.
+  function documentHyphenates(doc) {
+    var settings = doc.settingsPart && doc.settingsPart.settings;
+    return !!settings && Object.prototype.hasOwnProperty.call(settings, "autoHyphenation") &&
+      settings.autoHyphenation !== false;
+  }
+
   function prepareModel(doc) {
     var stats = { bullets: 0, symbols: 0, paragraphs: 0, paired: false, bidiVisualTables: 0,
-      noteReferences: 0, pageFields: 0 };
+      noteReferences: 0, pageFields: 0, autoHyphenation: false, sectionBreakParagraphs: 0, fittedTables: 0 };
     if (!doc) {
       return stats;
     }
+    stats.autoHyphenation = documentHyphenates(doc);
     guardResources(doc);
     var numberings = doc.numberingPart && doc.numberingPart.domNumberings;
     (numberings || []).forEach(function (numbering) {
@@ -692,11 +909,52 @@
       fixStyleValues(numbering.pStyle, "p");
     });
 
+    // docx-preview adds a style's linked style to its rules, so a heading
+    // took the run size of its "Heading 1 Char" style (20 pt in pandoc's
+    // reference document) over its own 10 pt. Word applies the linked
+    // character style only to runs that name it, never to the paragraphs of
+    // the paragraph style, so paragraph styles drop the link.
     var styles = doc.stylesPart && doc.stylesPart.styles;
     (styles || []).forEach(function (style) {
+      if (style && style.target === "p" && style.linked) {
+        style.linked = null;
+      }
       (style.styles || []).forEach(function (entry) {
         fixStyleValues(entry.values, entry.target);
+        // suppressAutoHyphens="0" only allows the document's hyphenation.
+        if (entry.values && entry.values.hyphens === "auto" && !stats.autoHyphenation) {
+          delete entry.values.hyphens;
+        }
       });
+    });
+
+    // Word spaces a line by the text on it. In CSS every line of a paragraph
+    // is also as tall as the paragraph's own font, and a style's run size
+    // reaches only its spans, so a 9 pt abstract in a 10 pt document was
+    // spaced as 10 pt and ran two lines longer than Word's. A paragraph style
+    // that sets a run size gives it to its paragraphs too. A style without a
+    // run size takes both sizes from its base style.
+    (styles || []).forEach(function (style) {
+      if (!style || style.target !== "p" || !Array.isArray(style.styles)) {
+        return;
+      }
+      var run = style.styles.filter(function (entry) {
+        return entry.target === "span" && entry.values && entry.values["font-size"];
+      })[0];
+      if (!run) {
+        return;
+      }
+      var own = style.styles.filter(function (entry) {
+        return entry.target === "p";
+      })[0];
+      if (!own) {
+        own = { target: "p", values: {} };
+        style.styles.push(own);
+      }
+      own.values = own.values || {};
+      if (!own.values["font-size"]) {
+        own.values["font-size"] = run.values["font-size"];
+      }
     });
 
     // docDefaults run fonts apply to spans only. Paragraphs take them too, so
@@ -751,8 +1009,25 @@
         roots.push.apply(roots, part.notes);
       }
     });
+    // A paragraph that names no style is in the default paragraph style.
+    // docx-preview writes that style's run rules as ".docx p, p.<style> span",
+    // so the text of such a paragraph matched only the docDefaults rule for
+    // spans: body text in a pandoc document printed at 12 pt, not Normal's 10.
+    // Naming the style gives the paragraph its class, and its runs the rule.
+    var defaultParagraph = (styles || []).filter(function (style) {
+      return style && style.target === "p" && style.isDefault && style.id;
+    })[0];
     eachModelElement(roots, function (element) {
       if (element.type === "paragraph") {
+        if (!element.styleName && defaultParagraph) {
+          element.styleName = defaultParagraph.id;
+        }
+        if (element.cssStyle && element.cssStyle.hyphens === "auto" && !stats.autoHyphenation) {
+          delete element.cssStyle.hyphens;
+        }
+        if (element.cssStyle && element.cssStyle["line-height"]) {
+          element.cssStyle["line-height"] = wordLineHeight(element.cssStyle["line-height"]);
+        }
         if (element.cssStyle && element.cssStyle["text-align"]) {
           element.cssStyle["text-align"] = logicalTextAlign(element.cssStyle["text-align"]);
         }
@@ -760,8 +1035,11 @@
       } else if (element.type === "run") {
         fixRun(element, stats);
         fixNoteReferenceRun(element, stats);
+        markNoteReferences(element);
       } else if (element.type === "symbol") {
         fixSymbolElement(element, stats);
+      } else if (element.type === "table" && fitAutoTable(element)) {
+        stats.fittedTables += 1;
       }
     });
 
@@ -772,6 +1050,9 @@
     stats.paragraphs = annotation.paragraphs;
     stats.paired = annotation.paired;
     stats.bidiVisualTables = annotation.bidiVisualTables;
+    stats.borderedTables = annotation.borderedTables;
+    markNotes(doc.footnotesPart);
+    stats.sectionBreakParagraphs = hideSectionBreakParagraphs(doc.documentPart && doc.documentPart.body);
 
     // keepOrigin kept the XML only for the pairing above.
     (doc.parts || []).forEach(function (part) {
@@ -796,6 +1077,8 @@
     classifyHref: classifyHref,
     fillPageFields: fillPageFields,
     PAGE_FIELD_START: PAGE_FIELD_START,
+    NOTE_REFERENCE_ANCHOR: NOTE_REFERENCE_ANCHOR,
+    NOTE_ANCHOR: NOTE_ANCHOR,
     normalizeText: normalizeText,
     annotateBody: annotateBody,
     guardResources: guardResources,

@@ -15,6 +15,7 @@ import {
   stageAssets
 } from "./fake-host.mjs";
 import { makeBigDocx } from "./make-big-docx.mjs";
+import { makeColumnsDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
 let browser;
@@ -1158,7 +1159,10 @@ describe("page view lays out documents that carry no page breaks", () => {
           pages: pages.length,
           tallest: Math.max(...heights),
           shortest: Math.min(...heights),
-          paragraphs: document.querySelectorAll("#docBody section.docx article > p").length,
+          // A paragraph split at a page bottom continues in a part marked data-ld-continued.
+          paragraphs: document.querySelectorAll("#docBody section.docx article > p:not([data-ld-continued])").length,
+          continued: Array.from(document.querySelectorAll("#docBody section.docx article > p[data-ld-continued]"))
+            .map((p) => p.textContent).filter((t) => /Page \d+, paragraph \d+\./.test(t)).length,
           finalMarkers: text.split("Final marker otter.").length - 1,
           firstParagraphs: text.split("Page 1, paragraph 1.").length - 1,
           firstPage: pages[0] ? {
@@ -1175,6 +1179,8 @@ describe("page view lays out documents that carry no page breaks", () => {
       assert.ok(result.tallest - result.shortest <= 1, `page heights ${result.shortest} to ${result.tallest}`);
       // 30 x 7 body paragraphs and 3 chapter headings, each shown once.
       assert.equal(result.paragraphs, 213);
+      // A continued part never repeats its paragraph's opening.
+      assert.equal(result.continued, 0);
       assert.equal(result.firstParagraphs, 1);
       assert.equal(result.finalMarkers, 1);
       const meta = await host.page.evaluate(() => {
@@ -1182,6 +1188,275 @@ describe("page view lays out documents that carry no page breaks", () => {
         return node ? node.textContent : null;
       });
       assert.ok(meta && meta.includes(`${result.pages} pages`), `header shows the page count: ${meta}`);
+    });
+  });
+
+  test("a paragraph split between pages copies as one line", async () => {
+    await withHost({}, async (host) => {
+      await host.context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: READER_URL });
+      const { bytes, report } = await makeBigDocx(30, { pageBreaks: false });
+      await host.openDocument({ bytes, report, fileName: "unbroken.docx" });
+      // The continued part opens the next page; its first part ends the page before.
+      const split = await host.page.evaluate(() => {
+        const paragraphs = Array.from(document.querySelectorAll("#docBody article > p"));
+        return paragraphs.map((rest, index) => (rest.hasAttribute("data-ld-continued") && index > 0
+          ? { first: paragraphs[index - 1].textContent, whole: paragraphs[index - 1].textContent + rest.textContent } : null)).filter(Boolean);
+      });
+      assert.ok(split.length > 0 && split.every((part) => /^Page \d+, paragraph \d+\./.test(part.first)), JSON.stringify(split.slice(0, 2)));
+      await host.page.locator("#docScroller").click({ position: { x: 5, y: 5 } });
+      await host.page.keyboard.press("Control+Shift+C");
+      await host.page.waitForFunction(() => document.getElementById("liveStatus").textContent === "Document copied as text.");
+      // The Windows clipboard ends lines with CRLF.
+      const lines = (await host.page.evaluate(() => navigator.clipboard.readText())).split(/\r?\n/);
+      for (const part of split) {
+        assert.ok(lines.includes(part.whole), `one line: ${part.whole.slice(0, 40)}`);
+      }
+      for (let page = 1; page <= 30; page += 1) {
+        for (let paragraph = 1; paragraph <= 7; paragraph += 1) {
+          const opening = `Page ${page}, paragraph ${paragraph}.`;
+          assert.equal(lines.filter((line) => line.startsWith(opening)).length, 1, opening);
+        }
+      }
+    });
+  });
+});
+
+describe("page view follows Word's column and section layout", () => {
+  // Expected values come from Word itself: tests/reader/make-columns-docx.mjs exported
+  // to PDF by Word 16 gives 5 pages. A two-column section that runs past a page
+  // fills the left column, then the right, to the bottom margin; a section that ends
+  // at a continuous break has its columns balanced; the final section is not
+  // balanced; a footnote prints at the foot of the page that refers to it; headings
+  // are 10 pt although their linked character style says 20 pt.
+  async function layout(host) {
+    return host.page.evaluate(() => {
+      const pages = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"));
+      return pages.map((page, index) => {
+        const box = page.getBoundingClientRect();
+        const style = getComputedStyle(page);
+        const footer = Array.from(page.children).filter((c) => c.nodeName === "FOOTER").pop();
+        let limit = box.top + parseFloat(style.minHeight) - parseFloat(style.paddingBottom);
+        if (footer) {
+          const reach = footer.offsetHeight - (parseFloat(getComputedStyle(footer).minHeight) || 0);
+          if (reach > 0) {
+            limit -= reach;
+          }
+        }
+        const notes = Array.from(page.children).filter((c) => c.nodeName === "OL");
+        const noteTop = notes.length ? Math.min(...notes.map((n) => n.getBoundingClientRect().top)) : null;
+        const articles = Array.from(page.children).filter((c) => c.nodeName === "ARTICLE").map((article) => {
+          const a = article.getBoundingClientRect();
+          const columns = parseInt(getComputedStyle(article).columnCount, 10) || 1;
+          const mid = a.left + a.width / 2;
+          const paras = Array.from(article.querySelectorAll(":scope > p")).map((p) => {
+            const m = /^(S\d) para (\d+)\./.exec(p.textContent.trim());
+            const rects = Array.from(p.getClientRects());
+            return m ? {
+              section: m[1], n: Number(m[2]),
+              column: columns > 1 && rects[0].left >= mid ? "R" : "L",
+              top: rects[0].top - box.top, bottom: Math.max(...rects.map((r) => r.bottom)) - box.top
+            } : null;
+          }).filter(Boolean);
+          return { columns, top: a.top - box.top, bottom: a.bottom - box.top, paras };
+        });
+        return {
+          index: index + 1, height: page.offsetHeight, limit: limit - box.top,
+          noteTop: noteTop === null ? null : noteTop - box.top,
+          notes: notes.map((n) => n.textContent), articles
+        };
+      });
+    });
+  }
+
+  function sectionOn(page, section) {
+    const paras = page.articles.flatMap((a) => a.paras.filter((p) => p.section === section));
+    const column = (c) => paras.filter((p) => p.column === c);
+    const lowest = (list) => (list.length ? Math.max(...list.map((p) => p.bottom)) : null);
+    return { paras, left: column("L"), right: column("R"), leftBottom: lowest(column("L")), rightBottom: lowest(column("R")) };
+  }
+
+  test("headings take the paragraph style's size, not the linked character style's", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeColumnsDocx();
+      await host.openDocument({ bytes, report, fileName: "columns.docx" });
+      const sizes = await host.page.evaluate(() => {
+        const find = (text) => Array.from(document.querySelectorAll("#docBody article p")).find((p) => p.textContent.trim() === text);
+        const size = (p) => getComputedStyle(p.querySelector("span") || p).fontSize;
+        return { heading: size(find("I. Introduction")), title: size(find("Columns Paper Title")) };
+      });
+      // 10 pt and 24 pt, as Word prints them; the linked styles say 20 pt and 28 pt.
+      assert.equal(sizes.heading, "13.3333px");
+      assert.equal(sizes.title, "32px");
+    });
+  });
+
+  // docx-preview's style sheet hyphenates every document; Word hyphenates only
+  // when settings.xml turns automatic hyphenation on, and this one does not.
+  test("text is not hyphenated unless the document turns hyphenation on", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeColumnsDocx();
+      await host.openDocument({ bytes, report, fileName: "columns.docx" });
+      const hyphens = await host.page.evaluate(() => {
+        const paragraph = Array.from(document.querySelectorAll("#docBody article p")).find((p) => p.textContent.startsWith("S2 para 1."));
+        return [getComputedStyle(paragraph).hyphens, getComputedStyle(paragraph.querySelector("span")).hyphens];
+      });
+      assert.deepEqual(hyphens, ["manual", "manual"]);
+    });
+  });
+
+  test("a two-column section fills left then right, balances where it ends, and keeps every paragraph", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report, longParagraphs } = await makeColumnsDocx();
+      await host.openDocument({ bytes, report, fileName: "columns.docx" });
+      const pages = await layout(host);
+      const line = 16;
+      const heights = pages.map((p) => p.height);
+      assert.ok(Math.max(...heights) - Math.min(...heights) <= 1, `page heights ${heights}`);
+      const seen = pages.flatMap((p) => p.articles.flatMap((a) => a.paras.map((q) => `${q.section}-${q.n}`)));
+      assert.equal(seen.length, new Set(seen).size, "no paragraph is shown twice");
+      assert.equal(seen.filter((k) => k.startsWith("S2-")).length, longParagraphs);
+      assert.equal(seen.filter((k) => k.startsWith("S4-")).length, 6);
+      assert.equal(seen.filter((k) => k.startsWith("S5-")).length, 2);
+      assert.equal(pages.length, 5, `pages: ${pages.length}; Word gives 5`);
+
+      const s2Pages = pages.filter((p) => sectionOn(p, "S2").paras.length);
+      const s2Last = s2Pages[s2Pages.length - 1];
+      for (const page of s2Pages.slice(0, -1)) {
+        const s2 = sectionOn(page, "S2");
+        const floor = (page.noteTop ?? page.limit) - 2 * line;
+        assert.ok(s2.leftBottom >= floor, `page ${page.index}: left column ends at ${s2.leftBottom}; text ends at ${floor + 2 * line}`);
+        assert.ok(s2.rightBottom >= floor, `page ${page.index}: right column ends at ${s2.rightBottom}; text ends at ${floor + 2 * line}`);
+        assert.ok(Math.max(...s2.left.map((p) => p.n)) <= Math.min(...s2.right.map((p) => p.n)), `page ${page.index}: columns out of order`);
+      }
+      const end = sectionOn(s2Last, "S2");
+      assert.ok(end.left.length && end.right.length, `page ${s2Last.index}: both columns used where S2 ends`);
+      assert.ok(Math.abs(end.leftBottom - end.rightBottom) <= 2 * line,
+        `page ${s2Last.index}: S2 columns end at ${end.leftBottom} and ${end.rightBottom}`);
+      assert.ok(end.leftBottom < s2Last.limit - 4 * line, `page ${s2Last.index}: balanced columns stop above the bottom`);
+
+      const last = pages[pages.length - 1];
+      const s5 = sectionOn(last, "S5");
+      assert.equal(s5.paras.length, 2);
+      assert.equal(s5.right.length, 0, "the final section keeps to the left column");
+    });
+  });
+
+  test("sections stack without the page's spare space between them", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeColumnsDocx();
+      await host.openDocument({ bytes, report, fileName: "columns.docx" });
+      const pages = await layout(host);
+      const last = pages[pages.length - 1];
+      for (let i = 1; i < last.articles.length; i += 1) {
+        const gap = last.articles[i].top - last.articles[i - 1].bottom;
+        assert.ok(gap <= 2, `page ${last.index}: ${gap}px between sections ${i} and ${i + 1}`);
+      }
+    });
+  });
+
+  test("a footnote prints at the foot of the page that refers to it", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeColumnsDocx();
+      await host.openDocument({ bytes, report, fileName: "columns.docx" });
+      const pages = await layout(host);
+      const withNote = pages.filter((p) => p.notes.some((t) => t.includes("Footnote marker heron")));
+      assert.equal(withNote.length, 1, "the footnote appears once");
+      assert.equal(withNote[0].index, 1, `the footnote is on page ${withNote[0].index}; its reference is on page 1`);
+      const lowestText = Math.max(...withNote[0].articles.flatMap((a) => a.paras.map((p) => p.bottom)));
+      assert.ok(withNote[0].noteTop >= lowestText, "the footnote sits below the page's text");
+      assert.equal(sectionOn(pages[0], "S2").paras[0].n, 1, "the reference (S2 para 1) is on page 1");
+    });
+  });
+});
+
+describe("page view follows Word's tables and equations", () => {
+  async function openTables(host) {
+    const { bytes, report, longRows } = await makeTablesDocx();
+    await host.openDocument({ bytes, report, fileName: "tables-layout.docx" });
+    return longRows;
+  }
+
+  function tablesWith(host, text) {
+    return host.page.evaluate((text) => {
+      return Array.from(document.querySelectorAll("#docBody table"))
+        .filter((table) => table.textContent.includes(text))
+        .map((table) => ({
+          page: Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx")).indexOf(table.closest("section.docx")) + 1,
+          rows: Array.from(table.rows).map((row) => Array.from(row.cells).map((cell) => {
+            const style = getComputedStyle(cell);
+            return {
+              text: cell.textContent.trim(), width: cell.getBoundingClientRect().width,
+              top: style.borderTopStyle, bottom: style.borderBottomStyle,
+              paddingTop: style.paddingTop, paddingBottom: style.paddingBottom
+            };
+          }))
+        }));
+    }, text);
+  }
+
+  // docx-preview wrote a subscript of several runs as an <mn> holding one <ms>
+  // per run, which Chrome stacks: "sess" printed one letter per line.
+  test("a subscript written run by run sets on one line", async () => {
+    await withHost({}, async (host) => {
+      await openTables(host);
+      const result = await host.page.evaluate(() => {
+        const math = Array.from(document.querySelectorAll("#docBody math")).find((m) => m.textContent === "Esess");
+        const script = math && math.querySelector("msub").lastElementChild;
+        const size = math && parseFloat(getComputedStyle(math).fontSize);
+        return math ? {
+          tokensWithElements: math.querySelectorAll("mn > *, ms > *, mi > *, mo > *, mtext > *").length,
+          scriptName: script.nodeName, height: script.getBoundingClientRect().height, width: script.getBoundingClientRect().width, size
+        } : null;
+      });
+      assert.ok(result, "the equation renders");
+      assert.equal(result.tokensWithElements, 0);
+      assert.equal(result.scriptName, "mrow");
+      assert.ok(result.height < result.size * 1.5, `the subscript is ${result.height}px tall at ${result.size}px type`);
+      assert.ok(result.width > result.height, `the subscript is wider (${result.width}) than tall (${result.height})`);
+    });
+  });
+
+  // Word draws w:tblBorders top above the first row and bottom below the
+  // last; docx-preview drew both on every cell.
+  test("a three-line table is ruled above, under its header, and below only", async () => {
+    await withHost({}, async (host) => {
+      await openTables(host);
+      const [table] = await tablesWith(host, "Dimension");
+      const [header, first, middle, last] = table.rows;
+      assert.ok(header.every((cell) => cell.top === "solid" && cell.bottom === "solid"), JSON.stringify(header));
+      assert.ok(first.every((cell) => cell.top === "none" && cell.bottom === "none"), JSON.stringify(first));
+      assert.ok(middle.every((cell) => cell.top === "none" && cell.bottom === "none"), JSON.stringify(middle));
+      assert.ok(last.every((cell) => cell.top === "none" && cell.bottom === "solid"), JSON.stringify(last));
+      // Word's default top and bottom cell margins are zero; the browser's are 1px.
+      assert.ok([...header, ...first].every((cell) => cell.paddingTop === "0px" && cell.paddingBottom === "0px"));
+    });
+  });
+
+  // Word fits a table of automatic width to its content; docx-preview kept
+  // pandoc's equal grid columns.
+  test("a table of automatic width fits its columns to the content", async () => {
+    await withHost({}, async (host) => {
+      await openTables(host);
+      const [table] = await tablesWith(host, "Dimension");
+      const widths = table.rows[1].map((cell) => cell.width);
+      assert.ok(widths[3] > widths[0] * 1.5, `columns ${widths.map(Math.round)}`);
+    });
+  });
+
+  test("a table split across pages keeps its column widths and every row once", async () => {
+    await withHost({}, async (host) => {
+      const longRows = await openTables(host);
+      const parts = await tablesWith(host, "A longer description of row");
+      assert.ok(parts.length >= 2, `${parts.length} parts`);
+      assert.deepEqual(parts.map((part) => part.page), parts.map((_, index) => parts[0].page + index), "one part per page");
+      const widths = (part) => part.rows[part.rows.length - 1].map((cell) => cell.width);
+      for (const part of parts.slice(1)) {
+        widths(part).forEach((width, index) => {
+          assert.ok(Math.abs(width - widths(parts[0])[index]) <= 0.5, `column ${index}: ${width} against ${widths(parts[0])[index]}`);
+        });
+      }
+      const labels = parts.flatMap((part) => part.rows.map((row) => row[0].text)).filter((text) => /^Row \d+$/.test(text));
+      assert.deepEqual(labels, Array.from({ length: longRows }, (_, index) => `Row ${index + 1}`));
     });
   });
 });

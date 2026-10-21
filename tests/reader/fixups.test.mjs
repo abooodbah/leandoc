@@ -279,6 +279,259 @@ test("prepareModel fixes numbering, runs, symbols, styles, and theme fonts", () 
   assert.equal(stats.symbols, 2);
 });
 
+// Word formats the runs of a paragraph from its paragraph style. The linked
+// character style ("Heading 1 Char") applies only to a run that names it.
+// docx-preview added the linked style's run properties to every paragraph in
+// the style; pandoc's reference document links Heading 1 (10 pt) to a 20 pt
+// character style, so headings printed at twice Word's size.
+test("A paragraph style does not take its linked character style's run properties", () => {
+  const doc = {
+    stylesPart: {
+      styles: [
+        { id: "Heading1", target: "p", linked: "Heading1Char", styles: [{ target: "span", values: { "font-size": "10pt" } }] },
+        { id: "Heading1Char", target: "span", linked: "Heading1", styles: [{ target: "span", values: { "font-size": "20pt" } }] },
+        { id: "Title", target: "p", linked: "TitleChar", styles: [] }
+      ]
+    },
+    documentPart: { body: { children: [] } },
+    parts: []
+  };
+  Fixups.prepareModel(doc);
+  const [heading, character, title] = doc.stylesPart.styles;
+  assert.equal(heading.linked, null);
+  assert.equal(title.linked, null);
+  // The character style itself is unchanged; a run that names it still gets 20 pt.
+  assert.equal(character.linked, "Heading1");
+  assert.equal(character.styles[0].values["font-size"], "20pt");
+  assert.equal(heading.styles[0].values["font-size"], "10pt");
+});
+
+// Word prints 10 pt Times New Roman single spaced at an 11.52 pt pitch
+// (measured on Word's PDF of make-columns-docx). docx-preview wrote
+// lineRule="auto" spacing as a bare multiple of the font size.
+test("Automatic line spacing scales Word's single line; exact spacing is unchanged", () => {
+  const paragraph = (lineHeight) => ({ type: "paragraph", cssStyle: { "line-height": lineHeight }, children: [] });
+  const body = { children: [paragraph("1.00"), paragraph("1.50"), paragraph("2.00"), paragraph("12pt"), paragraph("calc(100% + 6pt)")] };
+  const doc = {
+    stylesPart: { styles: [{ id: "Normal", target: "p", styles: [{ target: "p", values: { "line-height": "1.00" } }] }] },
+    documentPart: { body }, parts: []
+  };
+  Fixups.prepareModel(doc);
+  assert.deepEqual(body.children.map((p) => p.cssStyle["line-height"]), ["1.152", "1.728", "2.304", "12pt", "calc(100% + 6pt)"]);
+  assert.equal(doc.stylesPart.styles[0].styles[0].values["line-height"], "1.152");
+});
+
+// docx-preview writes the default paragraph style's run rules as
+// ".docx p, p.docx_normal span", which never reaches the text of a paragraph
+// that names no style; that text took the docDefaults size instead.
+test("A paragraph that names no style is put in the default paragraph style", () => {
+  const plain = { type: "paragraph", children: [] };
+  const styled = { type: "paragraph", styleName: "Heading1", children: [] };
+  const doc = {
+    stylesPart: { styles: [
+      { id: "Heading1", target: "p", styles: [] },
+      { id: "Normal", target: "p", isDefault: true, styles: [] },
+      { id: "DefaultParagraphFont", target: "span", isDefault: true, styles: [] }
+    ] },
+    documentPart: { body: { children: [plain, styled] } }, parts: []
+  };
+  Fixups.prepareModel(doc);
+  assert.equal(plain.styleName, "Normal");
+  assert.equal(styled.styleName, "Heading1");
+});
+
+test("Without a default paragraph style, unstyled paragraphs stay unstyled", () => {
+  const plain = { type: "paragraph", children: [] };
+  Fixups.prepareModel({ stylesPart: { styles: [{ id: "Normal", target: "p", styles: [] }] }, documentPart: { body: { children: [plain] } }, parts: [] });
+  assert.equal(plain.styleName, undefined);
+});
+
+// The strut of a CSS line is the paragraph's own font. A 9 pt abstract style
+// in a 10 pt document spaced its lines as 10 pt.
+test("A paragraph style's run size becomes its paragraph size too, unless it sets one", () => {
+  const doc = {
+    stylesPart: { styles: [
+      { id: "Abstract", target: "p", styles: [{ target: "span", values: { "font-size": "9pt" } }] },
+      { id: "Caption", target: "p", styles: [{ target: "p", values: { "text-align": "center" } }, { target: "span", values: { "font-size": "8pt" } }] },
+      { id: "Odd", target: "p", styles: [{ target: "p", values: { "font-size": "11pt" } }, { target: "span", values: { "font-size": "8pt" } }] },
+      { id: "Plain", target: "p", styles: [{ target: "p", values: {} }] },
+      { id: "Emphasis", target: "span", styles: [{ target: "span", values: { "font-size": "14pt" } }] }
+    ] },
+    documentPart: { body: { children: [] } }, parts: []
+  };
+  Fixups.prepareModel(doc);
+  const [abstract, caption, odd, plain, emphasis] = doc.stylesPart.styles;
+  assert.deepEqual(abstract.styles.find((s) => s.target === "p").values, { "font-size": "9pt" });
+  assert.deepEqual(caption.styles.find((s) => s.target === "p").values, { "text-align": "center", "font-size": "8pt" });
+  assert.equal(odd.styles.find((s) => s.target === "p").values["font-size"], "11pt");
+  assert.deepEqual(plain.styles, [{ target: "p", values: {} }]);
+  assert.equal(emphasis.styles.length, 1, "character styles are left alone");
+});
+
+// Word hyphenates only when settings.xml turns automatic hyphenation on.
+test("Hyphenation follows the document's setting", () => {
+  const run = () => {
+    const paragraph = { type: "paragraph", cssStyle: { hyphens: "auto" }, children: [] };
+    const none = { type: "paragraph", cssStyle: { hyphens: "none" }, children: [] };
+    const style = { id: "Body", target: "p", styles: [{ target: "p", values: { hyphens: "auto" } }] };
+    return { paragraph, none, style };
+  };
+  const make = (settings) => {
+    const parts = run();
+    const doc = { settingsPart: settings === undefined ? undefined : { settings },
+      stylesPart: { styles: [parts.style] }, documentPart: { body: { children: [parts.paragraph, parts.none] } }, parts: [] };
+    return { stats: Fixups.prepareModel(doc), ...parts };
+  };
+  const off = make(undefined);
+  assert.equal(off.stats.autoHyphenation, false);
+  assert.equal(off.paragraph.cssStyle.hyphens, undefined, "suppressAutoHyphens=0 alone does not hyphenate");
+  assert.equal(off.style.styles[0].values.hyphens, undefined);
+  assert.equal(off.none.cssStyle.hyphens, "none");
+  assert.equal(make({}).stats.autoHyphenation, false);
+  assert.equal(make({ autoHyphenation: false }).stats.autoHyphenation, false);
+  // <w:autoHyphenation/> parses as null and means on.
+  const empty = make({ autoHyphenation: null });
+  assert.equal(empty.stats.autoHyphenation, true);
+  assert.equal(empty.paragraph.cssStyle.hyphens, "auto");
+  assert.equal(make({ autoHyphenation: true }).stats.autoHyphenation, true);
+});
+
+// Word's PDF of make-columns-docx puts the heading after the title, the table
+// after a two-column section, and the text after the table where they would
+// be without the empty paragraph that carries each continuous break.
+test("An empty paragraph carrying a break into a continuous section takes no height", () => {
+  const sectionBreak = (type, children = []) => ({ type: "paragraph", sectionProps: { type }, children });
+  const text = (value) => ({ type: "run", children: [{ type: "text", text: value }] });
+  const empty = sectionBreak("continuous", [{ type: "bookmarkStart", name: "x" }, { type: "run", children: [{ type: "text", text: "" }] }]);
+  const beforeNextPage = sectionBreak("continuous");
+  const withText = sectionBreak("continuous", [text("Last line.")]);
+  const numbered = { ...sectionBreak("continuous"), numbering: { id: "1", level: 0 } };
+  const last = sectionBreak("continuous");
+  const body = {
+    children: [empty, sectionBreak("nextPage"), beforeNextPage, withText, numbered, last],
+    props: { type: "nextPage" }
+  };
+  // Each break's next section is the type of the following break, or of the body.
+  body.children[1] = { type: "paragraph", sectionProps: { type: "continuous" }, children: [] };
+  body.children[2] = { type: "paragraph", sectionProps: { type: "nextPage" }, children: [] };
+  const stats = Fixups.prepareModel({ documentPart: { body }, parts: [] });
+  const hidden = body.children.map((p) => (p.cssStyle && p.cssStyle.display) === "none");
+  // empty -> next continuous: hidden. [1] -> next nextPage: shown. [2] -> next
+  // continuous: hidden. withText and numbered: shown. last -> body nextPage: shown.
+  assert.deepEqual(hidden, [true, false, true, false, false, false]);
+  assert.equal(stats.sectionBreakParagraphs, 2);
+});
+
+test("A table of automatic width with no cell widths is fitted to its content", () => {
+  const cell = (cssStyle) => ({ type: "cell", cssStyle, children: [] });
+  const table = (cssStyle, cells) => ({ type: "table", cssStyle, columns: [{ width: "79.2pt" }, { width: "79.2pt" }], children: [{ type: "row", children: cells }] });
+  const fitted = table({ width: "auto" }, [cell({}), cell(undefined)]);
+  const unset = table({}, [cell({})]);
+  const sized = table({ width: "auto" }, [cell({ width: "40pt" }), cell({})]);
+  const fixed = table({ width: "auto", "table-layout": "fixed" }, [cell({})]);
+  const wide = table({ width: "100%" }, [cell({})]);
+  const stats = Fixups.prepareModel({ documentPart: { body: { children: [fitted, unset, sized, fixed, wide] } }, parts: [] });
+  assert.equal(fitted.columns, undefined);
+  assert.equal(unset.columns, undefined);
+  assert.equal(sized.columns.length, 2);
+  assert.equal(fixed.columns.length, 2);
+  assert.equal(wide.columns.length, 2);
+  assert.equal(stats.fittedTables, 2);
+});
+
+// docx-preview copied w:tblBorders to every cell: a three-line table got a
+// rule under every row.
+test("Table borders go on the table's edges, inside borders between cells", () => {
+  const border = (val, sz = "8", color = "000000") => ({ val, sz, color });
+  const tbl = (borders) => el("tbl", [
+    el("tblPr", [el("tblBorders", Object.entries(borders).map(([name, attributes]) => el(name, [], attributes)))]),
+    el("tr", [el("tc", [el("p")]), el("tc", [el("p")])]),
+    el("tr", [el("tc", [el("p")]), el("tc", [el("p")])]),
+    el("tr", [el("tc", [el("p")]), el("tc", [el("p")])])
+  ]);
+  const xml = el("body", [
+    tbl({ top: border("single"), bottom: border("single") }),
+    tbl({ top: border("single", "4"), left: border("single", "4"), bottom: border("single", "4"), right: border("single", "4"), insideH: border("dashed", "4", "FF0000"), insideV: border("nil") })
+  ]);
+  const cell = (cssStyle = {}) => ({ type: "cell", cssStyle, children: [{ type: "paragraph", children: [] }] });
+  const modelTable = (header) => ({
+    type: "table", cssStyle: {},
+    cellStyle: { "border-top": "1pt solid black", "border-bottom": "1pt solid black", "padding-left": "5pt" },
+    children: [
+      { type: "row", children: [cell(header), cell(header)] },
+      { type: "row", children: [cell(), cell()] },
+      { type: "row", children: [cell(), cell()] }
+    ]
+  });
+  const threeLine = modelTable({ "border-bottom": "0.5pt solid black" });
+  const grid = modelTable();
+  const result = Fixups.annotateBody({ children: [threeLine, grid] }, xml);
+  assert.equal(result.borderedTables, 2);
+  const sides = (table) => table.children.map((row) => row.children.map((c) =>
+    ["border-top", "border-bottom", "border-left", "border-right"].map((name) => c.cssStyle[name] || "-").join(" | ")));
+  assert.deepEqual(sides(threeLine), [
+    ["1pt solid #000000 | 0.5pt solid black | - | -", "1pt solid #000000 | 0.5pt solid black | - | -"],
+    ["- | - | - | -", "- | - | - | -"],
+    ["- | 1pt solid #000000 | - | -", "- | 1pt solid #000000 | - | -"]
+  ]);
+  assert.deepEqual(sides(grid)[1], [
+    "0.5pt dashed #FF0000 | 0.5pt dashed #FF0000 | 0.5pt solid #000000 | none",
+    "0.5pt dashed #FF0000 | 0.5pt dashed #FF0000 | none | 0.5pt solid #000000"
+  ]);
+  // The table's own borders no longer reach every cell; padding still does.
+  assert.equal(threeLine.cellStyle["border-top"], undefined);
+  assert.equal(threeLine.cellStyle["padding-left"], "5pt");
+});
+
+test("A right-to-left table keeps docx-preview's borders", () => {
+  const xml = el("body", [el("tbl", [
+    el("tblPr", [el("bidiVisual"), el("tblBorders", [el("left", [], { val: "single", sz: "8" })])]),
+    el("tr", [el("tc", [el("p")]), el("tc", [el("p")])])
+  ])]);
+  const cell = () => ({ type: "cell", cssStyle: {}, children: [{ type: "paragraph", children: [] }] });
+  const table = { type: "table", cssStyle: {}, cellStyle: { "border-left": "1pt solid black" }, children: [{ type: "row", children: [cell(), cell()] }] };
+  const result = Fixups.annotateBody({ children: [table] }, xml);
+  assert.equal(result.bidiVisualTables, 1);
+  assert.equal(result.borderedTables, 0);
+  assert.equal(table.cellStyle["border-left"], "1pt solid black");
+  assert.equal(table.children[0].children[1].cssStyle["border-left"], undefined);
+});
+
+test("A vertically merged cell takes the bottom border of the last row it covers", () => {
+  const xml = el("body", [el("tbl", [
+    el("tblPr", [el("tblBorders", [el("bottom", [], { val: "single", sz: "8" }), el("insideH", [], { val: "single", sz: "4" })])]),
+    el("tr", [el("tc", [el("p")]), el("tc", [el("p")])]),
+    el("tr", [el("tc", [el("p")]), el("tc", [el("p")])])
+  ])]);
+  const cell = (verticalMerge) => ({ type: "cell", verticalMerge, cssStyle: {}, children: [{ type: "paragraph", children: [] }] });
+  const table = { type: "table", cssStyle: {}, cellStyle: {}, children: [
+    { type: "row", children: [cell("restart"), cell()] },
+    { type: "row", children: [cell("continue"), cell()] }
+  ] };
+  Fixups.annotateBody({ children: [table] }, xml);
+  assert.equal(table.children[0].children[0].cssStyle["border-bottom"], "1pt solid black");
+  assert.equal(table.children[0].children[1].cssStyle["border-bottom"], "0.5pt solid black");
+});
+
+// The page view puts each footnote on the page of its reference
+// (reader.js placeNotes); both carry a bookmark it can find.
+test("Footnote references and footnotes carry the reader's anchors", () => {
+  const reference = { type: "footnoteReference", id: "3" };
+  const run = { type: "run", children: [{ type: "text", text: "Text" }, reference] };
+  const note = { type: "footnote", id: "3", children: [{ type: "paragraph", children: [] }] };
+  const endnoteReference = { type: "endnoteReference", id: "4" };
+  const doc = {
+    documentPart: { body: { children: [{ type: "paragraph", children: [run, { type: "run", children: [endnoteReference] }] }] } },
+    footnotesPart: { notes: [note] }, endnotesPart: { notes: [{ type: "endnote", id: "4", children: [] }] }, parts: []
+  };
+  Fixups.prepareModel(doc);
+  assert.deepEqual(run.children[1], { type: "bookmarkStart", name: Fixups.NOTE_REFERENCE_ANCHOR + "3" });
+  assert.equal(run.children[2], reference);
+  assert.deepEqual(note.children[0], { type: "bookmarkStart", name: Fixups.NOTE_ANCHOR + "3" });
+  assert.equal(doc.endnotesPart.notes[0].children.length, 0, "endnotes stay at the end, unanchored");
+  assert.equal(doc.documentPart.body.children[0].children[1].children.length, 1);
+});
+
 test("Images resolve only to blob or data URLs", async () => {
   const doc = {
     loadDocumentImage: async (id) => (id === "ok" ? "blob:https://app.leandoc.invalid/1" : null),

@@ -534,6 +534,7 @@
     var view = currentView;
     var expected = current;
     var parsed = null;
+    var hyphenate = false;
     return window.docx.parseAsync(packageCache.buffer, options).then(function (result) {
       parsed = result;
       return yieldToPage();
@@ -541,7 +542,7 @@
       if (serial !== renderSerial) {
         return null;
       }
-      Fixups.prepareModel(parsed);
+      hyphenate = Fixups.prepareModel(parsed).autoHyphenation;
       return yieldToPage().then(function () {
         if (serial !== renderSerial) {
           return null;
@@ -555,7 +556,7 @@
           revokeBlobUrls(collectBlobUrls(nodes));
           return null;
         }
-        return attachDocument(nodes, view, serial).then(function (attached) {
+        return attachDocument(nodes, view, serial, hyphenate).then(function (attached) {
           if (attached) {
             finishRender(expected, ratio, started, firstRender, attached.movedWhileLoading);
           }
@@ -594,10 +595,20 @@
   // a document out. python-docx, pandoc, and other generators write none, so
   // their whole text sat on one page as tall as the document. Once a page is
   // attached and unzoomed, everything below its bottom margin moves to a new
-  // page with the same size, margins, header, and footer. Tables split between
-  // rows; a heading moves with the block it introduces; notes go to the last
-  // page. A block taller than a page stays whole on a page of its own.
+  // page with the same size, margins, header, and footer. A paragraph splits
+  // between lines and a table between rows; a heading moves with the block it
+  // introduces. A block that cannot split and is taller than a page stays
+  // whole on a page of its own.
+  //
+  // Column sections follow Word. A section that runs past the page fills its
+  // first column to the bottom, then the next. A section that ends at a
+  // continuous section break on the page has its columns balanced. The last
+  // section of a page docx-preview made (the document's last section, or one
+  // a page break ends) is not balanced. Footnotes print at the foot of the
+  // page that refers to them; endnotes go to the last page.
   var PAGINATION_LIMIT = 5000;
+  var ATOMIC_INLINE = /^(math|img|svg|canvas|object|video|iframe)$/i;
+  var ATOMIC_SELECTOR = "math, img, svg, canvas, object, video, iframe";
 
   function isHeadingBlock(node) {
     if (/^H[1-6]$/.test(node.nodeName)) {
@@ -632,14 +643,74 @@
     return bottom;
   }
 
+  function columnCount(article) {
+    var count = parseInt(window.getComputedStyle(article).columnCount, 10);
+    return count > 1 ? count : 1;
+  }
+
+  // Whether a box lies past the text area: below `limit` or, once the
+  // section has a fixed height, in an overflow column beside the section.
+  function overflowTest(article, limit) {
+    var box = article.getBoundingClientRect();
+    return function (rect) {
+      return rect.bottom > limit + 0.5 || rect.left >= box.right - 0.5 || rect.right <= box.left + 0.5;
+    };
+  }
+
+  function isOver(node, over) {
+    var rects = node.getClientRects();
+    for (var index = 0; index < rects.length; index += 1) {
+      if (over(rects[index])) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // A table split across pages keeps its column widths, as in Word. Fitted
+  // to its own rows, a continued table of automatic width came out narrower
+  // than its first part.
+  function freezeColumns(table) {
+    if (childrenNamed(table, "COLGROUP").length) {
+      return;
+    }
+    var widths = null;
+    Array.prototype.forEach.call(table.rows, function (row) {
+      var cells = Array.prototype.slice.call(row.cells);
+      var plain = cells.every(function (cell) {
+        return cell.colSpan === 1 && cell.style.display !== "none";
+      });
+      if (plain && (!widths || cells.length > widths.length)) {
+        widths = cells.map(function (cell) {
+          return cell.getBoundingClientRect().width;
+        });
+      }
+    });
+    if (!widths || !widths.length) {
+      return;
+    }
+    // The table's own box spans every column it is split across.
+    var width = 0;
+    var group = document.createElement("colgroup");
+    widths.forEach(function (value) {
+      width += value;
+      var column = document.createElement("col");
+      column.style.width = value + "px";
+      group.appendChild(column);
+    });
+    table.insertBefore(group, table.firstChild);
+    table.style.tableLayout = "fixed";
+    table.style.width = width + "px";
+  }
+
   // Moves the rows that do not fit into a copy of the table placed after it,
   // and returns the copy, or null when not even the first body row fits.
-  function splitTable(table, bottom) {
+  function splitTable(table, over) {
     var rows = table.rows;
     var headerRows = table.tHead ? table.tHead.rows.length : 0;
     var first = -1;
     for (var index = headerRows; index < rows.length; index += 1) {
-      if (rows[index].getBoundingClientRect().bottom > bottom + 0.5) {
+      if (isOver(rows[index], over)) {
         first = index;
         break;
       }
@@ -647,6 +718,7 @@
     if (first <= headerRows) {
       return null;
     }
+    freezeColumns(table);
     var rest = table.cloneNode(false);
     Array.prototype.forEach.call(table.children, function (child) {
       if (child.nodeName === "COLGROUP" || child.nodeName === "THEAD") {
@@ -678,44 +750,295 @@
     return rest;
   }
 
+  // The first character or inline object of a paragraph that lies past the
+  // text area, or null. Text in a column layout breaks between lines, so the
+  // first character past the area starts a line.
+  function firstPointPast(paragraph, over) {
+    var range = document.createRange();
+    function charOver(node, offset) {
+      range.setStart(node, offset);
+      range.setEnd(node, offset + 1);
+      var rects = range.getClientRects();
+      return rects.length > 0 && over(rects[0]);
+    }
+    function visit(parent) {
+      for (var child = parent.firstChild; child; child = child.nextSibling) {
+        if (child.nodeType === Node.TEXT_NODE) {
+          var text = child.nodeValue;
+          var last = text.length - 1;
+          while (last >= 0 && /\s/.test(text.charAt(last))) {
+            last -= 1;
+          }
+          if (last < 0 || !charOver(child, last)) {
+            continue;
+          }
+          for (var at = 0; at <= last; at += 1) {
+            if (!/\s/.test(text.charAt(at)) && charOver(child, at)) {
+              return { node: child, offset: at };
+            }
+          }
+        } else if (child.nodeType === Node.ELEMENT_NODE) {
+          if (ATOMIC_INLINE.test(child.nodeName)) {
+            if (isOver(child, over)) {
+              return { node: child, offset: -1 };
+            }
+          } else {
+            var found = visit(child);
+            if (found) {
+              return found;
+            }
+          }
+        }
+      }
+      return null;
+    }
+    return visit(paragraph);
+  }
+
+  // Splits a paragraph before its first line past the text area and returns
+  // the part that moves, or null when no line of it fits. A list item moves
+  // whole, or its number would print twice.
+  function splitParagraph(paragraph, over) {
+    if (paragraph.nodeName !== "P" || /(^|\s)docx-num-/.test(paragraph.className)) {
+      return null;
+    }
+    var point = firstPointPast(paragraph, over);
+    if (!point) {
+      return null;
+    }
+    var kept = document.createRange();
+    kept.setStart(paragraph, 0);
+    if (point.offset < 0) {
+      kept.setEndBefore(point.node);
+    } else {
+      kept.setEnd(point.node, point.offset);
+    }
+    if (!kept.toString().trim() && !kept.cloneContents().querySelector(ATOMIC_SELECTOR)) {
+      return null;
+    }
+    var moving = document.createRange();
+    moving.setStart(kept.endContainer, kept.endOffset);
+    moving.setEnd(paragraph, paragraph.childNodes.length);
+    var rest = paragraph.cloneNode(false);
+    rest.removeAttribute("id");
+    rest.appendChild(moving.extractContents());
+    rest.setAttribute("data-ld-continued", "");
+    rest.style.textIndent = "0";
+    rest.style.marginTop = "0";
+    paragraph.style.marginBottom = "0";
+    if (window.getComputedStyle(paragraph).textAlign === "justify") {
+      paragraph.style.textAlignLast = "justify";
+    }
+    paragraph.parentNode.insertBefore(rest, paragraph.nextSibling);
+    return rest;
+  }
+
+  // Lays out the page's sections for a text area that ends at `limit` and
+  // finds the first block past it. A section that does not fit, and the
+  // page's last column section, get the remaining height with columns filled
+  // in order; Chrome then breaks the text between lines into overflow columns
+  // beside the section. A one-column section that does not fit is measured
+  // the same way, as one column, and restored after the split.
+  function layOutPage(articles, styles, limit) {
+    var layout = { tests: [], temporary: [], start: null, index: -1, whole: false, oversized: false };
+    articles.forEach(function (article, index) {
+      article.style.cssText = styles[index];
+      if (layout.start) {
+        layout.tests[index] = function () {
+          return true;
+        };
+        return;
+      }
+      var columns = columnCount(article) > 1;
+      var box = article.getBoundingClientRect();
+      var fits = box.bottom <= limit + 0.5;
+      if (fits && !(columns && article.hasAttribute("data-ld-fill"))) {
+        layout.tests[index] = overflowTest(article, limit);
+        return;
+      }
+      var space = Math.floor(limit - box.top);
+      if (space < 1) {
+        layout.tests[index] = function () {
+          return true;
+        };
+        if (article.firstElementChild) {
+          layout.start = article.firstElementChild;
+          layout.index = index;
+          layout.whole = true;
+        }
+        return;
+      }
+      if (!columns) {
+        article.style.columnCount = "1";
+        layout.temporary[index] = true;
+      }
+      article.style.columnFill = "auto";
+      article.style.height = space + "px";
+      var over = overflowTest(article, limit);
+      layout.tests[index] = over;
+      for (var node = article.firstElementChild; node; node = node.nextElementSibling) {
+        if (isOver(node, over)) {
+          layout.start = node;
+          layout.index = index;
+          break;
+        }
+      }
+    });
+    return layout;
+  }
+
+  // Footnotes by id, taken off the pages docx-preview made, each keeping the
+  // number its reference shows. Endnote lists stay where they are.
+  function collectFootnotes(pages) {
+    var notes = new Map();
+    var selector = "[id^='" + Fixups.NOTE_ANCHOR + "']";
+    pages.forEach(function (page) {
+      childrenNamed(page, "OL").forEach(function (list) {
+        var items = Array.prototype.slice.call(list.children);
+        var ids = items.map(function (item) {
+          var anchor = item.nodeName === "LI" ? item.querySelector(selector) : null;
+          return anchor ? anchor.id.slice(Fixups.NOTE_ANCHOR.length) : null;
+        });
+        if (!items.length || ids.indexOf(null) >= 0) {
+          return;
+        }
+        items.forEach(function (item, index) {
+          item.value = (list.start || 1) + index;
+          if (!notes.has(ids[index])) {
+            notes.set(ids[index], item);
+          }
+        });
+        page.removeChild(list);
+      });
+    });
+    return notes;
+  }
+
+  // Ids of the footnotes referred to from the page, in order. With `tests`,
+  // a reference past the text area is left out.
+  function referencedNotes(page, notes, tests) {
+    var ids = [];
+    if (!notes.size) {
+      return ids;
+    }
+    var selector = "[id^='" + Fixups.NOTE_REFERENCE_ANCHOR + "']";
+    childrenNamed(page, "ARTICLE").forEach(function (article, index) {
+      article.querySelectorAll(selector).forEach(function (anchor) {
+        var id = anchor.id.slice(Fixups.NOTE_REFERENCE_ANCHOR.length);
+        var mark = anchor.nextElementSibling || anchor;
+        if (!notes.has(id) || ids.indexOf(id) >= 0 || (tests && tests[index] && isOver(mark, tests[index]))) {
+          return;
+        }
+        ids.push(id);
+      });
+    });
+    return ids;
+  }
+
+  function footnoteList(page) {
+    return childrenNamed(page, "OL").filter(function (list) {
+      return list.classList.contains("ld-footnotes");
+    })[0] || null;
+  }
+
+  // Puts the footnotes `ids` at the foot of the page, before any endnotes
+  // and the footer.
+  function placeNotes(page, notes, ids) {
+    var list = footnoteList(page);
+    if (list) {
+      page.removeChild(list);
+    }
+    if (!ids.length) {
+      return;
+    }
+    list = document.createElement("ol");
+    list.className = "ld-footnotes";
+    ids.forEach(function (id) {
+      list.appendChild(notes.get(id));
+    });
+    var before = Array.prototype.filter.call(page.children, function (child) {
+      return child.nodeName === "OL" || child.nodeName === "FOOTER";
+    })[0] || null;
+    page.insertBefore(list, before);
+  }
+
+  function notesHeight(page) {
+    var list = footnoteList(page);
+    if (!list) {
+      return 0;
+    }
+    var style = window.getComputedStyle(list);
+    return list.getBoundingClientRect().height + (parseFloat(style.marginTop) || 0) +
+      (parseFloat(style.marginBottom) || 0);
+  }
+
+  function sameIds(left, right) {
+    return left.length === right.length && left.every(function (id, index) {
+      return id === right[index];
+    });
+  }
+
   // Splits one page at its bottom margin and returns the new page after it,
   // or null when everything already fits or nothing more can move.
-  function splitPage(page) {
+  function splitPage(page, notes) {
     var bottom = contentBottom(page);
     if (bottom === null) {
       return null;
     }
     var articles = childrenNamed(page, "ARTICLE");
-    var blocks = [];
-    articles.forEach(function (article) {
-      Array.prototype.forEach.call(article.children, function (node) {
-        blocks.push({ node: node, article: article });
-      });
+    var styles = articles.map(function (article) {
+      return article.style.cssText;
     });
-    var index = -1;
-    for (var at = 0; at < blocks.length; at += 1) {
-      if (blocks[at].node.getBoundingClientRect().bottom > bottom + 0.5) {
-        index = at;
+    // The notes take room from the text, which can move a reference and its
+    // note to the next page; a few rounds settle it.
+    var placed = [];
+    var layout = null;
+    for (var round = 0; round < 4; round += 1) {
+      layout = layOutPage(articles, styles, bottom - notesHeight(page));
+      var ids = referencedNotes(page, notes, layout.tests);
+      if (sameIds(ids, placed)) {
         break;
       }
+      placed = ids;
+      placeNotes(page, notes, ids);
     }
-    if (index < 0) {
-      return null;
+    var next = layout.start ? moveRest(page, articles, styles, layout) : null;
+    // A one-column section keeps the height it was measured at: restored,
+    // the last kept paragraph's bottom margin, dropped at the break, grew the
+    // page. One holding a block taller than the page gets its own height.
+    articles.forEach(function (article, index) {
+      if (layout.temporary[index] && article.parentNode === page && (!next || layout.oversized)) {
+        article.style.cssText = styles[index];
+      }
+    });
+    return next;
+  }
+
+  // Moves everything from the first block past the page to a new page.
+  function moveRest(page, articles, styles, layout) {
+    var start = layout.start;
+    var first = articles[0].firstElementChild;
+    var continued = null;
+    if (!layout.whole) {
+      var over = layout.tests[layout.index];
+      continued = start.nodeName === "TABLE" ? splitTable(start, over) : splitParagraph(start, over);
     }
-    var start = blocks[index];
-    var continued = start.node.nodeName === "TABLE" ? splitTable(start.node, bottom) : null;
     if (continued) {
-      start = { node: continued, article: start.article };
-    } else if (index === 0) {
+      start = continued;
+    } else if (start === first) {
       // The first block alone is taller than the page: it keeps this page.
-      if (blocks.length === 1) {
+      layout.oversized = true;
+      start = start.nextElementSibling;
+      for (var after = 1; !start && after < articles.length; after += 1) {
+        start = articles[after].firstElementChild;
+      }
+      if (!start) {
         return null;
       }
-      start = blocks[1];
     } else {
-      var previous = start.node.previousElementSibling;
-      while (previous && previous !== blocks[0].node && isHeadingBlock(previous)) {
-        start = { node: previous, article: start.article };
+      var previous = start.previousElementSibling;
+      while (previous && previous !== first && isHeadingBlock(previous)) {
+        start = previous;
         previous = previous.previousElementSibling;
       }
     }
@@ -724,24 +1047,26 @@
     childrenNamed(page, "HEADER").forEach(function (header) {
       next.appendChild(header.cloneNode(true));
     });
-    var from = articles.indexOf(start.article);
+    var from = articles.indexOf(start.parentNode);
     for (var position = from; position < articles.length; position += 1) {
       var source = articles[position];
       var target = source.cloneNode(false);
-      var node = position === from ? start.node : source.firstChild;
+      target.style.cssText = styles[position];
+      var node = position === from ? start : source.firstChild;
       while (node) {
         var following = node.nextSibling;
         target.appendChild(node);
         node = following;
       }
       next.appendChild(target);
-      if (position > from) {
+      if (position > from || !source.firstElementChild) {
         page.removeChild(source);
       }
     }
-    // Footnotes and endnotes follow the text to its last page.
+    // Endnotes follow the text to its last page.
     Array.prototype.slice.call(page.children).forEach(function (child) {
-      if (child.nodeName !== "HEADER" && child.nodeName !== "ARTICLE" && child.nodeName !== "FOOTER") {
+      if (child.nodeName !== "HEADER" && child.nodeName !== "ARTICLE" && child.nodeName !== "FOOTER" &&
+          !child.classList.contains("ld-footnotes")) {
         next.appendChild(child);
       }
     });
@@ -755,18 +1080,30 @@
   function paginatePages(pages) {
     var result = [];
     var budget = PAGINATION_LIMIT;
+    var notes = collectFootnotes(pages);
+    pages.forEach(function (page) {
+      var articles = childrenNamed(page, "ARTICLE");
+      if (articles.length) {
+        articles[articles.length - 1].setAttribute("data-ld-fill", "");
+      }
+    });
     pages.forEach(function (page) {
       var cursor = page;
       result.push(cursor);
       while (budget > 0) {
         budget -= 1;
-        var next = splitPage(cursor);
+        var next = splitPage(cursor, notes);
         if (!next) {
           break;
         }
         result.push(next);
         cursor = next;
       }
+    });
+    // Every note ends on the page that holds its reference, including pages
+    // past the pagination budget.
+    result.forEach(function (page) {
+      placeNotes(page, notes, referencedNotes(page, notes, null));
     });
     return result;
   }
@@ -790,9 +1127,36 @@
     }
   }
 
-  function attachDocument(nodes, view, serial) {
+  // docx-preview writes a sub- or superscript, a radical's degree, and a
+  // function name as a token element (<mn>, <ms>) that holds one <ms> per
+  // run. A token element lays element children out one under the other, so
+  // a subscript of four runs, "sess", printed one letter per line. Such a
+  // token becomes an <mrow>, which sets its runs in a line.
+  var MATHML = "http://www.w3.org/1998/Math/MathML";
+
+  function fixMathTokens(container) {
+    if (!container.querySelectorAll) {
+      return;
+    }
+    container.querySelectorAll("math mn, math ms, math mi, math mo, math mtext").forEach(function (token) {
+      if (!token.firstElementChild) {
+        return;
+      }
+      var row = document.createElementNS(MATHML, "mrow");
+      Array.prototype.forEach.call(token.attributes, function (attribute) {
+        row.setAttribute(attribute.name, attribute.value);
+      });
+      while (token.firstChild) {
+        row.appendChild(token.firstChild);
+      }
+      token.parentNode.replaceChild(row, token);
+    });
+  }
+
+  function attachDocument(nodes, view, serial, hyphenate) {
     clearSearch();
     root.dataset.view = view;
+    elements.docBody.toggleAttribute("data-ld-hyphenate", !!hyphenate);
     revokeBlobUrls(blobUrls);
     blobUrls = collectBlobUrls(nodes);
     var styles = [];
@@ -800,6 +1164,7 @@
     nodes.forEach(function (node) {
       (node.nodeName === "STYLE" ? styles : body).push(node);
     });
+    body.forEach(fixMathTokens);
     var wrapper = body.filter(function (node) {
       return node.classList && node.classList.contains("docx-wrapper");
     })[0];
@@ -1696,6 +2061,8 @@
 
   function documentText() {
     var lines = [];
+    // A paragraph the page view split across pages copies as one line.
+    var split = -1;
     elements.docBody.querySelectorAll(".docx-wrapper > section.docx").forEach(function (section) {
       Array.prototype.forEach.call(section.children, function (child) {
         if (child.nodeName === "HEADER" || child.nodeName === "FOOTER") {
@@ -1704,6 +2071,13 @@
         child.querySelectorAll("p").forEach(function (paragraph) {
           if (paragraph.parentElement && paragraph.parentElement.closest("p")) {
             return;
+          }
+          if (paragraph.hasAttribute("data-ld-continued") && split >= 0) {
+            lines[split] += paragraph.textContent.replace(/ /g, "\t");
+            return;
+          }
+          if (child.nodeName === "ARTICLE") {
+            split = lines.length;
           }
           lines.push(paragraph.textContent.replace(/ /g, "\t"));
         });

@@ -39,6 +39,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.2" date="2026-10-21">
+      <description>
+        <p>Page view lays out columns, paragraphs, footnotes, and tables as Word does.</p>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-10-20">
       <description>
         <p>Page view lays out documents that carry no page breaks into pages.</p>
