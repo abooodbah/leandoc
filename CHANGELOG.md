@@ -7,6 +7,15 @@ versioning.
 
 ### Fixed
 
+- Long documents took seconds to tens of seconds to open in page view, with
+  the window frozen the whole time: every page split laid out the whole rest
+  of the document again. Pages now take their text from a queue and are split
+  in short slices that let the window respond. A 62-page supplement with 52
+  tables opens in 2.5 seconds instead of 21, a 4,000-row table in 2.8 instead
+  of 27, and no step of splitting holds the window for more than a fraction
+  of a second. Page breaks are unchanged.
+- Fit and automatic zoom follow a window resize once it settles, instead of
+  laying out the whole document again on every frame of a drag.
 - Page view laid out two-column documents with about half of what Word puts
   on a page. A column section that runs past a page now fills the left column
   and then the right; a section that ends on the page is balanced, and the

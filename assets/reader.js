@@ -87,7 +87,8 @@
   var search = { matches: [], index: -1, marks: false };
   var toastTimer = 0;
   var scrollFrame = 0;
-  var resizeFrame = 0;
+  var resizeTimer = 0;
+  var RESIZE_SETTLE_MS = 150;
   var wheelTotal = 0;
 
   function post(message) {
@@ -746,8 +747,73 @@
       }
       copy.appendChild(row);
     });
+    queueRows(table, rest, sections.length === 0);
     table.parentNode.insertBefore(rest, table.nextSibling);
     return rest;
+  }
+
+  // A long table's continuation keeps about a page of rows; the rest wait in
+  // a queue on it, as blocks wait on their section. Moving every remaining
+  // row to each new page laid them all out again at every split: a table of
+  // 4,000 rows took 27 seconds in 0.1.1, and 47 with the block queue but no
+  // row queue. Only a continuation is queued, after its
+  // first part has fixed the column widths with every row present.
+  var ROWS = "__ldRows";
+  var ROW_CHUNK = 80;
+
+  function queueRows(table, rest, plain) {
+    var queue = table[ROWS];
+    table[ROWS] = null;
+    var nodes = [];
+    if (plain && rest.rows.length > ROW_CHUNK) {
+      Array.prototype.slice.call(rest.rows, ROW_CHUNK).forEach(function (row) {
+        nodes.push(rest.removeChild(row));
+      });
+    }
+    for (; queue && queue.next < queue.nodes.length; queue.next += 1) {
+      nodes.push(queue.nodes[queue.next]);
+    }
+    rest[ROWS] = nodes.length ? { nodes: nodes, next: 0 } : null;
+  }
+
+  // The table on the page that still has rows waiting, or null.
+  function tableWithRows(articles) {
+    for (var index = 0; index < articles.length; index += 1) {
+      for (var table = articles[index].firstElementChild; table; table = table.nextElementSibling) {
+        var queue = table[ROWS];
+        if (queue && queue.next < queue.nodes.length) {
+          return table;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Moves up to `count` waiting rows of a table on the page back into it and
+  // returns the first, or null when no table on the page has waiting rows.
+  function takeRows(articles, count) {
+    var table = tableWithRows(articles);
+    if (!table) {
+      return null;
+    }
+    var queue = table[ROWS];
+    var first = queue.nodes[queue.next];
+    for (var taken = 0; queue.next < queue.nodes.length && taken < count; taken += 1) {
+      table.appendChild(queue.nodes[queue.next]);
+      queue.nodes[queue.next] = null;
+      queue.next += 1;
+    }
+    return first;
+  }
+
+  function flushRows(article) {
+    for (var table = article.firstElementChild; table; table = table.nextElementSibling) {
+      var queue = table[ROWS];
+      for (; queue && queue.next < queue.nodes.length; queue.next += 1) {
+        table.appendChild(queue.nodes[queue.next]);
+      }
+      table[ROWS] = null;
+    }
   }
 
   // The first character or inline object of a paragraph that lies past the
@@ -772,11 +838,27 @@
           if (last < 0 || !charOver(child, last)) {
             continue;
           }
-          for (var at = 0; at <= last; at += 1) {
-            if (!/\s/.test(text.charAt(at)) && charOver(child, at)) {
-              return { node: child, offset: at };
+          // Characters past the area come after every character inside it,
+          // so the first one is found by halving: with a scan from the start,
+          // a 60,000-word paragraph took 12 seconds to split into pages.
+          // Spaces are measured at the next character that is not a space.
+          var visible = function (at) {
+            while (at < last && /\s/.test(text.charAt(at))) {
+              at += 1;
+            }
+            return at;
+          };
+          var low = 0;
+          var high = last;
+          while (low < high) {
+            var middle = (low + high) >> 1;
+            if (charOver(child, visible(middle))) {
+              high = middle;
+            } else {
+              low = middle + 1;
             }
           }
+          return { node: child, offset: visible(low) };
         } else if (child.nodeType === Node.ELEMENT_NODE) {
           if (ATOMIC_INLINE.test(child.nodeName)) {
             if (isOver(child, over)) {
@@ -978,6 +1060,119 @@
     });
   }
 
+  // Blocks not yet on a page wait, detached, in their section's queue. With
+  // the whole rest of the document on the page being split, every split laid
+  // out everything after it: a 62-page supplement with 52 tables took 20
+  // seconds to open, in one task that froze the window. A page now holds its
+  // first blocks and takes more from the queue only until it is full, so each
+  // split lays out about one page.
+  var PENDING = "__ldPending";
+  var HEAD_BLOCKS = 12;
+  var FILL_BATCH = 8;
+  var FILL_BATCH_MAX = 64;
+
+  // An article's queue: its waiting nodes, and the index of the next one.
+  function waiting(article) {
+    var queue = article[PENDING];
+    return queue && queue.next < queue.nodes.length ? queue : null;
+  }
+
+  // Keeps the first HEAD_BLOCKS blocks of a page and queues the rest.
+  function holdBack(page) {
+    var kept = 0;
+    childrenNamed(page, "ARTICLE").forEach(function (article) {
+      var nodes = [];
+      var node = article.firstChild;
+      while (node) {
+        var following = node.nextSibling;
+        if (kept >= HEAD_BLOCKS || nodes.length) {
+          nodes.push(article.removeChild(node));
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          kept += 1;
+        }
+        node = following;
+      }
+      article[PENDING] = { nodes: nodes, next: 0 };
+    });
+  }
+
+  function firstWaiting(articles) {
+    for (var index = 0; index < articles.length; index += 1) {
+      if (waiting(articles[index])) {
+        return articles[index];
+      }
+    }
+    return null;
+  }
+
+  // Moves up to `count` queued blocks onto the page, in document order, and
+  // returns the first one, or null when nothing waits.
+  function takePending(articles, count) {
+    var article = firstWaiting(articles);
+    if (!article) {
+      return null;
+    }
+    var queue = article[PENDING];
+    var first = null;
+    var taken = 0;
+    while (queue.next < queue.nodes.length && taken < count) {
+      var node = queue.nodes[queue.next];
+      queue.nodes[queue.next] = null;
+      queue.next += 1;
+      article.appendChild(node);
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        first = first || node;
+        taken += 1;
+      }
+    }
+    return first;
+  }
+
+  // The waiting rows of a table on the page come before the blocks after it.
+  function takeMore(articles, count) {
+    return takeRows(articles, count) || takePending(articles, count);
+  }
+
+  // Takes queued blocks onto the page until its text reaches the bottom of
+  // the text area or nothing waits.
+  function fillPage(page, bottom) {
+    var articles = childrenNamed(page, "ARTICLE");
+    var batch = FILL_BATCH;
+    for (;;) {
+      // A table with rows waiting decides by its own bottom: the blocks after
+      // it can pass the page while its rows do not, and the page then split
+      // after the table, leaving its rows queued on a finished page.
+      var table = tableWithRows(articles);
+      var end = -Infinity;
+      if (table) {
+        end = table.getBoundingClientRect().bottom;
+      } else {
+        articles.forEach(function (article) {
+          end = Math.max(end, article.getBoundingClientRect().bottom);
+        });
+      }
+      if (end > bottom + 0.5) {
+        return;
+      }
+      if (!takeMore(articles, batch)) {
+        return;
+      }
+      batch = Math.min(batch * 2, FILL_BATCH_MAX);
+    }
+  }
+
+  // Puts every queued block back, for pages the budget left unsplit.
+  function flushPending(page) {
+    childrenNamed(page, "ARTICLE").forEach(function (article) {
+      flushRows(article);
+      var queue = article[PENDING];
+      for (; queue && queue.next < queue.nodes.length; queue.next += 1) {
+        article.appendChild(queue.nodes[queue.next]);
+      }
+      article[PENDING] = null;
+    });
+  }
+
   // Splits one page at its bottom margin and returns the new page after it,
   // or null when everything already fits or nothing more can move.
   function splitPage(page, notes) {
@@ -985,6 +1180,7 @@
     if (bottom === null) {
       return null;
     }
+    fillPage(page, bottom);
     var articles = childrenNamed(page, "ARTICLE");
     var styles = articles.map(function (article) {
       return article.style.cssText;
@@ -993,14 +1189,23 @@
     // note to the next page; a few rounds settle it.
     var placed = [];
     var layout = null;
-    for (var round = 0; round < 4; round += 1) {
-      layout = layOutPage(articles, styles, bottom - notesHeight(page));
-      var ids = referencedNotes(page, notes, layout.tests);
-      if (sameIds(ids, placed)) {
+    for (;;) {
+      for (var round = 0; round < 4; round += 1) {
+        layout = layOutPage(articles, styles, bottom - notesHeight(page));
+        var ids = referencedNotes(page, notes, layout.tests);
+        if (sameIds(ids, placed)) {
+          break;
+        }
+        placed = ids;
+        placeNotes(page, notes, ids);
+      }
+      // The page's last block can end inside its own spacing after: the page
+      // is full, but no block lies past it. The waiting blocks come next and
+      // one of them is past the page; without this the rest of the section
+      // stayed on this one page.
+      if (layout.start || !takeMore(articles, FILL_BATCH)) {
         break;
       }
-      placed = ids;
-      placeNotes(page, notes, ids);
     }
     var next = layout.start ? moveRest(page, articles, styles, layout) : null;
     // A one-column section keeps the height it was measured at: restored,
@@ -1028,10 +1233,13 @@
     } else if (start === first) {
       // The first block alone is taller than the page: it keeps this page.
       layout.oversized = true;
+      // Its waiting rows stay with it on this page, as before the queue.
+      flushRows(start.parentNode);
       start = start.nextElementSibling;
       for (var after = 1; !start && after < articles.length; after += 1) {
         start = articles[after].firstElementChild;
       }
+      start = start || takePending(articles, 1);
       if (!start) {
         return null;
       }
@@ -1052,6 +1260,9 @@
       var source = articles[position];
       var target = source.cloneNode(false);
       target.style.cssText = styles[position];
+      // The section's waiting blocks follow it to the next page.
+      target[PENDING] = source[PENDING];
+      source[PENDING] = null;
       var node = position === from ? start : source.firstChild;
       while (node) {
         var following = node.nextSibling;
@@ -1077,7 +1288,12 @@
     return next;
   }
 
-  function paginatePages(pages) {
+  // Splitting runs in slices of about SLICE_MS and lets the window handle
+  // input and paint between them, as the other long steps of a render do
+  // (P-04). A newer render stops it: it resolves null.
+  var SLICE_MS = 40;
+
+  function paginatePages(pages, serial) {
     var result = [];
     var budget = PAGINATION_LIMIT;
     var notes = collectFootnotes(pages);
@@ -1086,45 +1302,112 @@
       if (articles.length) {
         articles[articles.length - 1].setAttribute("data-ld-fill", "");
       }
+      holdBack(page);
     });
-    pages.forEach(function (page) {
-      var cursor = page;
-      result.push(cursor);
-      while (budget > 0) {
-        budget -= 1;
-        var next = splitPage(cursor, notes);
-        if (!next) {
-          break;
+    var index = 0;
+    var cursor = null;
+    return new Promise(function (resolve, reject) {
+      function slice() {
+        try {
+          step();
+        } catch (error) {
+          reject(error);
         }
-        result.push(next);
-        cursor = next;
       }
+      function step() {
+        if (serial !== renderSerial) {
+          resolve(null);
+          return;
+        }
+        var sliceStart = now();
+        do {
+          if (!cursor) {
+            if (index >= pages.length) {
+              // Nothing stays queued, and every note ends on the page that
+              // holds its reference, including pages past the budget.
+              result.forEach(function (page) {
+                flushPending(page);
+                placeNotes(page, notes, referencedNotes(page, notes, null));
+              });
+              resolve(result);
+              return;
+            }
+            cursor = pages[index];
+            index += 1;
+            result.push(cursor);
+          }
+          var next = null;
+          if (budget > 0) {
+            budget -= 1;
+            next = splitPage(cursor, notes);
+          }
+          if (next) {
+            result.push(next);
+            cursor = next;
+          } else {
+            flushPending(cursor);
+            cursor = null;
+          }
+        } while (now() - sliceStart < SLICE_MS);
+        window.setTimeout(slice, 0);
+      }
+      slice();
     });
-    // Every note ends on the page that holds its reference, including pages
-    // past the pagination budget.
-    result.forEach(function (page) {
-      placeNotes(page, notes, referencedNotes(page, notes, null));
-    });
-    return result;
   }
 
-  // The reader pane stays hidden until the first render finishes, and a hidden
-  // element measures zero, so it is laid out invisibly for the measurement.
-  function paginateMeasurable(pages) {
-    var pane = elements.readerPane;
-    var hidden = pane.hidden;
-    if (hidden) {
-      pane.style.visibility = "hidden";
-      pane.hidden = false;
-    }
-    try {
-      return paginatePages(pages);
-    } finally {
-      if (hidden) {
-        pane.hidden = true;
-        pane.style.visibility = "";
+  // A hidden element measures zero, so the pages are laid out invisibly while
+  // they are split: the reader pane, if hidden, is shown out of the flow, and
+  // the document area is hidden until the pages are final. The newest render
+  // owns this state; a stopped one leaves it to its successor.
+  var measuring = null;
+
+  function beginMeasuring(serial) {
+    if (!measuring) {
+      var pane = elements.readerPane;
+      measuring = { paneWasHidden: pane.hidden };
+      if (pane.hidden) {
+        pane.style.visibility = "hidden";
+        pane.style.position = "absolute";
+        pane.style.inset = "0";
+        pane.hidden = false;
       }
+      elements.docBody.style.visibility = "hidden";
     }
+    measuring.serial = serial;
+  }
+
+  // A stopped render leaves its half-split pages hidden; the next render
+  // that shows a document clears it (showDocumentBody).
+  function endMeasuring(serial, stopped) {
+    if (!measuring || measuring.serial !== serial) {
+      return;
+    }
+    var pane = elements.readerPane;
+    if (measuring.paneWasHidden) {
+      pane.hidden = true;
+      pane.style.visibility = "";
+      pane.style.position = "";
+      pane.style.inset = "";
+    }
+    if (!stopped) {
+      showDocumentBody();
+    }
+    measuring = null;
+  }
+
+  function showDocumentBody() {
+    elements.docBody.style.visibility = "";
+  }
+
+  function paginateMeasurable(pages, serial) {
+    beginMeasuring(serial);
+    return paginatePages(pages, serial).then(function (result) {
+      endMeasuring(serial, !result);
+      return result;
+    }, function (error) {
+      endMeasuring(serial);
+      throw error;
+    });
   }
 
   // docx-preview writes a sub- or superscript, a radical's degree, and a
@@ -1176,11 +1459,15 @@
       elements.docBody.replaceChildren.apply(elements.docBody, body);
       // Splitting measures the attached, unzoomed pages, before
       // prepareDocumentDom marks them lazy and numbers their page fields.
-      if (view === "page" && pages.length) {
-        pages = paginateMeasurable(pages);
-      }
-      prepareDocumentDom(pages.length ? pages : [elements.docBody], 0, Math.max(1, pages.length));
-      return Promise.resolve({ movedWhileLoading: false });
+      var paginated = view === "page" && pages.length
+        ? paginateMeasurable(pages, serial) : Promise.resolve(pages);
+      return paginated.then(function (final) {
+        if (!final) {
+          return null;
+        }
+        prepareDocumentDom(final.length ? final : [elements.docBody], 0, Math.max(1, final.length));
+        return { movedWhileLoading: false };
+      });
     }
     var later = pages.slice(FIRST_BATCH);
     later.forEach(function (page) {
@@ -1226,6 +1513,7 @@
   // The first pages of a long document, readable and scrollable while the
   // rest arrives. Find, zoom, and the view switch wait for the whole document.
   function showLoadingPages(report) {
+    showDocumentBody();
     elements.statePane.hidden = true;
     elements.readerPane.hidden = false;
     delete elements.statePane.dataset.state;
@@ -1256,6 +1544,7 @@
 
     elements.statePane.hidden = true;
     elements.readerPane.hidden = false;
+    showDocumentBody();
     delete elements.statePane.dataset.state;
     root.setAttribute("data-has-document", "");
     displayed = true;
@@ -1789,7 +2078,9 @@
     var factor = effectiveZoom();
     var ratio = keepPosition ? scrollRatio() : 0;
     var wrapper = elements.docBody.querySelector(".docx-wrapper");
-    if (wrapper) {
+    // Pages being split are measured at 100 percent; finishRender applies the
+    // zoom once they are final.
+    if (wrapper && !measuring) {
       var identity = Math.abs(factor - 1) < 0.001;
       if (supportsZoom) {
         wrapper.style.zoom = identity ? "" : String(factor);
@@ -2557,16 +2848,17 @@
     }
   });
 
+  // Fit and automatic zoom follow the window once a resize settles. Each zoom
+  // lays out the whole document again: on every frame of a drag, a 62-page
+  // document dropped to three or four frames a second.
   window.addEventListener("resize", function () {
-    if (resizeFrame) {
-      return;
-    }
-    resizeFrame = window.requestAnimationFrame(function () {
-      resizeFrame = 0;
+    window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(function () {
+      resizeTimer = 0;
       if (displayed && zoomMode !== "fixed") {
         applyZoom(true);
       }
-    });
+    }, RESIZE_SETTLE_MS);
   });
   if (systemTheme.addEventListener) {
     systemTheme.addEventListener("change", function () {

@@ -15,7 +15,7 @@ import {
   stageAssets
 } from "./fake-host.mjs";
 import { makeBigDocx } from "./make-big-docx.mjs";
-import { makeColumnsDocx, makeTablesDocx } from "./make-columns-docx.mjs";
+import { makeColumnsDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
 let browser;
@@ -1457,6 +1457,146 @@ describe("page view follows Word's tables and equations", () => {
       }
       const labels = parts.flatMap((part) => part.rows.map((row) => row[0].text)).filter((text) => /^Row \d+$/.test(text));
       assert.deepEqual(labels, Array.from({ length: longRows }, (_, index) => `Row ${index + 1}`));
+    });
+  });
+});
+
+describe("page view splits long documents without freezing the window", () => {
+
+  // Splitting kept the whole rest of the document on the page being split, so
+  // every split laid out everything after it, in one task: a 62-page
+  // supplement with 52 tables froze the window for 20 seconds, and this
+  // document for about 1.5 seconds. Pages now take blocks from a queue and
+  // split in slices (P-04).
+  test("splitting a long document into pages never blocks the page for long", async () => {
+    await withHost({}, async (host) => {
+      await host.page.evaluate(() => {
+        window.__longTasks = [];
+        new PerformanceObserver((list) => list.getEntries().forEach((entry) =>
+          window.__longTasks.push(Math.round(entry.duration)))).observe({ type: "longtask" });
+      });
+      const { bytes, report } = await makeBigDocx(60, { pageBreaks: false });
+      const rendered = await host.openDocument({ bytes, report, fileName: "unbroken-60.docx" });
+      const result = await host.page.evaluate(() => {
+        const text = document.getElementById("docBody").textContent;
+        return {
+          longest: Math.max(0, ...window.__longTasks),
+          paragraphs: document.querySelectorAll("#docBody section.docx article > p:not([data-ld-continued])").length,
+          firstParagraphs: text.split("Page 1, paragraph 1.").length - 1,
+          lastParagraphs: text.split("Page 60, paragraph 7.").length - 1,
+          hidden: document.getElementById("docBody").style.visibility
+        };
+      });
+      assert.ok(rendered.pages >= 40, `${rendered.pages} pages`);
+      // 60 x 7 body paragraphs and 6 chapter headings, each shown once.
+      assert.equal(result.paragraphs, 426);
+      assert.equal(result.firstParagraphs, 1);
+      assert.equal(result.lastParagraphs, 1);
+      assert.equal(result.hidden, "", "the pages are shown once they are final");
+      assert.ok(result.longest < 400, `longest task ${result.longest} ms`);
+      // Each split lays out about one page: 210 ms here, 1,340 ms when every
+      // split lays out the rest of the document.
+      assert.ok(rendered.ms < 800, `reader ${rendered.ms} ms`);
+      console.log(`# unbroken 60 pages: ${rendered.pages} pages, reader ${rendered.ms} ms, longest task ${result.longest} ms`);
+    });
+  });
+
+  test("a document opened while another is being split into pages replaces it", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeBigDocx(200, { pageBreaks: false });
+      const second = fixture("headings.docx");
+      await host.openDocument({ tab: 1, generation: 1, bytes, report, fileName: "unbroken-200.docx", wait: false });
+      // The first document is attached and being split: its pages are hidden.
+      await host.page.waitForFunction(() => document.getElementById("docBody").style.visibility === "hidden" &&
+        document.querySelectorAll("#docBody section.docx").length > 0, null, { timeout: 30000 });
+      const rendered = await host.openDocument({ tab: 1, generation: 2, bytes: second.bytes, report: second.report, fileName: "headings.docx" });
+      assert.equal(rendered.generation, 2);
+      await host.page.waitForTimeout(500);
+      assert.deepEqual(host.ofType("rendered").map((message) => message.generation), [2]);
+      assert.equal(host.ofType("renderFailed").length, 0);
+      const state = await host.page.evaluate(() => ({
+        text: document.getElementById("docBody").textContent,
+        bodyVisibility: document.getElementById("docBody").style.visibility,
+        paneHidden: document.getElementById("readerPane").hidden,
+        panePosition: document.getElementById("readerPane").style.position,
+        renderState: document.documentElement.dataset.renderState
+      }));
+      assert.ok(state.text.includes("Quarterly field report"));
+      assert.ok(!state.text.includes("Page 1, paragraph 1."), "nothing of the first document is left");
+      assert.equal(state.bodyVisibility, "");
+      assert.equal(state.paneHidden, false);
+      assert.equal(state.panePosition, "");
+      assert.equal(state.renderState, "ready");
+      assert.equal(await host.page.textContent("#fileName"), "headings.docx");
+    });
+  });
+
+  // A page's last block can end inside its own spacing after: the page is full
+  // but no block lies past it. With blocks waiting off the page, the first
+  // version of the queue stopped there and left the rest on one page.
+  test("a page that ends inside a paragraph's spacing after still splits", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report, count } = await makeSpacedDocx({ after: 880 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "spaced.docx" });
+      const pages = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"))
+        .map((page) => ({ height: page.offsetHeight, lines: page.querySelectorAll(":scope > article > p").length })));
+      // Word 16 and LeanDoc 0.1.2 before the queue: 12 lines on each of 8 pages, then 4.
+      assert.equal(rendered.pages, 9);
+      assert.deepEqual(pages.map((page) => page.lines), [12, 12, 12, 12, 12, 12, 12, 12, 4]);
+      assert.ok(pages.every((page) => page.height === pages[0].height), `heights ${pages.map((page) => page.height)}`);
+      assert.equal(pages.reduce((sum, page) => sum + page.lines, 0), count);
+    });
+  });
+
+  // Every split moved all remaining rows of a long table to the next page and
+  // laid them out again: 4,000 rows took 47 seconds.
+  test("a table of 1,500 rows splits without freezing the window and keeps every row once", async () => {
+    await withHost({}, async (host) => {
+      await host.page.evaluate(() => {
+        window.__longTasks = [];
+        new PerformanceObserver((list) => list.getEntries().forEach((entry) =>
+          window.__longTasks.push(Math.round(entry.duration)))).observe({ type: "longtask" });
+      });
+      const { bytes, report } = await makeTablesDocx({ longRows: 1500 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "long-table.docx" });
+      const result = await host.page.evaluate(() => ({
+        longest: Math.max(0, ...window.__longTasks),
+        labels: Array.from(document.querySelectorAll("#docBody table"))
+          .filter((table) => table.textContent.includes("A longer description of row"))
+          .flatMap((table) => Array.from(table.rows).map((row) => row.cells[0].textContent.trim()))
+          .filter((text) => /^Row \d+$/.test(text))
+      }));
+      assert.deepEqual(result.labels, Array.from({ length: 1500 }, (_, index) => `Row ${index + 1}`));
+      assert.ok(result.longest < 800, `longest task ${result.longest} ms`);
+      // Waiting rows were once put back all at once on the page where the
+      // table stopped, clipped by the page: 26 pages. The rows split as before
+      // the row queue: 27 pages.
+      assert.equal(rendered.pages, 27);
+      console.log(`# 1,500-row table: ${rendered.pages} pages, reader ${rendered.ms} ms, longest task ${result.longest} ms`);
+    });
+  });
+
+  // An error in a later slice of splitting used to leave the open hanging,
+  // with the document hidden and no renderFailed.
+  test("an error while splitting pages ends the render with renderFailed", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeBigDocx(200, { pageBreaks: false });
+      const failed = host.waitFor((message) => message.type === "renderFailed", 30000);
+      await host.openDocument({ bytes, report, fileName: "unbroken-200.docx", wait: false });
+      await host.page.waitForFunction(() => document.getElementById("docBody").style.visibility === "hidden" &&
+        document.querySelectorAll("#docBody section.docx").length > 1, null, { timeout: 30000, polling: 5 });
+      await host.page.evaluate(() => {
+        const measure = Element.prototype.getBoundingClientRect;
+        Element.prototype.getBoundingClientRect = function () {
+          Element.prototype.getBoundingClientRect = measure;
+          throw new Error("injected measurement failure");
+        };
+      });
+      const message = await failed;
+      assert.match(message.message, /injected measurement failure/);
+      assert.equal(await host.page.evaluate(() => document.documentElement.dataset.renderState), "failed");
+      // The deliberate error is the only one the page logs.
+      host.consoleErrors.length = 0;
     });
   });
 });

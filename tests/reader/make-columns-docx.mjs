@@ -167,6 +167,23 @@ export async function makeTablesDocx({ longRows = 90 } = {}) {
   return { bytes, longRows, report: report(bytes, []) };
 }
 
+// One-line paragraphs with exact 12 pt lines and `after` twips of spacing after,
+// in one section with no page break. With 880 twips, a page's twelfth line ends
+// above the bottom margin while its spacing after reaches past it.
+export async function makeSpacedDocx({ count = 100, after = 880 } = {}) {
+  const body = [];
+  for (let index = 1; index <= count; index += 1) {
+    body.push(`<w:p><w:pPr><w:spacing w:before="0" w:after="${after}" w:line="240" w:lineRule="exact"/></w:pPr>` +
+      `<w:r><w:t xml:space="preserve">Spaced line ${index}.</w:t></w:r></w:p>`);
+  }
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${body.join("\n")}
+<w:sectPr>${PAGE}<w:cols w:space="720"/></w:sectPr>
+</w:body></w:document>`;
+  const bytes = await packDocx(documentXml);
+  return { bytes, count, report: report(bytes, []) };
+}
+
 // longParagraphs: paragraphs in the long two-column section (S2), which runs over
 // several pages. Every paragraph carries its section and index, so tests can find it.
 export async function makeColumnsDocx({ longParagraphs = 60 } = {}) {
