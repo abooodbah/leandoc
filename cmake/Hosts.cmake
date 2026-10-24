@@ -130,6 +130,11 @@ if(WIN32)
             "${LEANDOC_RUNTIME_ASSETS}" "$<TARGET_FILE_DIR:LeanDoc>/assets"
     VERBATIM)
 
+  # leandoc-inspect ships in the Windows ZIP beside LeanDoc.exe, so it carries
+  # the same ProductName and ProductVersion. The header is generated above.
+  target_sources(leandoc-inspect PRIVATE "${LEANDOC_ROOT}/tools/inspect/leandoc-inspect.rc")
+  target_include_directories(leandoc-inspect PRIVATE "${LEANDOC_GENERATED_DIR}")
+
   if(BUILD_TESTING AND LEANDOC_ENABLE_GUI_TESTS)
     add_test(NAME leandoc-windows-host
       COMMAND LeanDoc --smoke-test "${LEANDOC_SMOKE_FIXTURE}")
