@@ -536,6 +536,23 @@ code {
   line-height: 1.6;
 }
 
+.policy-copy h3 {
+  margin: var(--space-8) 0 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.policy-copy ul {
+  max-width: 40rem;
+  margin: var(--space-4) 0 0;
+  padding-left: var(--space-6);
+  color: var(--text-secondary);
+}
+
+.policy-copy code {
+  overflow-wrap: anywhere;
+}
+
 .check-list {
   display: grid;
   gap: var(--space-3);

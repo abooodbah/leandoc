@@ -394,6 +394,59 @@ look, the same plain words, and the same MIT licence.
 - [LeanRows](https://github.com/abooodbah/leanrows): open very large CSV, log,
   and JSON Lines files on Windows without loading them into memory.
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+Signing covers the two LeanDoc programs in the Windows ZIP, `LeanDoc.exe` and
+`tools\leandoc-inspect.exe`. GitHub Actions builds them from this repository
+with [build.yml](.github/workflows/build.yml) when a release tag is pushed, and
+each signing request is approved by hand before it is signed.
+`WebView2Loader.dll` is Microsoft's file and is not signed by this project.
+Releases published before signing was set up are not signed, and each
+release's notes say whether its Windows programs are signed. The steps are in
+[docs/code-signing.md](docs/code-signing.md).
+
+### Team roles
+
+LeanDoc is a one-person project. The same person writes, reviews, and
+approves every change and every release.
+
+- Committers and reviewers: [abooodbah](https://github.com/abooodbah)
+- Approvers: [abooodbah](https://github.com/abooodbah)
+
+Contributions from others arrive as pull requests, and the committer reviews
+each one before it is merged.
+
+### Privacy policy
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+
+LeanDoc's own code makes no network requests. It has no telemetry, no update
+check, and no account, and it never fetches anything a document points to:
+remote templates, linked images, and include fields are removed or keep only
+their saved result. A link you click opens in your browser or mail app, and
+**Open Word for the web** opens a web page in your browser; those requests
+are made by those apps after your click.
+
+The page is drawn by a web runtime that is not part of LeanDoc: on Windows,
+the Microsoft Edge WebView2 Runtime, a Microsoft component that is installed
+and updated separately; WebKitGTK on Linux; and WKWebView on macOS. That
+runtime may contact its vendor on its own, under its vendor's terms.
+[Privacy](#privacy) says what has been observed so far.
+
+### Uninstall
+
+- Windows, installed with `installer\install.ps1`: Settings > Apps >
+  Installed apps > LeanDoc, or the installed `uninstall.ps1`, as described in
+  [Package use](#windows-x64) and the [installer notes](installer/README.md).
+- Windows, portable ZIP: delete the extracted folder. The settings key
+  `HKCU\Software\LeanDoc` and the WebView2 folder `%LOCALAPPDATA%\LeanDoc`
+  stay until you delete them.
+- Linux: `sudo apt remove leandoc`. Your settings file
+  `$XDG_CONFIG_HOME/leandoc/settings.ini` stays until you delete it.
+- macOS: move `LeanDoc.app` to the Trash.
+
 ## License
 
 LeanDoc is free to use, modify, and redistribute under the

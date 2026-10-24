@@ -199,6 +199,107 @@ if (exists("site/index.html")) {
   check(!releaseMode, "a release must ship site/index.html");
 }
 
+// --- Code signing (SignPath Foundation, docs/code-signing.md) -------------------
+
+// SignPath Foundation's terms ask for a "Code signing policy" section with
+// this credit, the team roles, and the privacy policy on the home page, the
+// download page, and the release notes. Releases up to 0.1.2 were published
+// unsigned before the policy existed, so their notes are not checked.
+const signingCredit = "Free code signing provided by [SignPath.io](https://about.signpath.io/), " +
+  "certificate by [SignPath Foundation](https://signpath.org/)";
+const signingRoles = [
+  "Committers and reviewers: [abooodbah](https://github.com/abooodbah)",
+  "Approvers: [abooodbah](https://github.com/abooodbah)"
+];
+const privacySentence = "This program will not transfer any information to other networked systems " +
+  "unless specifically requested by the user or the person installing or operating it.";
+function checkSigningPolicy(file, text) {
+  check(/^#{2,3} Code signing policy$/m.test(text), `${file} must have a section titled "Code signing policy"`);
+  check(text.includes(signingCredit), `${file} must credit SignPath.io and SignPath Foundation with their links`);
+  for (const role of signingRoles) {
+    check(text.includes(role), `${file} must name the team role "${role}"`);
+  }
+  check(text.includes(privacySentence), `${file} must state the SignPath privacy policy sentence`);
+}
+checkSigningPolicy("README.md", readme);
+check(/^### Privacy policy$/m.test(readme) && /^### Team roles$/m.test(readme) && /^### Uninstall$/m.test(readme),
+  "README.md's code signing policy must have Team roles, Privacy policy, and Uninstall sections");
+check(exists("docs/releases/TEMPLATE.md"), "docs/releases/TEMPLATE.md is missing");
+if (exists("docs/releases/TEMPLATE.md")) {
+  checkSigningPolicy("docs/releases/TEMPLATE.md", read("docs/releases/TEMPLATE.md"));
+}
+const numericVersion = (text) => text.split(".").map(Number);
+const isAfter = (a, b) => {
+  const [x, y] = [numericVersion(a), numericVersion(b)];
+  for (let i = 0; i < 3; i += 1) {
+    if (x[i] !== y[i]) return x[i] > y[i];
+  }
+  return false;
+};
+for (const name of readdirSync(path.join(root, "docs/releases"))) {
+  const match = name.match(/^v(\d+\.\d+\.\d+)\.md$/);
+  if (match && isAfter(match[1], "0.1.2")) {
+    checkSigningPolicy(`docs/releases/${name}`, read(`docs/releases/${name}`));
+  }
+}
+
+// The artifact configuration signs exactly the two LeanDoc programs and checks
+// their product name and version; WebView2Loader.dll is Microsoft's.
+const signpathConfigPath = ".signpath/artifact-configuration.xml";
+check(exists(signpathConfigPath), `${signpathConfigPath} is missing`);
+if (exists(signpathConfigPath)) {
+  const config = read(signpathConfigPath);
+  check(config.includes('xmlns="http://signpath.io/artifact-configuration/v1"'),
+    `${signpathConfigPath} must use the SignPath artifact-configuration v1 namespace`);
+  check(/<parameter name="version" required="true" \/>/.test(config),
+    `${signpathConfigPath} must take the release version as a required parameter`);
+  const signedFiles = [...config.matchAll(/<pe-file path="([^"]+)"([^>]*)>\s*<authenticode-sign \/>/g)];
+  check(JSON.stringify(signedFiles.map((m) => m[1]).sort()) ===
+    JSON.stringify(["LeanDoc.exe", "tools/leandoc-inspect.exe"]),
+    `${signpathConfigPath} must sign exactly LeanDoc.exe and tools/leandoc-inspect.exe`);
+  for (const [, file, attributes] of signedFiles) {
+    check(attributes.includes('product-name="LeanDoc"') && attributes.includes('product-version="${version}"'),
+      `${signpathConfigPath} must require ProductName LeanDoc and the release ProductVersion for ${file}`);
+  }
+  check(!/<(?!!--)[^>]*WebView2Loader/i.test(config.replace(/<!--[\s\S]*?-->/g, "")),
+    `${signpathConfigPath} must never sign WebView2Loader.dll`);
+}
+
+// Both signed programs carry ProductName LeanDoc and the generated version.
+const inspectResource = exists("tools/inspect/leandoc-inspect.rc") ? read("tools/inspect/leandoc-inspect.rc") : "";
+for (const [file, text] of [["src/windows/LeanDoc.rc", resource], ["tools/inspect/leandoc-inspect.rc", inspectResource]]) {
+  check(text.includes('VALUE "ProductName", "LeanDoc"'), `${file} must set ProductName to LeanDoc`);
+  check(text.includes('VALUE "ProductVersion", LEANDOC_VERSION_STRING') &&
+    text.includes("PRODUCTVERSION LEANDOC_VERSION_MAJOR") && !/\b\d+,\d+,\d+,\d+\b/.test(text),
+    `${file} must take ProductVersion from the generated header`);
+}
+check(read("cmake/Hosts.cmake").includes(
+  'target_sources(leandoc-inspect PRIVATE "${LEANDOC_ROOT}/tools/inspect/leandoc-inspect.rc")'),
+  "cmake/Hosts.cmake must compile the leandoc-inspect version resource on Windows");
+
+// The workflow signs only on a release tag once SignPath is configured, sends
+// only the two programs, and packages the signed files with -Signed.
+const signingGuard = "if: vars.SIGNPATH_ORGANIZATION_ID != '' && startsWith(github.ref, 'refs/tags/v')";
+check(workflow.split(signingGuard).length - 1 === 3,
+  "build.yml must guard the three signing steps with the SIGNPATH_ORGANIZATION_ID and tag condition");
+for (const required of [
+  "uses: signpath/github-action-submit-signing-request@v2",
+  "organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}",
+  "api-token: ${{ secrets.SIGNPATH_API_TOKEN }}",
+  "project-slug: leandoc",
+  "signing-policy-slug: release-signing",
+  "github-artifact-id: ${{ steps.signing-input.outputs.artifact-id }}",
+  "wait-for-completion: true",
+  "output-artifact-directory: ${{ runner.temp }}/signed",
+  "&& '-Signed' || ''"
+]) {
+  check(workflow.includes(required), `build.yml signing must include: ${required}`);
+}
+const signingUpload = workflow.match(/name: signing-input-windows-x64\s+path: \|\s+([\s\S]*?)\n\s+if-no-files-found/);
+check(signingUpload && signingUpload[1].split(/\s+/).filter(Boolean).join(" ") ===
+  "dist/LeanDoc.exe dist/tools/leandoc-inspect.exe",
+  "build.yml must send exactly dist/LeanDoc.exe and dist/tools/leandoc-inspect.exe for signing");
+
 // --- Notices --------------------------------------------------------------------
 
 check(exists("THIRD_PARTY_NOTICES.md"), "THIRD_PARTY_NOTICES.md is missing");

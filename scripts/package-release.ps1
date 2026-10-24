@@ -5,12 +5,18 @@ param(
   [ValidateSet('x64')]
   [string]$Platform = 'x64',
   [string]$DistPath,
-  [string]$OutputPath
+  [string]$OutputPath,
+  [switch]$Signed
 )
 
 # Creates release\LeanDoc-vX-windows-x64.zip and its .sha256 sidecar from the
 # staged dist\ payload. Entries are sorted and carry a fixed timestamp, so the
 # same inputs always give the same archive.
+#
+# -Signed is for the release build after SignPath signed LeanDoc.exe and
+# tools\leandoc-inspect.exe in DistPath. It checks both signatures and says
+# in INSTALL.txt that the build is signed. Without it the package is the
+# unsigned one, as before.
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -127,12 +133,29 @@ try {
       -Destination (Join-Path $packagedInstallerRoot $installerName) -Force
   }
 
+  if ($Signed) {
+    foreach ($signedName in @('LeanDoc.exe', 'tools\leandoc-inspect.exe')) {
+      $signature = Get-AuthenticodeSignature -LiteralPath (Join-Path $packageRoot $signedName)
+      if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+        throw ('-Signed was given but {0} has no valid signature: {1}' -f $signedName, $signature.Status)
+      }
+    }
+    $trustText = @(
+      'LeanDoc.exe and tools\leandoc-inspect.exe are signed. Free code signing',
+      'provided by SignPath.io, certificate by SignPath Foundation. Compare the',
+      'ZIP with the .sha256 file from the same GitHub Release before you run it.'
+    )
+  } else {
+    $trustText = @(
+      'This build is not signed. Windows may show an unknown-publisher or',
+      'SmartScreen warning. Compare the ZIP with the .sha256 file from the same',
+      'GitHub Release before you run it.'
+    )
+  }
   $installText = @(
     ('LeanDoc v{0} for Windows {1}' -f $normalizedVersion, $Platform),
-    '',
-    'This build is not signed. Windows may show an unknown-publisher or',
-    'SmartScreen warning. Compare the ZIP with the .sha256 file from the same',
-    'GitHub Release before you run it.',
+    ''
+  ) + $trustText + @(
     '',
     'Portable use:',
     '  Extract the complete archive, then run LeanDoc.exe.',

@@ -369,6 +369,61 @@
       </div>
     </section>
 
+    <section class="section" id="code-signing" aria-labelledby="code-signing-heading">
+      <div class="container">
+        <div class="section-copy section-intro policy-copy">
+          <p class="eyebrow">Signing and privacy</p>
+          <h2 id="code-signing-heading">Code signing policy</h2>
+          <p class="section-lead">
+            Free code signing provided by <a href="https://about.signpath.io/">SignPath.io</a>, certificate by <a href="https://signpath.org/">SignPath Foundation</a>.
+          </p>
+          <p>
+            Signing covers the two LeanDoc programs in the Windows ZIP,
+            <code>LeanDoc.exe</code> and <code>tools\leandoc-inspect.exe</code>.
+            GitHub Actions builds them from the public repository when a
+            release tag is pushed, and each signing request is approved by hand
+            before it is signed. <code>WebView2Loader.dll</code> is Microsoft's
+            file and is not signed by this project. Releases published before
+            signing was set up are not signed, and each release's notes say
+            whether its Windows programs are signed.
+          </p>
+          <h3>Team roles</h3>
+          <p>
+            LeanDoc is a one-person project. The same person writes, reviews,
+            and approves every change and every release.
+          </p>
+          <ul>
+            <li>Committers and reviewers: <a href="https://github.com/abooodbah">abooodbah</a></li>
+            <li>Approvers: <a href="https://github.com/abooodbah">abooodbah</a></li>
+          </ul>
+          <h3>Privacy policy</h3>
+          <p>
+            This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+          </p>
+          <p>
+            LeanDoc's own code makes no network requests. It has no telemetry,
+            update check, or account, and it never fetches anything a document
+            points to. A link you click opens in your browser or mail app, and
+            Open Word for the web opens a web page in your browser, only after
+            your click. The page is drawn by a web runtime that is not part of
+            LeanDoc: on Windows, the Microsoft Edge WebView2 Runtime, a
+            Microsoft component installed and updated separately; WebKitGTK on
+            Linux; and WKWebView on macOS. That runtime may contact its vendor
+            on its own, under its vendor's terms.
+          </p>
+          <h3>Uninstall</h3>
+          <p>
+            Remove an installed Windows copy in Settings &gt; Apps &gt; Installed
+            apps &gt; LeanDoc. Delete the folder of a portable copy. On Linux, run
+            <code>sudo apt remove leandoc</code>. On macOS, move
+            <code>LeanDoc.app</code> to the Trash. The
+            <a href="https://github.com/abooodbah/leandoc#uninstall">README</a>
+            lists the settings each one leaves behind.
+          </p>
+        </div>
+      </div>
+    </section>
+
     <section class="closing-section">
       <div class="container closing-layout">
         <div>
