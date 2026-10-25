@@ -1190,7 +1190,9 @@
     (numberings || []).forEach(function (numbering) {
       numbering.format = mapNumberFormat(numbering.format);
       var rStyle = numbering.rStyle || (numbering.rStyle = {});
-      rStyle["font-family"] = resolveThemeFonts(rStyle["font-family"], slots);
+      if (rStyle["font-family"]) {
+        rStyle["font-family"] = resolveThemeFonts(rStyle["font-family"], slots);
+      }
       if (typeof numbering.levelText === "string") {
         var key = symbolFontKey(rStyle["font-family"]);
         if (key || hasPrivateUse(numbering.levelText)) {
