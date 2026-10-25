@@ -3,6 +3,28 @@
 All notable LeanDoc changes are recorded here. The project follows semantic
 versioning.
 
+## [0.1.3] - unreleased
+
+### Fixed
+
+- Page view showed a 46-page survey saved by Word as 87 pages. Word saves
+  where each page started, and the renderer starts a page at each of those
+  places, so when LeanDoc's text ran a few lines past a page, those lines
+  took a page of their own. Text that runs past such a page start now
+  continues on the page that starts there. Explicit page and section breaks
+  are unchanged, and a page start Word saved right after an explicit page
+  break no longer adds an empty page.
+- Text set taller than in Word: runs in the complex-script theme font
+  (`majorBidi`, `minorBidi`) printed in the body font instead of the theme's
+  font for the document's bidi language; a paragraph whose runs and mark are
+  smaller than its style was spaced at the style's size; contextual spacing
+  was ignored; and fixed-layout tables were fitted to their content.
+- A paragraph whose text and mark were deleted as tracked changes showed as
+  an empty line.
+
+A copy of the survey with its letters scrambled showed as 87 pages and now
+shows as 49; Word 365 lays it out on 48.
+
 ## [0.1.2] - 2026-10-21
 
 ### Fixed

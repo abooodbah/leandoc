@@ -875,6 +875,298 @@
     return hidden;
   }
 
+  function partRoot(part) {
+    var xml = part && part._xmlDocument;
+    return xml ? xml.documentElement || xml.firstElementChild : null;
+  }
+
+  function elementsNamed(parent, localName) {
+    return Array.prototype.filter.call(parent ? parent.children || [] : [], function (child) {
+      return child.localName === localName;
+    });
+  }
+
+  // Theme fonts docx-preview leaves undefined. It defines only
+  // --docx-majorHAnsi-font and --docx-minorHAnsi-font, so a run in
+  // w:asciiTheme="majorBidi" fell back to the paragraph's font. Word takes
+  // the theme's complex-script typeface, and when that is empty, the
+  // theme's font for the script of the w:themeFontLang w:bidi language:
+  // Times New Roman for Arabic in Office's own themes.
+  var BIDI_SCRIPTS = { ar: "Arab", fa: "Arab", ur: "Arab", ps: "Arab", sd: "Arab", ug: "Arab",
+    he: "Hebr", yi: "Hebr" };
+
+  function themeFontSlots(doc) {
+    var theme = partRoot(doc.themePart);
+    var elements = theme ? childNamed(theme, "themeElements") : null;
+    var scheme = elements ? childNamed(elements, "fontScheme") : null;
+    var settings = partRoot(doc.settingsPart);
+    var language = settings ? childNamed(settings, "themeFontLang") : null;
+    var script = BIDI_SCRIPTS[(getAttr(language, "bidi") || "").split("-")[0].toLowerCase()] || "";
+    var slots = {};
+    ["major", "minor"].forEach(function (kind) {
+      var font = scheme ? childNamed(scheme, kind + "Font") : null;
+      var typeface = font ? getAttr(childNamed(font, "cs"), "typeface") || "" : "";
+      if (font && !typeface && script) {
+        elementsNamed(font, "font").forEach(function (entry) {
+          if (getAttr(entry, "script") === script) {
+            typeface = getAttr(entry, "typeface") || "";
+          }
+        });
+      }
+      if (typeface) {
+        slots[kind + "Bidi"] = typeface;
+      }
+    });
+    return slots;
+  }
+
+  function resolveThemeFonts(value, slots) {
+    if (typeof value !== "string" || value.indexOf("var(--docx-") < 0) {
+      return value;
+    }
+    return value.replace(/var\(--docx-(\w+)-font\)/g, function (whole, slot) {
+      return Object.prototype.hasOwnProperty.call(slots, slot)
+        ? "\"" + slots[slot].replace(/["\\]/g, "") + "\"" : whole;
+    });
+  }
+
+  // docx-preview reads w:tblLayout from a w:val attribute, but Word writes
+  // w:type="fixed", so every fixed table was laid out to fit its content.
+  // Narrow columns wrapped their text and made the rows taller than Word's.
+  function fixTableLayouts(modelBody, xmlBody) {
+    var modelTables = [];
+    var xmlTables = [];
+    modelBlocks(modelBody ? modelBody.children : [], [], modelTables);
+    if (xmlBody) {
+      xmlBlocks(xmlBody, false, [], xmlTables);
+    }
+    if (xmlTables.length !== modelTables.length) {
+      return 0;
+    }
+    var fixed = 0;
+    xmlTables.forEach(function (table, position) {
+      var properties = childNamed(table, "tblPr");
+      if (getAttr(properties && childNamed(properties, "tblLayout"), "type") === "fixed") {
+        modelTables[position].cssStyle = modelTables[position].cssStyle || {};
+        modelTables[position].cssStyle["table-layout"] = "fixed";
+        fixed += 1;
+      }
+    });
+    return fixed;
+  }
+
+  // Word ignores the spacing before a paragraph with w:contextualSpacing when
+  // the paragraph above is in the same style, and the spacing after it when
+  // the paragraph below is. docx-preview ignored the setting, so a list of
+  // references in such a style had a gap between every two entries.
+  var NON_BLOCKS = /^(bookmarkStart|bookmarkEnd|proofErr|permStart|permEnd|commentRangeStart|commentRangeEnd)$/;
+
+  function contextualStyles(stylesRoot) {
+    var byId = {};
+    elementsNamed(stylesRoot, "style").forEach(function (style) {
+      if (getAttr(style, "type") === "paragraph") {
+        byId[getAttr(style, "styleId")] = style;
+      }
+    });
+    var known = {};
+    return function contextual(id, depth) {
+      if (Object.prototype.hasOwnProperty.call(known, id)) {
+        return known[id];
+      }
+      var style = byId[id];
+      var properties = style && childNamed(style, "pPr");
+      var flag = properties && childNamed(properties, "contextualSpacing");
+      var base = style && childNamed(style, "basedOn");
+      var result = flag ? isOn(flag)
+        : !!base && (depth || 0) < 32 && contextual(getAttr(base, "val"), (depth || 0) + 1);
+      known[id] = result;
+      return result;
+    };
+  }
+
+  function neighbourParagraph(element, step) {
+    var sibling = step < 0 ? element.previousElementSibling : element.nextElementSibling;
+    while (sibling && NON_BLOCKS.test(sibling.localName)) {
+      sibling = step < 0 ? sibling.previousElementSibling : sibling.nextElementSibling;
+    }
+    return sibling && sibling.localName === "p" ? sibling : null;
+  }
+
+  function applyContextualSpacing(modelBody, xmlBody, stylesRoot, defaultId) {
+    var modelParagraphs = [];
+    var xmlParagraphs = [];
+    modelBlocks(modelBody ? modelBody.children : [], modelParagraphs, []);
+    if (xmlBody) {
+      xmlBlocks(xmlBody, false, xmlParagraphs, []);
+    }
+    if (!xmlBody || xmlParagraphs.length !== modelParagraphs.length) {
+      return 0;
+    }
+    var styleIsContextual = contextualStyles(stylesRoot);
+    var paired = new Set(xmlParagraphs);
+    function styleOf(element) {
+      var properties = childNamed(element, "pPr");
+      var name = properties && childNamed(properties, "pStyle");
+      return (name && getAttr(name, "val")) || defaultId || "";
+    }
+    var dropped = 0;
+    xmlParagraphs.forEach(function (element, index) {
+      var properties = childNamed(element, "pPr");
+      var flag = properties && childNamed(properties, "contextualSpacing");
+      var style = styleOf(element);
+      if (!(flag ? isOn(flag) : styleIsContextual(style))) {
+        return;
+      }
+      [[-1, "margin-top"], [1, "margin-bottom"]].forEach(function (side) {
+        var neighbour = neighbourParagraph(element, side[0]);
+        if (neighbour && paired.has(neighbour) && styleOf(neighbour) === style) {
+          var model = modelParagraphs[index];
+          model.cssStyle = model.cssStyle || {};
+          model.cssStyle[side[1]] = "0pt";
+          dropped += 1;
+        }
+      });
+    });
+    return dropped;
+  }
+
+  // In CSS every line of a paragraph is at least as tall as the paragraph's
+  // own font; in Word a line is as tall as the text on it, and the paragraph
+  // mark counts on the last line. References at 10 pt in a 12 pt style were
+  // spaced as 12 pt, and an empty paragraph whose mark is 1 pt took a 12 pt
+  // line. A paragraph takes its mark's size (w:pPr/w:rPr/w:sz) when the mark
+  // is smaller than its style's size, or when the paragraph is empty.
+  function paragraphStyleSize(styleName, byId, fallback) {
+    for (var depth = 0, style = byId[styleName]; style && depth < 32; depth += 1) {
+      var own = (style.styles || []).filter(function (entry) {
+        return entry.target === "p" && entry.values && entry.values["font-size"];
+      })[0];
+      if (own) {
+        return parseFloat(own.values["font-size"]);
+      }
+      style = byId[style.basedOn];
+    }
+    return fallback;
+  }
+
+  function applyMarkSize(paragraph, byId, defaultSize) {
+    var mark = paragraph.runProps && paragraph.runProps.fontSize;
+    var size = parseFloat(mark);
+    if (!(size > 0) || !/pt$/.test(mark)) {
+      return false;
+    }
+    var styleSize = paragraphStyleSize(paragraph.styleName, byId, defaultSize);
+    if (!(size < styleSize) && !(isEmptyParagraph(paragraph) && size !== styleSize)) {
+      return false;
+    }
+    paragraph.cssStyle = paragraph.cssStyle || {};
+    paragraph.cssStyle["font-size"] = mark;
+    return true;
+  }
+
+  // Word saves a w:lastRenderedPageBreak where each page started when it last
+  // laid the document out, and docx-preview starts a page at each one. Where
+  // a page started for that reason only, a bookmark marks it, so the reader
+  // can let text that runs past the page before it continue there
+  // (reader.js flowInto). A saved start at a page or section break adds
+  // nothing; one in the first line of a page that starts anyway made a page
+  // that held only an empty line, and is dropped.
+  var SAVED_PAGE_START = "ld-saved-page-";
+
+  function styleBreaksBefore(styleName, byId) {
+    for (var depth = 0, style = byId[styleName]; style && depth < 32; depth += 1) {
+      var properties = style.paragraphProps;
+      if (properties && properties.pageBreakBefore !== undefined) {
+        return !!properties.pageBreakBefore;
+      }
+      style = byId[style.basedOn];
+    }
+    return false;
+  }
+
+  // The break docx-preview splits a paragraph at (splitBySection): the first
+  // page break or saved page start among the children of its runs.
+  function firstPageBreak(paragraph) {
+    var children = paragraph.children || [];
+    for (var index = 0; index < children.length; index += 1) {
+      var inner = Array.isArray(children[index].children) ? children[index].children : [];
+      for (var at = 0; at < inner.length; at += 1) {
+        var element = inner[at];
+        if (element && element.type === "break" &&
+            (element.break === "page" || element.break === "lastRenderedPageBreak")) {
+          return { child: index, inner: inner, at: at, kind: element.break };
+        }
+      }
+    }
+    return null;
+  }
+
+  var SHOWN_TYPES = /^(text|tab|symbol|drawing|image|vmlPicture|footnoteReference|endnoteReference|mmlMath|mmlMathParagraph)$/;
+
+  function shows(elements) {
+    var found = false;
+    eachModelElement(elements, function (element) {
+      if (SHOWN_TYPES.test(element.type || "") && !(element.type === "text" && !element.text)) {
+        found = true;
+      } else if (element.type === "break" && element.break !== "lastRenderedPageBreak") {
+        found = true;
+      }
+    });
+    return found;
+  }
+
+  function markSavedPageStarts(body, styles) {
+    var byId = {};
+    (styles || []).forEach(function (style) {
+      if (style && style.id) {
+        byId[style.id] = style;
+      }
+    });
+    var stats = { marked: 0, dropped: 0 };
+    var afterSection = false;
+    var afterPageBreak = false;
+    var pending = null;
+    ((body && body.children) || []).forEach(function (block) {
+      if (pending && block && block.type === "paragraph") {
+        block.children = [pending].concat(block.children || []);
+      }
+      pending = null;
+      if (!block || block.type !== "paragraph") {
+        afterSection = false;
+        afterPageBreak = false;
+        return;
+      }
+      var newPage = afterPageBreak || !!block.pageBreakBefore || styleBreaksBefore(block.styleName, byId);
+      var newSection = afterSection;
+      var found = firstPageBreak(block);
+      var children = block.children || [];
+      afterSection = !!block.sectionProps;
+      afterPageBreak = !!found && found.kind === "page" &&
+        !shows(found.inner.slice(found.at + 1).concat(children.slice(found.child + 1)));
+      if (!found || found.kind !== "lastRenderedPageBreak") {
+        return;
+      }
+      if (newPage && !shows(children.slice(0, found.child).concat(found.inner.slice(0, found.at)))) {
+        found.inner.splice(found.at, 1);
+        stats.dropped += 1;
+      } else if (!newPage && !newSection) {
+        pending = { type: "bookmarkStart", name: SAVED_PAGE_START + stats.marked };
+        stats.marked += 1;
+        // The bookmark goes where docx-preview starts the next page, without
+        // changing where it splits: after the break inside its run, after
+        // the run, or at the start of the next paragraph.
+        if (found.at < found.inner.length - 1) {
+          found.inner.splice(found.at + 1, 0, pending);
+          pending = null;
+        } else if (found.child < children.length - 1) {
+          children.splice(found.child + 1, 0, pending);
+          pending = null;
+        }
+      }
+    });
+    return stats;
+  }
+
   // Word hyphenates only when the document turns on automatic hyphenation;
   // docx-preview's own style sheet hyphenates every document. An empty
   // <w:autoHyphenation/> reads as null and means on.
@@ -886,16 +1178,19 @@
 
   function prepareModel(doc) {
     var stats = { bullets: 0, symbols: 0, paragraphs: 0, paired: false, bidiVisualTables: 0,
-      noteReferences: 0, pageFields: 0, autoHyphenation: false, sectionBreakParagraphs: 0, fittedTables: 0 };
+      noteReferences: 0, pageFields: 0, autoHyphenation: false, sectionBreakParagraphs: 0, fittedTables: 0,
+      fixedTables: 0, markSizes: 0, contextualSpacing: 0, savedPageStarts: 0, droppedPageStarts: 0 };
     if (!doc) {
       return stats;
     }
     stats.autoHyphenation = documentHyphenates(doc);
     guardResources(doc);
+    var slots = themeFontSlots(doc);
     var numberings = doc.numberingPart && doc.numberingPart.domNumberings;
     (numberings || []).forEach(function (numbering) {
       numbering.format = mapNumberFormat(numbering.format);
       var rStyle = numbering.rStyle || (numbering.rStyle = {});
+      rStyle["font-family"] = resolveThemeFonts(rStyle["font-family"], slots);
       if (typeof numbering.levelText === "string") {
         var key = symbolFontKey(rStyle["font-family"]);
         if (key || hasPrivateUse(numbering.levelText)) {
@@ -920,6 +1215,9 @@
         style.linked = null;
       }
       (style.styles || []).forEach(function (entry) {
+        if (entry.values && entry.values["font-family"]) {
+          entry.values["font-family"] = resolveThemeFonts(entry.values["font-family"], slots);
+        }
         fixStyleValues(entry.values, entry.target);
         // suppressAutoHyphens="0" only allows the document's hyphenation.
         if (entry.values && entry.values.hyphens === "auto" && !stats.autoHyphenation) {
@@ -1017,10 +1315,31 @@
     var defaultParagraph = (styles || []).filter(function (style) {
       return style && style.target === "p" && style.isDefault && style.id;
     })[0];
+    var xmlDocument = doc.documentPart && doc.documentPart._xmlDocument;
+    var xmlRoot = xmlDocument && (xmlDocument.documentElement || xmlDocument.firstElementChild);
+    var xmlBody = xmlRoot ? childNamed(xmlRoot, "body") : null;
+    var modelBody = doc.documentPart && doc.documentPart.body;
+    stats.fixedTables = fixTableLayouts(modelBody, xmlBody);
+    // The mark's size reaches only the paragraph's own font, and so its runs
+    // keep theirs only when a docDefaults rule sizes every span.
+    var styleById = {};
+    (styles || []).forEach(function (style) {
+      if (style && style.id && style.target === "p") {
+        styleById[style.id] = style;
+      }
+    });
+    var defaultSize = paragraphDefaults && paragraphDefaults.values
+      ? parseFloat(paragraphDefaults.values["font-size"]) : NaN;
+    var spansSized = !!(defaults && defaults.styles.some(function (entry) {
+      return entry.target === "span" && entry.values && entry.values["font-size"];
+    }));
     eachModelElement(roots, function (element) {
       if (element.type === "paragraph") {
         if (!element.styleName && defaultParagraph) {
           element.styleName = defaultParagraph.id;
+        }
+        if (spansSized && applyMarkSize(element, styleById, defaultSize)) {
+          stats.markSizes += 1;
         }
         if (element.cssStyle && element.cssStyle.hyphens === "auto" && !stats.autoHyphenation) {
           delete element.cssStyle.hyphens;
@@ -1033,6 +1352,9 @@
         }
         markPageFields(element, stats);
       } else if (element.type === "run") {
+        if (element.cssStyle && element.cssStyle["font-family"]) {
+          element.cssStyle["font-family"] = resolveThemeFonts(element.cssStyle["font-family"], slots);
+        }
         fixRun(element, stats);
         fixNoteReferenceRun(element, stats);
         markNoteReferences(element);
@@ -1043,14 +1365,16 @@
       }
     });
 
-    var xmlDocument = doc.documentPart && doc.documentPart._xmlDocument;
-    var xmlRoot = xmlDocument && (xmlDocument.documentElement || xmlDocument.firstElementChild);
-    var xmlBody = xmlRoot ? childNamed(xmlRoot, "body") : null;
-    var annotation = annotateBody(doc.documentPart && doc.documentPart.body, xmlBody);
+    var annotation = annotateBody(modelBody, xmlBody);
     stats.paragraphs = annotation.paragraphs;
     stats.paired = annotation.paired;
     stats.bidiVisualTables = annotation.bidiVisualTables;
     stats.borderedTables = annotation.borderedTables;
+    stats.contextualSpacing = applyContextualSpacing(modelBody, xmlBody, partRoot(doc.stylesPart),
+      defaultParagraph && defaultParagraph.id);
+    var saved = markSavedPageStarts(modelBody, styles);
+    stats.savedPageStarts = saved.marked;
+    stats.droppedPageStarts = saved.dropped;
     markNotes(doc.footnotesPart);
     stats.sectionBreakParagraphs = hideSectionBreakParagraphs(doc.documentPart && doc.documentPart.body);
 
@@ -1079,6 +1403,7 @@
     PAGE_FIELD_START: PAGE_FIELD_START,
     NOTE_REFERENCE_ANCHOR: NOTE_REFERENCE_ANCHOR,
     NOTE_ANCHOR: NOTE_ANCHOR,
+    SAVED_PAGE_START: SAVED_PAGE_START,
     normalizeText: normalizeText,
     annotateBody: annotateBody,
     guardResources: guardResources,
