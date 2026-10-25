@@ -16,6 +16,7 @@ import {
 } from "./fake-host.mjs";
 import { makeBigDocx } from "./make-big-docx.mjs";
 import { makeColumnsDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
+import { lineText, makeSavedPagesDocx, makeWordMetricsDocx } from "./make-saved-pages-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
 let browser;
@@ -1597,6 +1598,134 @@ describe("page view splits long documents without freezing the window", () => {
       assert.equal(await host.page.evaluate(() => document.documentElement.dataset.renderState), "failed");
       // The deliberate error is the only one the page logs.
       host.consoleErrors.length = 0;
+    });
+  });
+});
+
+describe("page view follows the page starts Word saved", () => {
+  // Each page's lines, read from the rendered pages.
+  function pageLines(host) {
+    return host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"))
+      .map((page) => page.textContent.match(/Page \d+, line \d+\./g) || []));
+  }
+
+  // A survey that Word lays out on 46 pages showed as 87 in LeanDoc 0.1.2: its
+  // text set a few lines longer on each page than in Word, and docx-preview
+  // starts a page at every page start Word saved, so each page's last lines
+  // took a page of their own. Here 10 saved pages of 38 lines each, 2 more
+  // than a page holds, showed as 20 pages, and 21 with a page break.
+  test("text that runs past a saved page start continues on that page, not on a page of its own", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report, pages, lines } = await makeSavedPagesDocx({ pages: 10, lines: 38, split: 5, pageBreak: 8 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "saved-pages.docx" });
+      const found = await pageLines(host);
+      // Saved pages 1 to 7 hold 266 lines and end with the explicit page
+      // break's own empty line: 7 full pages and 14 lines. The break starts
+      // a page, and saved pages 8 to 10 hold 114 lines: 36, 36, 36, and 6.
+      assert.equal(rendered.pages, 12);
+      assert.deepEqual(found.map((page) => page.length), [36, 36, 36, 36, 36, 36, 36, 14, 36, 36, 36, 6]);
+      assert.equal(found[8][0], lineText(8, 1));
+      const expected = [];
+      for (let page = 1; page <= pages; page += 1) {
+        for (let line = 1; line <= lines; line += 1) {
+          expected.push(lineText(page, line));
+        }
+      }
+      assert.deepEqual(found.flat(), expected);
+      // docx-preview splits the paragraph Word broke between saved pages 5
+      // and 6; once the text flows on, it is one paragraph again.
+      const crossing = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody article > p"))
+        .filter((p) => p.textContent.includes("Page 5, line 38.") || p.textContent.includes("Page 6, line 1."))
+        .map((p) => p.textContent));
+      assert.deepEqual(crossing, ["Page 5, line 37.Page 5, line 38.Page 6, line 1.Page 6, line 2."]);
+    });
+  });
+
+  test("a saved page start where the text fits still starts a page, and one after a page break adds none", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report, pages, lines } = await makeSavedPagesDocx({ pages: 6, lines: 30, pageBreak: 4 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "saved-pages-fit.docx" });
+      const found = await pageLines(host);
+      // Word saves a page start at the top of the page an explicit page break
+      // starts; docx-preview broke at both, which left a page with only an
+      // empty line: 7 pages.
+      assert.equal(rendered.pages, pages);
+      assert.deepEqual(found.map((page) => page.length), Array(pages).fill(lines));
+      assert.deepEqual(found.map((page) => page[0]), Array.from({ length: pages }, (_, index) => lineText(index + 1, 1)));
+    });
+  });
+});
+
+describe("page view follows Word's theme fonts, line heights, spacing, and fixed tables", () => {
+  async function measure(host) {
+    const { bytes, report } = await makeWordMetricsDocx();
+    await host.openDocument({ bytes, report, fileName: "word-metrics.docx" });
+    return host.page.evaluate(() => {
+      const paragraphs = Array.from(document.querySelectorAll("#docBody article p"));
+      const box = (text) => paragraphs.find((p) => p.textContent.includes(text)).getBoundingClientRect();
+      const gap = (above, below) => box(below).top - box(above).bottom;
+      const marker = Array.from(document.querySelectorAll("#docBody span")).find((span) => span.textContent.includes("Theme font marker"));
+      const empty = paragraphs.find((p) => p.previousElementSibling && p.previousElementSibling.textContent.includes("Reference marker"));
+      return {
+        font: getComputedStyle(marker).fontFamily.split(",")[0].replace(/["']/g, "").trim(),
+        references: box("Reference marker one.").height,
+        empty: empty.getBoundingClientRect().height,
+        large: empty.nextElementSibling.getBoundingClientRect().height,
+        contextual: [gap("Contextual one.", "Contextual two."), gap("Contextual two.", "Contextual three."),
+          gap("Contextual three.", "After the contextual")],
+        list: [gap("List item one.", "List item two."), gap("List item two.", "After the list.")],
+        cells: Array.from(document.querySelector("#docBody table").rows[0].cells).map((cell) => cell.getBoundingClientRect().width)
+      };
+    });
+  }
+
+  function near(actual, expected, tolerance, label) {
+    assert.ok(Math.abs(actual - expected) <= tolerance, `${label}: ${actual} px, expected ${expected} px`);
+  }
+
+  // The survey's body runs name w:asciiTheme="majorBidi". Its theme leaves the
+  // complex-script typeface empty and names Times New Roman for Arabic, the
+  // w:themeFontLang w:bidi language; docx-preview defines no variable for the
+  // slot, so the text took the paragraph's Aptos.
+  test("a run in the majorBidi theme font uses the theme's font for the bidi language", async () => {
+    await withHost({}, async (host) => {
+      assert.equal((await measure(host)).font, "Times New Roman");
+    });
+  });
+
+  // 10 pt runs and a 10 pt paragraph mark in a 12 pt style: Word spaces each
+  // line at 10 pt (11.52 pt single, 15.36 px); CSS spaced them at the style's
+  // 12 pt, 18.43 px. An empty paragraph is as tall as its mark, 1 pt or 16 pt.
+  test("a paragraph is spaced by its runs and mark, not by a larger style size", async () => {
+    await withHost({}, async (host) => {
+      const result = await measure(host);
+      near(result.references, 3 * 15.36, 0.5, "three 10 pt lines");
+      assert.ok(result.empty < 2, `an empty paragraph with a 1 pt mark is ${result.empty} px tall`);
+      // A 16 pt mark in the 11 pt Normal style. An empty paragraph is 1 em
+      // tall here, not a line as in Word; the mark sets the em: 21.33 px, not
+      // the style's 14.67.
+      near(result.large, 16 * 4 / 3, 0.5, "an empty paragraph with a 16 pt mark");
+    });
+  });
+
+  test("contextual spacing drops the space between paragraphs of one style only", async () => {
+    await withHost({}, async (host) => {
+      const result = await measure(host);
+      // Spacing after is 200 twips, 13.33 px.
+      near(result.contextual[0], 0, 0.5, "between two references");
+      near(result.contextual[1], 0, 0.5, "between two references");
+      near(result.contextual[2], 13.33, 0.5, "before a Normal paragraph");
+      near(result.list[0], 0, 0.5, "between two list paragraphs, from the style");
+      near(result.list[1], 13.33, 0.5, "after the list");
+    });
+  });
+
+  // Word writes w:tblLayout w:type="fixed"; docx-preview read w:val and laid
+  // every fixed table out to fit its content.
+  test("a fixed table keeps its grid widths", async () => {
+    await withHost({}, async (host) => {
+      const cells = (await measure(host)).cells;
+      [4000, 1000, 4360].forEach((twips, index) => near(cells[index], twips / 15, 1, `column ${index + 1}`));
     });
   });
 });
