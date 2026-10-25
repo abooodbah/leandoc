@@ -834,6 +834,48 @@ void TestSanitizing() {
            "sanitized content types");
 }
 
+// Accepting a deleted paragraph mark joins the paragraph to the next block.
+// A paragraph with nothing left was kept as an empty line: 126 of them in a
+// survey with tracked changes, about 3 pages.
+void TestDeletedParagraphMarks() {
+    const std::string deletedMark =
+        "<w:pPr><w:rPr><w:del w:id=\"1\" w:author=\"a\" w:date=\"2026-01-01T00:00:00Z\"/></w:rPr></w:pPr>";
+    const std::string deletedText =
+        "<w:del w:id=\"2\" w:author=\"a\"><w:r><w:delText>Gone</w:delText></w:r></w:del>";
+    const std::string next = "<w:p><w:r><w:t>Next</w:t></w:r></w:p>";
+
+    std::string output = SanitizedBody("<w:p>" + deletedMark + deletedText + "</w:p>" + next);
+    ExpectEqual(BodyText(output), "Next", "an emptied paragraph whose mark is deleted goes");
+
+    output = SanitizedBody("<w:p>" + deletedMark + "<w:r><w:rPr><w:b/></w:rPr></w:r></w:p>" +
+                           "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>Cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>");
+    ExpectEqual(BodyText(output), "Cell", "an empty paragraph with a deleted mark before a table goes");
+
+    output = SanitizedBody("<w:p>" + deletedMark + "<w:r><w:t>Stays</w:t></w:r>" + deletedText + "</w:p>" + next);
+    ExpectEqual(BodyText(output), "Stays\nNext", "a paragraph with text left keeps its mark");
+
+    output = SanitizedBody(next + "<w:p>" + deletedMark + deletedText + "</w:p>");
+    ExpectEqual(BodyText(output), "Next\n", "the last paragraph of the body stays");
+
+    output = SanitizedBody("<w:tbl><w:tr><w:tc><w:p>" + deletedMark + deletedText +
+                           "</w:p></w:tc></w:tr></w:tbl>" + next);
+    ExpectEqual(BodyText(output), "\nNext", "the last paragraph of a cell stays");
+
+    output = SanitizedBody("<w:p><w:pPr><w:sectPr/><w:rPr><w:del w:id=\"1\" w:author=\"a\"/></w:rPr></w:pPr>" +
+                           deletedText + "</w:p>" + next);
+    ExpectEqual(BodyText(output), "\nNext", "a paragraph that ends a section stays");
+
+    output = SanitizedBody("<w:p><w:pPr><w:rPr><w:ins w:id=\"3\" w:author=\"a\"/></w:rPr></w:pPr>" +
+                           deletedText + "</w:p>" + next);
+    ExpectEqual(BodyText(output), "\nNext", "an inserted paragraph mark is not a deleted one");
+
+    // The outline counts the paragraphs the reader receives.
+    const core::OpenResult outline = OpenEntries(MinimalDocx(
+        "<w:p>" + deletedMark + deletedText + "</w:p>"
+        "<w:p><w:pPr><w:outlineLvl w:val=\"0\"/></w:pPr><w:r><w:t>Heading</w:t></w:r></w:p>"));
+    ExpectEqual(OutlineText(outline), "1|0|Heading", "outline indexes skip the joined paragraph");
+}
+
 // ---------------------------------------------------------------------------
 // Classification and files
 
@@ -1090,6 +1132,7 @@ int main(int argc, char** argv) {
     TestOutline();
     TestRightToLeft();
     TestSanitizing();
+    TestDeletedParagraphMarks();
     TestDisplayedFeatures();
     TestLinks();
     TestClassification(fixtures);

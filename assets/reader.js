@@ -1288,6 +1288,97 @@
     return next;
   }
 
+  // Where Word started a page only because its text reached the bottom, it
+  // saved a w:lastRenderedPageBreak, and docx-preview starts a page there.
+  // When LeanDoc's text before such a start runs past the page, Word would
+  // have started that page earlier too: the text that does not fit continues
+  // on the page that starts there, instead of on a page of its own. Each
+  // overflow had made a page that held a line or two, about twice as many
+  // pages as Word for a document whose text runs a little longer here.
+  // fixups.js marks these starts; page and section breaks stay where they
+  // are.
+  function startsAtSavedBreak(page) {
+    var articles = childrenNamed(page, "ARTICLE");
+    var first = articles.length ? articles[0].firstElementChild : null;
+    return !!first && !!first.querySelector("[id^='" + Fixups.SAVED_PAGE_START + "']");
+  }
+
+  function flowsInto(rest, page) {
+    if (!page || !startsAtSavedBreak(page) || rest.style.cssText !== page.style.cssText) {
+      return false;
+    }
+    var from = childrenNamed(rest, "ARTICLE");
+    var to = childrenNamed(page, "ARTICLE");
+    return from.length === 1 && to.length > 0 && columnCount(from[0]) === 1 &&
+      from[0].style.cssText === to[0].style.cssText;
+  }
+
+  // Takes every node of an article, waiting ones included, off it.
+  function takeNodes(article) {
+    var nodes = Array.prototype.slice.call(article.childNodes);
+    nodes.forEach(function (node) {
+      article.removeChild(node);
+    });
+    var queue = waiting(article);
+    if (queue) {
+      nodes = nodes.concat(queue.nodes.slice(queue.next));
+    }
+    article[PENDING] = null;
+    return nodes;
+  }
+
+  function paragraphKey(node) {
+    var match = node && node.nodeName === "P" && /(?:^|\s)ld-pi-(\d+)(?:\s|$)/.exec(node.className);
+    return match ? match[1] : null;
+  }
+
+  // Moves the page `rest` holds to the front of `page`, which starts at a
+  // saved page start, and removes `rest`. docx-preview split the paragraph
+  // the saved start is in; its two parts become one paragraph again.
+  function flowInto(rest, page) {
+    var target = childrenNamed(page, "ARTICLE")[0];
+    var moving = takeNodes(childrenNamed(rest, "ARTICLE")[0]);
+    var staying = takeNodes(target);
+    var tail = null;
+    for (var back = moving.length - 1; back >= 0 && !tail; back -= 1) {
+      tail = moving[back].nodeType === Node.ELEMENT_NODE ? moving[back] : null;
+    }
+    var at = 0;
+    while (at < staying.length && staying[at].nodeType !== Node.ELEMENT_NODE) {
+      at += 1;
+    }
+    var head = at < staying.length ? staying[at] : null;
+    if (paragraphKey(tail) !== null && paragraphKey(tail) === paragraphKey(head)) {
+      while (head.firstChild) {
+        tail.appendChild(head.firstChild);
+      }
+      staying.splice(at, 1);
+    }
+    // The first HEAD_BLOCKS blocks are laid out and the rest wait, as
+    // holdBack leaves a page.
+    var queued = [];
+    var kept = 0;
+    moving.concat(staying).forEach(function (node) {
+      if (kept >= HEAD_BLOCKS || queued.length) {
+        queued.push(node);
+        return;
+      }
+      target.appendChild(node);
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        kept += 1;
+      }
+    });
+    target[PENDING] = { nodes: queued, next: 0 };
+    // Endnotes that followed the text come along.
+    Array.prototype.slice.call(rest.children).forEach(function (child) {
+      if (child.nodeName !== "HEADER" && child.nodeName !== "ARTICLE" && child.nodeName !== "FOOTER" &&
+          !child.classList.contains("ld-footnotes")) {
+        page.appendChild(child);
+      }
+    });
+    rest.parentNode.removeChild(rest);
+  }
+
   // Splitting runs in slices of about SLICE_MS and lets the window handle
   // input and paint between them, as the other long steps of a render do
   // (P-04). A newer render stops it: it resolves null.
@@ -1340,6 +1431,10 @@
           if (budget > 0) {
             budget -= 1;
             next = splitPage(cursor, notes);
+          }
+          if (next && index < pages.length && flowsInto(next, pages[index])) {
+            flowInto(next, pages[index]);
+            next = null;
           }
           if (next) {
             result.push(next);

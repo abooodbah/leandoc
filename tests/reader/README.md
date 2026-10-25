@@ -19,6 +19,10 @@ npm run test:reader
   `dev-fixtures/reports.json` (python-docx 1.2 and Pillow). The output is
   deterministic: fixed ZIP timestamps and core properties.
 - `make-big-docx.mjs`: builds the 300-page document at test time with JSZip.
+- `make-saved-pages-docx.mjs`: builds, at test time, documents with the page
+  starts Word saves (`w:lastRenderedPageBreak`) and lines of a fixed height,
+  and one page of the theme font, paragraph mark, contextual spacing, and fixed
+  table settings that Word lays out differently from docx-preview.
 
 Screenshots of key states go to `artifacts/reader-screenshots/`, which git
 ignores.

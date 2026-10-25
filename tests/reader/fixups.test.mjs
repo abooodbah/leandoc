@@ -264,6 +264,8 @@ test("prepareModel fixes numbering, runs, symbols, styles, and theme fonts", () 
   assert.equal(bullet.pStyle["text-align"], "start");
   assert.equal(numbered.levelText, "%1.");
   assert.equal(numbered.format, "arabic-indic");
+  // A level without a font gets none: docx-preview writes every key into CSS.
+  assert.deepEqual(Object.keys(numbered.rStyle), []);
   assert.equal(doc.stylesPart.styles[1].styles[0].values["text-align"], "end");
   const defaults = doc.stylesPart.styles[0].styles;
   assert.equal(defaults[0].values["font-family"], "Calibri, Carlito, sans-serif");

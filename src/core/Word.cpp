@@ -721,6 +721,89 @@ private:
         return false;
     }
 
+    // The first element child of `element` named w:`local`, or none.
+    pugi::xml_node WordChild(pugi::xml_node element, const char* local) {
+        for (pugi::xml_node child = element.first_child(); child; child = child.next_sibling()) {
+            if (child.type() != pugi::node_element) {
+                continue;
+            }
+            const std::size_t mark = scope_.Mark();
+            scope_.Push(child);
+            const bool found = scope_.Element(child).Is(Ns::W, local);
+            scope_.Pop(mark);
+            if (found) {
+                return child;
+            }
+        }
+        return {};
+    }
+
+    // True when `element` holds nothing that shows once tracked changes are
+    // accepted: deleted content, empty runs, and markers only.
+    bool HoldsNothing(pugi::xml_node element) {
+        for (pugi::xml_node child = element.first_child(); child; child = child.next_sibling()) {
+            if (child.type() != pugi::node_element) {
+                continue;
+            }
+            const std::size_t mark = scope_.Mark();
+            scope_.Push(child);
+            const QName name = scope_.Element(child);
+            bool nothing = false;
+            if (name.ns == Ns::W) {
+                if (IsOneOf(name.local, {"pPr", "rPr", "del", "moveFrom", "proofErr",
+                                         "bookmarkEnd", "lastRenderedPageBreak"}) ||
+                    IsRemovedWordElement(name.local)) {
+                    nothing = true;
+                } else if (IsOneOf(name.local, {"r", "ins", "moveTo"})) {
+                    nothing = HoldsNothing(child);
+                }
+            }
+            scope_.Pop(mark);
+            if (!nothing) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Accepting a deleted paragraph mark joins the paragraph to the next one.
+    // When nothing of the paragraph is left, nothing of it shows before the
+    // block that follows, so it goes; LeanDoc showed each one as an empty
+    // line. A paragraph that keeps content, ends its container, or ends a
+    // section stays.
+    bool ParagraphIsJoined(pugi::xml_node paragraph) {
+        pugi::xml_node pPr = WordChild(paragraph, "pPr");
+        if (!pPr) {
+            return false;
+        }
+        const std::size_t mark = scope_.Mark();
+        scope_.Push(pPr);
+        pugi::xml_node rPr = WordChild(pPr, "rPr");
+        bool deleted = false;
+        if (rPr && !WordChild(pPr, "sectPr")) {
+            scope_.Push(rPr);
+            deleted = static_cast<bool>(WordChild(rPr, "del"));
+        }
+        scope_.Pop(mark);
+        if (!deleted || !HoldsNothing(paragraph)) {
+            return false;
+        }
+        pugi::xml_node next = paragraph.next_sibling();
+        while (next && next.type() != pugi::node_element) {
+            next = next.next_sibling();
+        }
+        if (!next) {
+            return false;
+        }
+        const std::size_t inner = scope_.Mark();
+        scope_.Push(next);
+        const QName nextName = scope_.Element(next);
+        const bool joins = nextName.Is(Ns::W, "p") || nextName.Is(Ns::W, "tbl") ||
+                           nextName.Is(Ns::W, "sdt");
+        scope_.Pop(inner);
+        return joins;
+    }
+
     Action Decide(pugi::xml_node element, const QName& name, const QName& parent) {
         switch (name.ns) {
             case Ns::W: {
@@ -757,6 +840,9 @@ private:
                     return Action::Remove;
                 }
                 if (std::strcmp(local, "tr") == 0 && RowIsDeleted(element)) {
+                    return Action::Remove;
+                }
+                if (std::strcmp(local, "p") == 0 && ParagraphIsJoined(element)) {
                     return Action::Remove;
                 }
                 return Action::Keep;
