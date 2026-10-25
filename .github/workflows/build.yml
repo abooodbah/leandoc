@@ -16,7 +16,9 @@ jobs:
   build:
     name: Windows x64
     runs-on: windows-latest
-    timeout-minutes: 45
+    # A signed release build waits for the owner's approval in SignPath; the
+    # signing step has its own 35-minute limit inside this one.
+    timeout-minutes: 90
     outputs:
       version: ${{ steps.package.outputs.version }}
 
@@ -62,9 +64,66 @@ jobs:
           }
           ('version={0}' -f $version) | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
+      # Code signing (docs/code-signing.md). It runs only on a release tag and
+      # only once the repository variable SIGNPATH_ORGANIZATION_ID is set, so
+      # every other build, and every build before SignPath is set up, packages
+      # the unsigned files exactly as before. Only LeanDoc.exe and
+      # tools/leandoc-inspect.exe are sent; WebView2Loader.dll is Microsoft's.
+      - name: Upload the executables for signing
+        id: signing-input
+        if: vars.SIGNPATH_ORGANIZATION_ID != '' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v7
+        with:
+          name: signing-input-windows-x64
+          path: |
+            dist/LeanDoc.exe
+            dist/tools/leandoc-inspect.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign the executables with SignPath
+        if: vars.SIGNPATH_ORGANIZATION_ID != '' && startsWith(github.ref, 'refs/tags/v')
+        timeout-minutes: 35
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          project-slug: leandoc
+          signing-policy-slug: release-signing
+          github-artifact-id: ${{ steps.signing-input.outputs.artifact-id }}
+          parameters: |
+            version: "${{ steps.package.outputs.version }}"
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: ${{ runner.temp }}/signed
+
+      - name: Put the signed executables into the payload
+        if: vars.SIGNPATH_ORGANIZATION_ID != '' && startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          LEANDOC_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          $signed = Join-Path $env:RUNNER_TEMP 'signed'
+          foreach ($name in @('LeanDoc.exe', 'tools\leandoc-inspect.exe')) {
+            $source = Join-Path $signed $name
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+              throw ('SignPath returned no {0}.' -f $name)
+            }
+            $signature = Get-AuthenticodeSignature -LiteralPath $source
+            if ($signature.Status -ne 'Valid') {
+              throw ('{0} from SignPath has signature status {1}.' -f $name, $signature.Status)
+            }
+            $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($source)
+            if ($info.ProductName -cne 'LeanDoc' -or $info.ProductVersion -cne $env:LEANDOC_VERSION) {
+              throw ('{0} from SignPath names {1} {2}.' -f $name, $info.ProductName, $info.ProductVersion)
+            }
+            Copy-Item -LiteralPath $source -Destination (Join-Path 'dist' $name) -Force
+            Write-Output ('{0}: signed by {1}' -f $name, $signature.SignerCertificate.Subject)
+          }
+
       - name: Create Windows release package
         shell: pwsh
-        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./scripts/package-release.ps1 -Version '${{ steps.package.outputs.version }}' -Platform x64
+        run: node scripts/ci-log.mjs run "$env:RUNNER_TEMP/ci.log" -- pwsh -NoProfile -File ./scripts/package-release.ps1 -Version '${{ steps.package.outputs.version }}' -Platform x64 ${{ (vars.SIGNPATH_ORGANIZATION_ID != '' && startsWith(github.ref, 'refs/tags/v')) && '-Signed' || '' }}
 
       - name: Install, launch, and uninstall the release ZIP (L-02)
         shell: pwsh

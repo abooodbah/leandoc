@@ -203,6 +203,16 @@ function Test-Distribution {
     foreach ($binary in @('LeanDoc.exe', 'WebView2Loader.dll', 'tools\leandoc-inspect.exe')) {
         Assert-True (Test-PeHeader (Join-Path $resolvedDist $binary)) "$binary does not have a PE MZ header."
     }
+    # Code signing checks the product name and version of each file it signs
+    # (.signpath/artifact-configuration.xml), so both LeanDoc executables must
+    # name LeanDoc and the package.json version.
+    $packageVersion = [string](Get-Content -LiteralPath (Join-Path $repoRoot 'package.json') -Raw | ConvertFrom-Json).version
+    foreach ($binary in @('LeanDoc.exe', 'tools\leandoc-inspect.exe')) {
+        $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $resolvedDist $binary))
+        Assert-Equal $info.ProductName 'LeanDoc' "$binary must have ProductName LeanDoc."
+        Assert-Equal $info.ProductVersion $packageVersion "$binary must have ProductVersion $packageVersion."
+        Assert-Equal $info.FileVersion $packageVersion "$binary must have FileVersion $packageVersion."
+    }
 
     # Every file must be on the allow-list: the executables, the documents,
     # and reader assets of web types. Nothing from a build tree may slip in.

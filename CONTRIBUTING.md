@@ -92,7 +92,9 @@ Reader tests run in Chromium with a fake host: `npm run test:reader`.
 ## Release a version
 
 Merge the version bump, the changelog entry, and `docs/releases/v<version>.md`
-to `main`. Then either push an annotated `v<version>` tag on that commit, or run
+to `main`. Start the release notes from `docs/releases/TEMPLATE.md`,
+which carries the code signing policy section SignPath Foundation asks for.
+[docs/code-signing.md](docs/code-signing.md) explains signing. Then either push an annotated `v<version>` tag on that commit, or run
 the **Tag a release** workflow from the Actions tab with the version number.
 Either route runs the full build on the tag and publishes the GitHub Release
 with every asset and its `.sha256` file. The website deploys from `main` when

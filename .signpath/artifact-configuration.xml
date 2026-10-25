@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration for LeanDoc.
+
+  SignPath does not read this file from the repository. Paste it into the
+  SignPath project "leandoc" (Artifact configurations, default configuration)
+  after the project is created; docs/code-signing.md has the steps. Keep the
+  two copies the same: scripts/Test-ReleaseEngineering.mjs checks this file,
+  not the one in SignPath.
+
+  The input is the GitHub Actions artifact that the Windows job in
+  .github/workflows/build.yml uploads: a ZIP holding LeanDoc.exe and
+  tools/leandoc-inspect.exe. Only those two files are signed. WebView2Loader.dll
+  is Microsoft's and is never sent for signing.
+
+  Each file must name the product LeanDoc and the release version, which the
+  workflow passes as the "version" parameter.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file path="LeanDoc.exe" product-name="LeanDoc" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+    <pe-file path="tools/leandoc-inspect.exe" product-name="LeanDoc" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>
