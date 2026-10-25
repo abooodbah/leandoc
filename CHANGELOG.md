@@ -3,7 +3,16 @@
 All notable LeanDoc changes are recorded here. The project follows semantic
 versioning.
 
-## [0.1.3] - unreleased
+## [0.1.3] - 2026-10-25
+
+### Added
+
+- A Microsoft Store (MSIX) package, built from each release by the
+  `store-msix.yml` workflow, and the listing text for Partner Center in
+  `store/`.
+- Preparation for code signing through SignPath Foundation, off until the
+  project's SignPath account is configured. `leandoc-inspect.exe` now carries
+  a version resource with the product name and version.
 
 ### Fixed
 
