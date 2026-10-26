@@ -395,31 +395,7 @@ look, the same plain words, and the same MIT licence.
 - [LeanRows](https://github.com/abooodbah/leanrows): open very large CSV, log,
   and JSON Lines files on Windows without loading them into memory.
 
-## Code signing policy
-
-Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
-
-Signing covers the two LeanDoc programs in the Windows ZIP, `LeanDoc.exe` and
-`tools\leandoc-inspect.exe`. GitHub Actions builds them from this repository
-with [build.yml](.github/workflows/build.yml) when a release tag is pushed, and
-each signing request is approved by hand before it is signed.
-`WebView2Loader.dll` is Microsoft's file and is not signed by this project.
-Releases published before signing was set up are not signed, and each
-release's notes say whether its Windows programs are signed. The steps are in
-[docs/code-signing.md](docs/code-signing.md).
-
-### Team roles
-
-LeanDoc is a one-person project. The same person writes, reviews, and
-approves every change and every release.
-
-- Committers and reviewers: [abooodbah](https://github.com/abooodbah)
-- Approvers: [abooodbah](https://github.com/abooodbah)
-
-Contributions from others arrive as pull requests, and the committer reviews
-each one before it is merged.
-
-### Privacy policy
+## Privacy policy
 
 This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
 
@@ -436,7 +412,7 @@ and updated separately; WebKitGTK on Linux; and WKWebView on macOS. That
 runtime may contact its vendor on its own, under its vendor's terms.
 [Privacy](#privacy) says what has been observed so far.
 
-### Uninstall
+## Uninstall
 
 - Windows, installed with `installer\install.ps1`: Settings > Apps >
   Installed apps > LeanDoc, or the installed `uninstall.ps1`, as described in
