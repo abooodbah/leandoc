@@ -104,7 +104,9 @@
             v0.1.3 · Windows, Linux, and macOS preview · MIT licensed
           </p>
           <p class="unsigned-note">
-            <strong>Signing status:</strong> the Windows build is unsigned. The
+            <strong>Signing status:</strong> the Windows build on GitHub is
+            unsigned; the <a href="https://apps.microsoft.com/detail/9NSM04BJL6F6">Microsoft Store</a> build is signed
+            by Microsoft. The
             macOS preview is ad-hoc signed and not notarized. Every package has
             a <code>.sha256</code> file on the
             <a href="https://github.com/abooodbah/leandoc/releases/tag/v0.1.3">release page</a>.
@@ -331,11 +333,20 @@
             <p>It adds LeanDoc to Open With and to Default Apps for <code>.docx</code>, <code>.dotx</code>, <code>.docm</code>, <code>.dotm</code>, <code>.doc</code>, <code>.rtf</code>, and <code>.odt</code>. It makes LeanDoc the default only for a type that has no default app yet. It never changes a default you or your organisation already chose.</p>
             <p>Uninstalling removes LeanDoc's files, its Start menu and Open With entries, its WebView2 data folder under <code>%LOCALAPPDATA%\LeanDoc</code>, and restores any default it set.</p>
           </div>
-          <div class="winget-note">
-            <p class="winget-label">winget</p>
-            <pre><code>winget install abooodbah.LeanDoc</code></pre>
-            <p>Pending review in winget; until then, download from
-              <a href="https://github.com/abooodbah/leandoc/releases">Releases</a>.</p>
+          <div class="install-side">
+            <div class="winget-note">
+              <p class="winget-label">Microsoft Store</p>
+              <pre><code>winget install --id 9NSM04BJL6F6 --source msstore</code></pre>
+              <p>The <a href="https://apps.microsoft.com/detail/9NSM04BJL6F6">Microsoft Store</a> build is signed by
+                Microsoft, so Windows installs it without the SmartScreen
+                warning.</p>
+            </div>
+            <div class="winget-note">
+              <p class="winget-label">winget</p>
+              <pre><code>winget install abooodbah.LeanDoc</code></pre>
+              <p>Pending review in winget; until then, download from
+                <a href="https://github.com/abooodbah/leandoc/releases">Releases</a>.</p>
+            </div>
           </div>
         </div>
       </div>

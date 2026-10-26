@@ -78,6 +78,10 @@ if (/signpath/i.test(html)) {
 }
 requireMatch(html, /This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it\./,
   "the privacy policy must state the privacy sentence");
+requireMatch(html, /<a href="https:\/\/apps\.microsoft\.com\/detail\/9NSM04BJL6F6">Microsoft Store<\/a>/,
+  "the page must link the Microsoft Store listing");
+requireMatch(html, /<code>winget install --id 9NSM04BJL6F6 --source msstore<\/code>/,
+  "the page must give the winget command for the Microsoft Store build");
 requireMatch(html, /Pending review in winget; until then, download from/,
   "winget must be marked as pending review");
 
@@ -163,7 +167,9 @@ const manifest = JSON.parse(await readFile(resolve(siteRoot, "site.webmanifest")
 for (const icon of manifest.icons ?? []) await checkLocal(icon.src, "site.webmanifest");
 if (manifest.name !== "LeanDoc") fail("site.webmanifest must name LeanDoc");
 
-const allowedHosts = new Set(["https://github.com", "https://abooodbah.github.io", "https://opensource.org", "https://schema.org"]);
+// apps.microsoft.com is a plain link to the Microsoft Store listing; the page
+// loads nothing from it.
+const allowedHosts = new Set(["https://apps.microsoft.com", "https://github.com", "https://abooodbah.github.io", "https://opensource.org", "https://schema.org"]);
 for (const match of html.matchAll(/(?:href|src|content)="(https?:\/\/[^"/]+)/g)) {
   if (!allowedHosts.has(match[1])) fail(`unexpected external host: ${match[1]}`);
 }

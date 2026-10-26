@@ -36,6 +36,19 @@ Pending review in winget; until then, download from
 Windows, Linux (`.deb`), and macOS builds are all on the
 [Releases](https://github.com/abooodbah/leandoc/releases) page.
 
+### Microsoft Store
+
+<a href="https://apps.microsoft.com/detail/9NSM04BJL6F6"><img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200" alt="Download from the Microsoft Store"></a>
+
+LeanDoc is also in the [Microsoft Store](https://apps.microsoft.com/detail/9NSM04BJL6F6). The Store build is
+signed by Microsoft, so Windows installs it without the SmartScreen warning
+that the unsigned GitHub ZIP can show. It can also be installed from the Store
+with winget:
+
+```powershell
+winget install --id 9NSM04BJL6F6 --source msstore
+```
+
 ## Platform releases
 
 | Operating system | Architecture | v0.1.3 artifact | Runtime |
