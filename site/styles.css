@@ -836,6 +836,11 @@ code {
   background: var(--surface);
 }
 
+.install-side {
+  display: grid;
+  gap: var(--space-4);
+}
+
 .winget-label {
   margin: 0;
   color: var(--text-secondary);
