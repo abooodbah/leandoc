@@ -24,14 +24,11 @@ shows it, and gets out of the way. It is MIT licensed, like its siblings
 
 ## Install
 
-On Windows, once the package is accepted:
+On Windows:
 
 ```powershell
 winget install abooodbah.LeanDoc
 ```
-
-Pending review in winget; until then, download from
-[Releases](https://github.com/abooodbah/leandoc/releases).
 
 Windows, Linux (`.deb`), and macOS builds are all on the
 [Releases](https://github.com/abooodbah/leandoc/releases) page.
@@ -48,6 +45,23 @@ with winget:
 ```powershell
 winget install --id 9NSM04BJL6F6 --source msstore
 ```
+
+### Scoop
+
+```powershell
+scoop bucket add lean https://github.com/abooodbah/scoop-bucket
+scoop install lean/leandoc
+```
+
+### Homebrew (macOS)
+
+```bash
+brew install --cask abooodbah/tap/leandoc
+```
+
+The macOS build is not notarized by Apple, so macOS blocks the first launch.
+Open LeanDoc once, then choose **Open Anyway** under System Settings > Privacy &
+Security. Later launches open normally.
 
 ## Platform releases
 
