@@ -1,20 +1,29 @@
 # Code signing with SignPath Foundation
 
-LeanDoc applies for free code signing from SignPath Foundation. This page
-lists what the repository already does and the steps only the owner can take.
-Until those steps are done, every build, including a release build, packages
-the unsigned files exactly as before.
+## Status: signing is off
 
-## What the repository already has
+LeanDoc applied to [SignPath Foundation](https://signpath.org/) for free code
+signing. The application was declined in October 2026, so signing is off.
 
-- A section titled "Code signing policy" in [README.md](../README.md), on the
-  download page ([site/index.html](../site/index.html)), and in the release
-  notes template ([docs/releases/TEMPLATE.md](releases/TEMPLATE.md)). It
-  credits SignPath, names the team roles, states the privacy policy, and says
-  how to uninstall. `node scripts/Test-ReleaseEngineering.mjs` and
-  `node site/validate.mjs` fail if any of it goes missing, and the release
-  engineering check requires the section in the notes of every release after
-  0.1.2.
+- The Windows ZIP on GitHub Releases is unsigned. Windows SmartScreen may show
+  a warning for it.
+- The Microsoft Store build is signed by Microsoft when the Store publishes it.
+
+The signing steps and the artifact configuration described below are kept,
+but they do nothing: the steps run only when the repository variable
+`SIGNPATH_ORGANIZATION_ID` is set, and it is not set. Every build, including a
+release build, packages the unsigned files. The rest of this page describes
+how the setup would work if a later application were accepted.
+
+## What the repository has
+
+- The README, the download page ([site/index.html](../site/index.html)), and
+  the release notes template ([docs/releases/TEMPLATE.md](releases/TEMPLATE.md))
+  state the privacy policy and say how to uninstall. They no longer carry a
+  "Code signing policy" section or a SignPath credit, and
+  `node scripts/Test-ReleaseEngineering.mjs` and `node site/validate.mjs` fail
+  if the credit comes back. A later application would need that section
+  added back first.
 - Version resources on both programs that get signed: `LeanDoc.exe`
   (`src/windows/LeanDoc.rc`) and `tools\leandoc-inspect.exe`
   (`tools/inspect/leandoc-inspect.rc`). Each has ProductName `LeanDoc` and
@@ -35,15 +44,16 @@ the unsigned files exactly as before.
   the programs are signed. The ZIP's `.sha256` file and the winget hash are
   taken from that signed ZIP as before.
 
-## Steps for the owner
+## Steps for the owner, if a later application is accepted
 
 1. Turn on two-factor authentication for the GitHub account `abooodbah`
    (GitHub > Settings > Password and authentication). SignPath Foundation
    requires it for everyone who can commit or approve.
 2. Apply at <https://signpath.org/apply> with the repository
    <https://github.com/abooodbah/leandoc>, the MIT license, and the download
-   page <https://abooodbah.github.io/leandoc/>. The policy sections above are
-   already live once this change is on `main` and the site has deployed.
+   page <https://abooodbah.github.io/leandoc/>, after adding the code signing
+   policy section back to the README, the site, and the release notes
+   template.
 3. When SignPath accepts the project, sign in to SignPath and create:
    - a project with the slug `leandoc`, linked to the GitHub repository
      `abooodbah/leandoc` as its trusted build system (GitHub.com);
@@ -60,8 +70,8 @@ the unsigned files exactly as before.
    - the variable `SIGNPATH_ORGANIZATION_ID` with the organization ID;
    - the secret `SIGNPATH_API_TOKEN` with the API token.
 6. Release as described in [CONTRIBUTING.md](../CONTRIBUTING.md). Write the
-   release notes from `docs/releases/TEMPLATE.md`, with the sentence that says
-   the Windows programs are signed.
+   release notes from `docs/releases/TEMPLATE.md`, and change its sentence to
+   say the Windows programs are signed.
 
 ## Each release after that
 

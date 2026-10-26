@@ -199,48 +199,28 @@ if (exists("site/index.html")) {
   check(!releaseMode, "a release must ship site/index.html");
 }
 
-// --- Code signing (SignPath Foundation, docs/code-signing.md) -------------------
+// --- Privacy policy and signing claims ------------------------------------------
 
-// SignPath Foundation's terms ask for a "Code signing policy" section with
-// this credit, the team roles, and the privacy policy on the home page, the
-// download page, and the release notes. Releases up to 0.1.2 were published
-// unsigned before the policy existed, so their notes are not checked.
-const signingCredit = "Free code signing provided by [SignPath.io](https://about.signpath.io/), " +
-  "certificate by [SignPath Foundation](https://signpath.org/)";
-const signingRoles = [
-  "Committers and reviewers: [abooodbah](https://github.com/abooodbah)",
-  "Approvers: [abooodbah](https://github.com/abooodbah)"
-];
+// The Microsoft Store listing links github.com/abooodbah/leandoc#privacy, and
+// the release notes link #privacy-policy, so both README sections must stay.
+// SignPath Foundation declined the code signing application in October 2026
+// (docs/code-signing.md), so no public text may credit SignPath.
 const privacySentence = "This program will not transfer any information to other networked systems " +
   "unless specifically requested by the user or the person installing or operating it.";
-function checkSigningPolicy(file, text) {
-  check(/^#{2,3} Code signing policy$/m.test(text), `${file} must have a section titled "Code signing policy"`);
-  check(text.includes(signingCredit), `${file} must credit SignPath.io and SignPath Foundation with their links`);
-  for (const role of signingRoles) {
-    check(text.includes(role), `${file} must name the team role "${role}"`);
-  }
-  check(text.includes(privacySentence), `${file} must state the SignPath privacy policy sentence`);
-}
-checkSigningPolicy("README.md", readme);
-check(/^### Privacy policy$/m.test(readme) && /^### Team roles$/m.test(readme) && /^### Uninstall$/m.test(readme),
-  "README.md's code signing policy must have Team roles, Privacy policy, and Uninstall sections");
+check(/^## Privacy$/m.test(readme), 'README.md must keep its "Privacy" section (the Store listing links #privacy)');
+check(/^## Privacy policy$/m.test(readme) && /^## Uninstall$/m.test(readme),
+  'README.md must have "Privacy policy" and "Uninstall" sections');
+check(readme.includes(privacySentence), "README.md must state the privacy policy sentence");
 check(exists("docs/releases/TEMPLATE.md"), "docs/releases/TEMPLATE.md is missing");
 if (exists("docs/releases/TEMPLATE.md")) {
-  checkSigningPolicy("docs/releases/TEMPLATE.md", read("docs/releases/TEMPLATE.md"));
+  const template = read("docs/releases/TEMPLATE.md");
+  check(template.includes(privacySentence), "docs/releases/TEMPLATE.md must state the privacy policy sentence");
+  check(template.includes("https://github.com/abooodbah/leandoc#privacy-policy"),
+    "docs/releases/TEMPLATE.md must link the README privacy policy");
 }
-const numericVersion = (text) => text.split(".").map(Number);
-const isAfter = (a, b) => {
-  const [x, y] = [numericVersion(a), numericVersion(b)];
-  for (let i = 0; i < 3; i += 1) {
-    if (x[i] !== y[i]) return x[i] > y[i];
-  }
-  return false;
-};
-for (const name of readdirSync(path.join(root, "docs/releases"))) {
-  const match = name.match(/^v(\d+\.\d+\.\d+)\.md$/);
-  if (match && isAfter(match[1], "0.1.2")) {
-    checkSigningPolicy(`docs/releases/${name}`, read(`docs/releases/${name}`));
-  }
+for (const [file, text] of [["README.md", readme], ["docs/releases/TEMPLATE.md", read("docs/releases/TEMPLATE.md")]]) {
+  check(!/Free code signing provided by|certificate by \[SignPath Foundation\]|^#{2,3} Code signing policy$/m.test(text),
+    `${file} must not claim SignPath code signing`);
 }
 
 // The artifact configuration signs exactly the two LeanDoc programs and checks

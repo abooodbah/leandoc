@@ -69,16 +69,15 @@ requireMatch(html, /href="https:\/\/abooodbah\.github\.io\/leanmark\/"/, "the fa
 requireMatch(html, /href="https:\/\/abooodbah\.github\.io\/leanrows\/"/, "the family section must link the LeanRows site");
 requireMatch(html, /unsigned/i, "the unsigned Windows build must be disclosed");
 requireMatch(html, /not notarized/i, "the macOS preview must say it is not notarized");
-requireMatch(html, /<h2 id="code-signing-heading">Code signing policy<\/h2>/,
-  "the page must have a section titled Code signing policy (SignPath Foundation)");
-requireMatch(html, /Free code signing provided by <a href="https:\/\/about\.signpath\.io\/">SignPath\.io<\/a>, certificate by <a href="https:\/\/signpath\.org\/">SignPath Foundation<\/a>\./,
-  "the code signing policy must credit SignPath.io and SignPath Foundation with their links");
-requireMatch(html, /Committers and reviewers: <a href="https:\/\/github\.com\/abooodbah">abooodbah<\/a>/,
-  "the code signing policy must name the committers and reviewers");
-requireMatch(html, /Approvers: <a href="https:\/\/github\.com\/abooodbah">abooodbah<\/a>/,
-  "the code signing policy must name the approvers");
+requireMatch(html, /<section class="section" id="privacy-policy" aria-labelledby="privacy-policy-heading">/,
+  "the privacy policy section must keep its #privacy-policy anchor");
+requireMatch(html, /<h2 id="privacy-policy-heading">Privacy policy<\/h2>/,
+  "the page must have a section titled Privacy policy");
+if (/signpath/i.test(html)) {
+  fail("the SignPath Foundation application was declined; the page must not claim SignPath signing");
+}
 requireMatch(html, /This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it\./,
-  "the code signing policy must state the privacy policy");
+  "the privacy policy must state the privacy sentence");
 requireMatch(html, /Pending review in winget; until then, download from/,
   "winget must be marked as pending review");
 
@@ -164,10 +163,7 @@ const manifest = JSON.parse(await readFile(resolve(siteRoot, "site.webmanifest")
 for (const icon of manifest.icons ?? []) await checkLocal(icon.src, "site.webmanifest");
 if (manifest.name !== "LeanDoc") fail("site.webmanifest must name LeanDoc");
 
-// about.signpath.io and signpath.org are linked by the code signing policy,
-// which SignPath Foundation requires on the download page.
-const allowedHosts = new Set(["https://github.com", "https://abooodbah.github.io", "https://opensource.org", "https://schema.org",
-  "https://about.signpath.io", "https://signpath.org"]);
+const allowedHosts = new Set(["https://github.com", "https://abooodbah.github.io", "https://opensource.org", "https://schema.org"]);
 for (const match of html.matchAll(/(?:href|src|content)="(https?:\/\/[^"/]+)/g)) {
   if (!allowedHosts.has(match[1])) fail(`unexpected external host: ${match[1]}`);
 }
