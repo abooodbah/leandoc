@@ -256,6 +256,7 @@
     clearSearch();
     revokeBlobUrls(blobUrls);
     blobUrls = [];
+    stopMatchingNear();
     elements.docStyles.replaceChildren();
     elements.docBody.replaceChildren();
     elements.docBody.setAttribute("aria-busy", "false");
@@ -1735,9 +1736,20 @@
     elements.docBody.style.visibility = "";
   }
 
-  function paginateMeasurable(pages, serial) {
+  // `body` gets Word's lines first, in a task of its own: in the same task
+  // as the first layout, a 1,500-row table held the window for 600 ms
+  // where 380 is the layout alone.
+  function paginateMeasurable(pages, serial, body) {
     beginMeasuring(serial);
-    return paginatePages(pages, serial).then(function (result) {
+    return new Promise(function (resolve) {
+      window.setTimeout(resolve, 0);
+    }).then(function () {
+      if (serial !== renderSerial) {
+        return null;
+      }
+      body.forEach(matchWordLines);
+      return paginatePages(pages, serial);
+    }).then(function (result) {
       endMeasuring(serial, !result);
       return result;
     }, function (error) {
@@ -1814,10 +1826,15 @@
   // takes that run's font: a strut in another font sits on the same
   // baseline with other ascent and descent, which made the 8 pt cells
   // 9.96 pt tall where Word's lines are 9.22 pt.
+  //
+  // Every pass below reads all computed styles first and writes after. A
+  // write between two reads makes the browser restyle the document again,
+  // and a 1,000-page report took three times as long to open.
   function fitParagraphsToRuns(container) {
     if (!container.querySelectorAll) {
       return;
     }
+    var changes = [];
     container.querySelectorAll("p").forEach(function (paragraph) {
       var largest = 0;
       var family = "";
@@ -1835,11 +1852,18 @@
         return;
       }
       var own = getComputedStyle(paragraph);
-      if (parseFloat(own.fontSize) > largest + 0.01) {
-        paragraph.style.fontSize = largest + "px";
+      var size = parseFloat(own.fontSize) > largest + 0.01 ? largest + "px" : "";
+      var font = family && own.fontFamily !== family ? family : "";
+      if (size || font) {
+        changes.push([paragraph, size, font]);
       }
-      if (family && own.fontFamily !== family) {
-        paragraph.style.fontFamily = family;
+    });
+    changes.forEach(function (change) {
+      if (change[1]) {
+        change[0].style.fontSize = change[1];
+      }
+      if (change[2]) {
+        change[0].style.fontFamily = change[2];
       }
     });
   }
@@ -1851,6 +1875,7 @@
     if (!container.querySelectorAll) {
       return;
     }
+    var changes = [];
     container.querySelectorAll("p").forEach(function (paragraph) {
       if (getComputedStyle(paragraph).textAlign !== "justify") {
         return;
@@ -1859,11 +1884,43 @@
         if (hasOwnSpace(element)) {
           var spacing = Fixups.justifiedWordSpacing(spaceWidthOf(getComputedStyle(element)));
           if (spacing) {
-            element.style.wordSpacing = spacing + "px";
+            changes.push([element, spacing + "px"]);
           }
         }
       });
     });
+    changes.forEach(function (change) {
+      change[0].style.wordSpacing = change[1];
+    });
+  }
+
+  // One shared rule per distinct value instead of an inline style on every
+  // paragraph: in Chromium an element with an inline style gets a computed
+  // style of its own, and 13,200 of them took the 1,000-page report from
+  // 294 to 720 MiB.
+  var lineRules = { sheet: null, names: new Map() };
+
+  function lineClass(property, value) {
+    var key = property + ":" + value;
+    if (!lineRules.names.has(key)) {
+      if (!lineRules.sheet) {
+        var element = document.createElement("style");
+        element.id = "ldLineRules";
+        document.head.appendChild(element);
+        lineRules.sheet = element.sheet;
+      }
+      var name = "ld-l" + lineRules.names.size;
+      // #docBody outranks docx-preview's class rules; inline styles still
+      // win, as they did when these were inline.
+      lineRules.sheet.insertRule("#docBody ." + name + " { " + property + ": " + value + "; }",
+        lineRules.sheet.cssRules.length);
+      lineRules.names.set(key, name);
+    }
+    return lineRules.names.get(key);
+  }
+
+  function firstFamily(fontFamily) {
+    return (fontFamily.split(",")[0] || "").replace(/["']/g, "").trim();
   }
 
   // The browser's normal line height for an installed font, as a multiple of
@@ -1876,11 +1933,18 @@
     if (lineMeasures.has(family)) {
       return lineMeasures.get(family);
     }
+    // The probe sits in a box with strict containment, so measuring it lays
+    // out only the box. In the page's own flow each measure laid out the
+    // whole document again: a 1,500-row table spent 3 seconds here.
+    var box = document.createElement("div");
+    box.style.cssText = "position:absolute;left:0;top:0;width:0;height:0;overflow:hidden;" +
+      "contain:strict;visibility:hidden";
     var probe = document.createElement("span");
-    probe.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap;" +
+    probe.style.cssText = "position:absolute;white-space:nowrap;" +
       "font-size:1000px;line-height:normal;display:inline-block";
     probe.textContent = "Hxgmilw0";
-    document.body.appendChild(probe);
+    box.appendChild(probe);
+    document.body.appendChild(box);
     function measure(stack) {
       probe.style.fontFamily = stack;
       var box = probe.getBoundingClientRect();
@@ -1893,7 +1957,7 @@
       return own.width !== other.width || own.height !== other.height;
     });
     var value = installed ? measure(quoted + ", serif").height / 1000 : NaN;
-    document.body.removeChild(probe);
+    document.body.removeChild(box);
     lineMeasures.set(family, value);
     return value;
   }
@@ -1907,32 +1971,50 @@
     if (!container.querySelectorAll) {
       return;
     }
+    var found = [];
     container.querySelectorAll("p").forEach(function (paragraph) {
       var style = getComputedStyle(paragraph);
-      var family = (style.fontFamily.split(",")[0] || "").replace(/["']/g, "").trim();
-      if (!family) {
+      if (firstFamily(style.fontFamily)) {
+        found.push([paragraph, style.fontFamily, style.lineHeight === "normal"]);
+      }
+    });
+    // Measured before any write, so the probe lays out a clean page.
+    var singles = new Map();
+    found.forEach(function (entry) {
+      var stack = entry[1];
+      if (singles.has(stack)) {
         return;
       }
       // A missing font is drawn in the first installed family after it (its
       // stand-in, Fixups.withFontFallback), which then sets the line.
       var measured = NaN;
-      style.fontFamily.split(",").some(function (name) {
+      stack.split(",").some(function (name) {
         measured = installedLineHeight(name.replace(/["']/g, "").trim());
         return !isNaN(measured);
       });
-      var single = Fixups.wordSingleLine(family, measured);
-      paragraph.style.setProperty("--ld-line", String(single));
-      if (style.lineHeight === "normal") {
-        paragraph.style.lineHeight = String(single);
+      singles.set(stack, String(Fixups.wordSingleLine(firstFamily(stack), measured)));
+    });
+    var empty = [];
+    found.forEach(function (entry) {
+      var paragraph = entry[0];
+      var single = singles.get(entry[1]);
+      paragraph.classList.add(lineClass("--ld-line", single));
+      if (entry[2]) {
+        paragraph.classList.add(lineClass("line-height", single));
       }
-      // An empty paragraph is one line tall in Word. docx-preview gives it
-      // 1em: an ACM template's footer of 17 empty 9 pt lines was 153 pt
-      // where Word's is 176, and Word's first page held a line less.
       if (!/\S/.test(paragraph.textContent)) {
-        var line = parseFloat(getComputedStyle(paragraph).lineHeight);
-        if (line > 0) {
-          paragraph.style.minHeight = line + "px";
-        }
+        empty.push(paragraph);
+      }
+    });
+    // An empty paragraph is one line tall in Word. docx-preview gives it
+    // 1em: an ACM template's footer of 17 empty 9 pt lines was 153 pt
+    // where Word's is 176, and Word's first page held a line less.
+    var heights = empty.map(function (paragraph) {
+      return parseFloat(getComputedStyle(paragraph).lineHeight);
+    });
+    empty.forEach(function (paragraph, index) {
+      if (heights[index] > 0) {
+        paragraph.style.minHeight = heights[index] + "px";
       }
     });
   }
@@ -1949,14 +2031,27 @@
     if (!calibri) {
       return;
     }
+    var changes = [];
     container.querySelectorAll("p, span").forEach(function (element) {
       if (!hasOwnText(element)) {
         return;
       }
-      var family = (getComputedStyle(element).fontFamily.split(",")[0] || "").replace(/["']/g, "").trim();
+      var family = firstFamily(getComputedStyle(element).fontFamily);
       var spacing = Fixups.standInSpacing(family);
-      if (spacing && isNaN(installedLineHeight(family))) {
-        element.style.letterSpacing = spacing + "em";
+      if (spacing) {
+        changes.push([element, family, spacing]);
+      }
+    });
+    // Probed before any write, so the probe lays out a clean page.
+    var missing = new Map();
+    changes.forEach(function (change) {
+      if (!missing.has(change[1])) {
+        missing.set(change[1], isNaN(installedLineHeight(change[1])));
+      }
+    });
+    changes.forEach(function (change) {
+      if (missing.get(change[1])) {
+        change[0].classList.add(lineClass("letter-spacing", change[2] + "em"));
       }
     });
   }
@@ -2024,8 +2119,44 @@
     });
   }
 
+  // A long document's pages get Word's lines when they come near the
+  // window, not all at load. Reading a paragraph's style makes the browser
+  // style its page, and doing that for every page took a 1,000-page report
+  // from 2.2 to 7.5 seconds; the pages it skips are styled only when shown
+  // (.ld-lazy). These pages are not split again (PROGRESSIVE_PAGES), so
+  // their lines move nothing else.
+  var nearObserver = null;
+
+  function matchWhenNear(pages) {
+    if (typeof IntersectionObserver !== "function") {
+      pages.forEach(matchWordLines);
+      return;
+    }
+    if (!nearObserver) {
+      nearObserver = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            nearObserver.unobserve(entry.target);
+            matchWordLines(entry.target);
+          }
+        });
+      }, { root: elements.docScroller, rootMargin: "200% 0px" });
+    }
+    pages.forEach(function (page) {
+      nearObserver.observe(page);
+    });
+  }
+
+  function stopMatchingNear() {
+    if (nearObserver) {
+      nearObserver.disconnect();
+      nearObserver = null;
+    }
+  }
+
   function attachDocument(nodes, view, serial, hyphenate) {
     clearSearch();
+    stopMatchingNear();
     root.dataset.view = view;
     elements.docBody.toggleAttribute("data-ld-hyphenate", !!hyphenate);
     revokeBlobUrls(blobUrls);
@@ -2049,11 +2180,13 @@
     markTitlePages(pages);
     if (pages.length <= PROGRESSIVE_PAGES) {
       elements.docBody.replaceChildren.apply(elements.docBody, body);
-      body.forEach(matchWordLines);
       // Splitting measures the attached, unzoomed pages, before
       // prepareDocumentDom marks them lazy and numbers their page fields.
-      var paginated = view === "page" && pages.length
-        ? paginateMeasurable(pages, serial) : Promise.resolve(pages);
+      var paginate = view === "page" && pages.length;
+      if (!paginate) {
+        body.forEach(matchWordLines);
+      }
+      var paginated = paginate ? paginateMeasurable(pages, serial, body) : Promise.resolve(pages);
       return paginated.then(function (final) {
         if (!final) {
           return null;
@@ -2084,7 +2217,7 @@
           fragment.appendChild(page);
         });
         wrapper.appendChild(fragment);
-        batch.forEach(matchWordLines);
+        matchWhenNear(batch);
         prepareDocumentDom(batch, FIRST_BATCH + next, pages.length);
         // Lay out this batch now. WebKit lays out pages below the window
         // only when something asks, so without this the whole document was
