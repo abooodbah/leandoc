@@ -99,14 +99,14 @@ function table() {
 ${row("Dimension", "Question", "Measure")}${row("Speedup", "How fast", "Ratio")}${row("Energy", "What it costs", "Joules")}</w:tbl>`;
 }
 
-async function packDocx(documentXml) {
+async function packDocx(documentXml, styles = STYLES) {
   const zip = new JSZip();
   const options = { date: FIXED_DATE };
   zip.file("[Content_Types].xml", CONTENT_TYPES, options);
   zip.file("_rels/.rels", ROOT_RELS, options);
   zip.file("word/document.xml", documentXml, options);
   zip.file("word/_rels/document.xml.rels", DOCUMENT_RELS, options);
-  zip.file("word/styles.xml", STYLES, options);
+  zip.file("word/styles.xml", styles, options);
   zip.file("word/footnotes.xml", FOOTNOTES, options);
   return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
 }
@@ -275,6 +275,27 @@ ${row("<w:cantSplit/>", `Whole row start. ${words(30, 260)}. Whole row end.`, "K
 // after it, leaving less than a line, then a continuous break into two
 // columns whose first paragraph starts with the page start Word saved
 // (w:lastRenderedPageBreak).
+// No line spacing anywhere, so every paragraph's line height is the
+// browser's normal one until the reader gives it the font's single line:
+// Calibri paragraphs and Times New Roman paragraphs.
+export async function makeDefaultLineDocx() {
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="${W}">
+<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="22"/></w:rPr></w:rPrDefault></w:docDefaults>
+</w:styles>`;
+  const body = [];
+  for (let index = 1; index <= 6; index += 1) {
+    const font = index % 2 ? "" : `<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr>`;
+    body.push(`<w:p><w:r>${font}<w:t xml:space="preserve">Default line ${index}. ${words(index, 30)}.</w:t></w:r></w:p>`);
+  }
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${body.join("\n")}
+<w:sectPr>${PAGE}</w:sectPr>
+</w:body></w:document>`;
+  const bytes = await packDocx(documentXml, styles);
+  return { bytes, report: report(bytes, []) };
+}
+
 export async function makeSavedStartAfterBreakDocx() {
   const body = [];
   for (let index = 1; index <= 56; index += 1) {

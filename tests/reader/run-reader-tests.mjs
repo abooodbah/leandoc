@@ -15,7 +15,7 @@ import {
   stageAssets
 } from "./fake-host.mjs";
 import { makeBigDocx } from "./make-big-docx.mjs";
-import { makeColumnsDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
+import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeWordMetricsDocx } from "./make-saved-pages-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
@@ -1816,10 +1816,95 @@ describe("page view follows Word's page starts and stand-in fonts", () => {
       const style = await host.page.evaluate(() => {
         const span = Array.from(document.querySelectorAll("#docBody span")).find((s) => s.textContent.includes("Closing marker lynx"));
         const computed = getComputedStyle(span);
-        return { family: computed.fontFamily, size: parseFloat(computed.fontSize), spacing: parseFloat(computed.letterSpacing) };
+        // Whether Calibri or Carlito is installed, measured as the reader
+        // does: a font that is present changes the probe's box.
+        const probe = document.createElement("span");
+        probe.style.cssText = "position:absolute;font-size:200px;white-space:nowrap";
+        probe.textContent = "Hxgmilw0";
+        document.body.appendChild(probe);
+        const box = (stack) => {
+          probe.style.fontFamily = stack;
+          const rect = probe.getBoundingClientRect();
+          return rect.width + "x" + rect.height;
+        };
+        const standIn = ["Calibri", "Carlito"].some((name) =>
+          ["serif", "monospace"].some((generic) => box(`"${name}", ${generic}`) !== box(generic)));
+        probe.remove();
+        return { family: computed.fontFamily, size: parseFloat(computed.fontSize), spacing: computed.letterSpacing, standIn };
       });
       assert.match(style.family, /^"?Aptos"?, "?Calibri"?/);
-      assert.ok(Math.abs(style.spacing - 0.0188 * style.size) < 0.01, `letter spacing ${style.spacing} px at ${style.size} px`);
+      if (style.standIn) {
+        const spacing = parseFloat(style.spacing);
+        assert.ok(Math.abs(spacing - 0.0188 * style.size) < 0.01, `letter spacing ${spacing} px at ${style.size} px`);
+      } else {
+        // Without Calibri or Carlito another font is drawn, and Calibri's
+        // spacing would only make it wider.
+        assert.equal(style.spacing, "normal");
+      }
+    });
+  });
+
+  // Inline styles on every paragraph gave each its own computed style in
+  // Chromium: the 1,000-page report took 720 MiB instead of 294. The single
+  // line and stand-in spacing come from shared rules instead.
+  test("Word's line heights reach every paragraph without an inline style each", async () => {
+    const inspect = () => {
+      const paragraphs = Array.from(document.querySelectorAll("#docBody p"));
+      const elements = paragraphs.concat(Array.from(document.querySelectorAll("#docBody p span")));
+      return {
+        paragraphs: paragraphs.length,
+        withLine: paragraphs.filter((p) => getComputedStyle(p).getPropertyValue("--ld-line").trim()).length,
+        // Paragraphs with text and no line spacing of their own: their line
+        // is the single line, as a multiple of the size.
+        lines: paragraphs.filter((p) => /^Default line/.test(p.textContent)).map((p) => {
+          const style = getComputedStyle(p);
+          return Math.round(parseFloat(style.lineHeight) / parseFloat(style.fontSize) * 1000) / 1000;
+        }),
+        inline: elements.filter((e) => /--ld-line|line-height|letter-spacing/.test(e.getAttribute("style") || "")).length
+      };
+    };
+    for (const [name, make] of [["word-metrics.docx", makeWordMetricsDocx], ["default-line.docx", makeDefaultLineDocx]]) {
+      await withHost({}, async (host) => {
+        const { bytes, report } = await make();
+        await host.openDocument({ bytes, report, fileName: name });
+        const counts = await host.page.evaluate(inspect);
+        assert.ok(counts.paragraphs > 0, name);
+        assert.equal(counts.withLine, counts.paragraphs, `${name}: every paragraph has its font's single line`);
+        assert.equal(counts.inline, 0, `${name}: no paragraph or run carries the line or spacing inline`);
+        if (name === "default-line.docx") {
+          // Calibri's single line, then Times New Roman's (Fixups.wordSingleLine).
+          assert.deepEqual(counts.lines, [1.221, 1.152, 1.221, 1.152, 1.221, 1.152]);
+        }
+      });
+    }
+  });
+
+  // Matching every page's lines at load styled all of a 1,000-page report
+  // and took it from 2.2 to 7.5 seconds. A long document's later pages get
+  // their lines when they come near the window.
+  test("a long document's far pages get Word's lines when they come near", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeBigDocx(300);
+      await host.openDocument({ bytes, report, fileName: "big-300.docx" });
+      const matched = (index) => host.page.evaluate((at) => {
+        const pages = document.querySelectorAll("#docBody .docx-wrapper > section.docx");
+        const page = at < 0 ? pages[pages.length + at] : pages[at];
+        const paragraphs = Array.from(page.querySelectorAll("p")).filter((p) => /\S/.test(p.textContent));
+        return paragraphs.length > 0 && paragraphs.every((p) => /(^|\s)ld-l\d+(\s|$)/.test(p.className));
+      }, index);
+      assert.equal(await matched(0), true, "the first page is matched at load");
+      assert.equal(await matched(-1), false, "the last page waits until it is near");
+      // A background tab gets no intersection updates.
+      await host.page.bringToFront();
+      await host.page.evaluate(() => {
+        const pages = document.querySelectorAll("#docBody .docx-wrapper > section.docx");
+        pages[pages.length - 1].scrollIntoView();
+      });
+      await host.page.waitForFunction(() => {
+        const pages = document.querySelectorAll("#docBody .docx-wrapper > section.docx");
+        const paragraphs = Array.from(pages[pages.length - 1].querySelectorAll("p")).filter((p) => /\S/.test(p.textContent));
+        return paragraphs.every((p) => /(^|\s)ld-l\d+(\s|$)/.test(p.className));
+      }, null, { timeout: 5000 });
     });
   });
 });
