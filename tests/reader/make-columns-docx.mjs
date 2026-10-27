@@ -212,3 +212,82 @@ export async function makeColumnsDocx({ longParagraphs = 60 } = {}) {
   const bytes = await packDocx(documentXml);
   return { bytes, longParagraphs, report: report(bytes, [{ level: 1, text: "I. Introduction", paragraph: 2 }]) };
 }
+
+// One-column pages with what Word breaks across pages in its own way: a
+// table whose header row repeats and whose tall row breaks between lines,
+// a row marked not to break, a numbered paragraph longer than the room left
+// on a page, superscripts, and a title page with its own footer of empty
+// lines while the other pages print a one-line footer.
+export async function makePageFlowDocx() {
+  const run = (text) => `<w:r><w:t xml:space="preserve">${text}</w:t></w:r>`;
+  const sup = (text) => `<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:t>${text}</w:t></w:r>`;
+  const body = [];
+  body.push(paragraph("Page Flow Title", { style: "Title" }));
+  for (let index = 1; index <= 3; index += 1) {
+    body.push(paragraph(`Plain para ${index}. ${words(index, 60)}.`));
+  }
+  body.push(`<w:p>${run(`Raised para. ${words(9, 12)} m`)}${sup("2")}${run(` ${words(10, 12)} kg`)}${sup("-1")}${run(` ${words(11, 12)} x`)}${sup("3")}${run(` ${words(12, 12)}.`)}</w:p>`);
+  const cell = (text) => `<w:tc><w:tcPr><w:tcW w:w="5220" w:type="dxa"/></w:tcPr><w:p>${run(text)}</w:p></w:tc>`;
+  const row = (properties, a, b) => `<w:tr>${properties ? `<w:trPr>${properties}</w:trPr>` : ""}${cell(a)}${cell(b)}</w:tr>`;
+  body.push(`<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="10440" w:type="dxa"/></w:tblPr>
+<w:tblGrid><w:gridCol w:w="5220"/><w:gridCol w:w="5220"/></w:tblGrid>
+${row("<w:tblHeader/>", "Header marker owl", "Column two")}
+${row("", "Short row", "One line")}
+${row("", `Tall row start. ${words(20, 900)}. Tall row end.`, "Beside the tall row")}
+${row("<w:cantSplit/>", `Whole row start. ${words(30, 260)}. Whole row end.`, "Kept whole")}
+</w:tbl>`);
+  body.push(`<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>${run(`Numbered start. ${words(40, 500)}. Numbered end.`)}</w:p>`);
+  body.push(paragraph(`Closing para. ${words(50, 30)}.`));
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${body.join("\n")}
+<w:sectPr><w:footerReference w:type="first" r:id="rId10"/><w:footerReference w:type="default" r:id="rId11"/>${PAGE}<w:cols w:space="720"/><w:titlePg/></w:sectPr>
+</w:body></w:document>`;
+  const empty = Array.from({ length: 12 }, () => "<w:p/>").join("");
+  const footer = (content) => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:ftr xmlns:w="${W}">${content}</w:ftr>`;
+  const numbering = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:numbering xmlns:w="${W}"><w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/>
+<w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num></w:numbering>`;
+  const zip = new JSZip();
+  const options = { date: FIXED_DATE };
+  zip.file("[Content_Types].xml", CONTENT_TYPES.replace("</Types>",
+    `<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>
+<Override PartName="/word/footer2.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>
+<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
+</Types>`), options);
+  zip.file("_rels/.rels", ROOT_RELS, options);
+  zip.file("word/document.xml", documentXml, options);
+  zip.file("word/_rels/document.xml.rels", DOCUMENT_RELS.replace("</Relationships>",
+    `<Relationship Id="rId10" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>
+<Relationship Id="rId11" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer2.xml"/>
+<Relationship Id="rId12" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
+</Relationships>`), options);
+  zip.file("word/styles.xml", STYLES, options);
+  zip.file("word/footnotes.xml", FOOTNOTES, options);
+  zip.file("word/footer1.xml", footer(empty), options);
+  zip.file("word/footer2.xml", footer(`<w:p><w:r><w:t>Page footer marker</w:t></w:r></w:p>`), options);
+  zip.file("word/numbering.xml", numbering, options);
+  const bytes = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+  return { bytes, report: report(bytes, []) };
+}
+
+// A one-column page filled with 57 one-line paragraphs, the last with 6 pt
+// after it, leaving less than a line, then a continuous break into two
+// columns whose first paragraph starts with the page start Word saved
+// (w:lastRenderedPageBreak).
+export async function makeSavedStartAfterBreakDocx() {
+  const body = [];
+  for (let index = 1; index <= 56; index += 1) {
+    body.push(paragraph(`Line ${index}.`));
+  }
+  body.push(`<w:p><w:pPr><w:spacing w:after="120"/></w:pPr><w:r><w:t>Line 57.</w:t></w:r></w:p>`);
+  body.push(sectionBreak(1));
+  body.push(`<w:p><w:r><w:lastRenderedPageBreak/><w:t xml:space="preserve">After the saved start. ${words(3, 40)}.</w:t></w:r></w:p>`);
+  body.push(paragraph(`Second column text. ${words(4, 40)}.`));
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${body.join("\n")}
+<w:sectPr><w:type w:val="continuous"/>${PAGE}<w:cols w:num="2" w:space="360"/></w:sectPr>
+</w:body></w:document>`;
+  const bytes = await packDocx(documentXml);
+  return { bytes, report: report(bytes, []) };
+}
