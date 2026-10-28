@@ -2125,7 +2125,23 @@
   // from 2.2 to 7.5 seconds; the pages it skips are styled only when shown
   // (.ld-lazy). These pages are not split again (PROGRESSIVE_PAGES), so
   // their lines move nothing else.
+  // An intersection observer finds them as the window moves; each scroll
+  // also checks the waiting pages around the window, since a test runner on
+  // a slow CI machine saw the observer miss a page scrolled to at once.
   var nearObserver = null;
+  var nearPending = [];
+  var NEAR = "__ldNear";
+
+  function matchNearPage(page) {
+    if (!page[NEAR]) {
+      return;
+    }
+    page[NEAR] = false;
+    if (nearObserver) {
+      nearObserver.unobserve(page);
+    }
+    matchWordLines(page);
+  }
 
   function matchWhenNear(pages) {
     if (typeof IntersectionObserver !== "function") {
@@ -2136,15 +2152,47 @@
       nearObserver = new IntersectionObserver(function (entries) {
         entries.forEach(function (entry) {
           if (entry.isIntersecting) {
-            nearObserver.unobserve(entry.target);
-            matchWordLines(entry.target);
+            matchNearPage(entry.target);
           }
         });
       }, { root: elements.docScroller, rootMargin: "200% 0px" });
     }
     pages.forEach(function (page) {
+      page[NEAR] = true;
+      nearPending.push(page);
       nearObserver.observe(page);
     });
+  }
+
+  // Pages are in document order, so the first one near the window is found
+  // by binary search; a scroll reads a few page positions, not all of them.
+  function matchPagesNearWindow() {
+    nearPending = nearPending.filter(function (page) {
+      return page[NEAR];
+    });
+    if (!nearPending.length) {
+      return;
+    }
+    var view = elements.docScroller.getBoundingClientRect();
+    var margin = 2 * view.height;
+    var low = 0;
+    var high = nearPending.length;
+    while (low < high) {
+      var middle = (low + high) >> 1;
+      if (nearPending[middle].getBoundingClientRect().bottom < view.top - margin) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    var near = [];
+    for (var index = low; index < nearPending.length; index += 1) {
+      if (nearPending[index].getBoundingClientRect().top > view.bottom + margin) {
+        break;
+      }
+      near.push(nearPending[index]);
+    }
+    near.forEach(matchNearPage);
   }
 
   function stopMatchingNear() {
@@ -2152,6 +2200,10 @@
       nearObserver.disconnect();
       nearObserver = null;
     }
+    nearPending.forEach(function (page) {
+      page[NEAR] = false;
+    });
+    nearPending = [];
   }
 
   function attachDocument(nodes, view, serial, hyphenate) {
@@ -3378,6 +3430,7 @@
     }
   });
   elements.docScroller.addEventListener("scroll", scheduleOutlineUpdate, { passive: true });
+  elements.docScroller.addEventListener("scroll", matchPagesNearWindow, { passive: true });
   elements.docScroller.addEventListener("blur", function () {
     elements.docScroller.classList.remove("quiet-focus");
   });
