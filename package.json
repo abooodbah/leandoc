@@ -1,6 +1,6 @@
 {
   "name": "leandoc-runtime-assets",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "Pinned build-time packages used to create LeanDoc's offline reader assets.",
   "license": "MIT",

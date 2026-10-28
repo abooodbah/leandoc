@@ -3,6 +3,28 @@
 All notable LeanDoc changes are recorded here. The project follows semantic
 versioning.
 
+## [0.1.4] - 2026-10-28
+
+### Fixed
+
+- Page view breaks pages where Word does in many more documents. On 35
+  documents measured against Word 365, 22 now have Word's page count (10 in
+  0.1.3) and 30 are within one page; the pages off, summed, fell from 293 to
+  19.
+- Table rows break across pages between lines, header rows repeat on each
+  page, and rows Word keeps whole move whole. A row taller than a page no
+  longer holds every row after it on that page.
+- Pages after a title page take the section's own header and footer, not the
+  first page's.
+- A missing font is drawn in the stand-in the document names, as Word does,
+  and Aptos is drawn in Calibri spaced to Aptos's width instead of in Arial.
+- Superscripts and subscripts no longer make lines taller, an empty paragraph
+  is one line of its mark, numbered paragraphs break across pages, and a page
+  start Word saved after a continuous section break no longer adds a blank
+  page.
+- Long documents keep the speed and memory of 0.1.3: a page's lines are
+  matched to Word's when it comes near the window.
+
 ## [0.1.3] - 2026-10-25
 
 ### Added

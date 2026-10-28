@@ -65,14 +65,14 @@ Security. Later launches open normally.
 
 ## Platform releases
 
-| Operating system | Architecture | v0.1.3 artifact | Runtime |
+| Operating system | Architecture | v0.1.4 artifact | Runtime |
 | --- | --- | --- | --- |
-| Windows 10 / 11 | x64 | [LeanDoc-v0.1.3-windows-x64.zip](https://github.com/abooodbah/leandoc/releases/download/v0.1.3/LeanDoc-v0.1.3-windows-x64.zip) | Microsoft Edge WebView2 Runtime |
-| Ubuntu 24.04 and compatible | x86-64 | [LeanDoc-v0.1.3-linux-x86_64.deb](https://github.com/abooodbah/leandoc/releases/download/v0.1.3/LeanDoc-v0.1.3-linux-x86_64.deb) | GTK 4 and WebKitGTK 6.0 |
-| macOS 12 or later | Intel and Apple silicon | [LeanDoc-v0.1.3-macos-universal-preview.zip](https://github.com/abooodbah/leandoc/releases/download/v0.1.3/LeanDoc-v0.1.3-macos-universal-preview.zip) | Preview, system WKWebView |
+| Windows 10 / 11 | x64 | [LeanDoc-v0.1.4-windows-x64.zip](https://github.com/abooodbah/leandoc/releases/download/v0.1.4/LeanDoc-v0.1.4-windows-x64.zip) | Microsoft Edge WebView2 Runtime |
+| Ubuntu 24.04 and compatible | x86-64 | [LeanDoc-v0.1.4-linux-x86_64.deb](https://github.com/abooodbah/leandoc/releases/download/v0.1.4/LeanDoc-v0.1.4-linux-x86_64.deb) | GTK 4 and WebKitGTK 6.0 |
+| macOS 12 or later | Intel and Apple silicon | [LeanDoc-v0.1.4-macos-universal-preview.zip](https://github.com/abooodbah/leandoc/releases/download/v0.1.4/LeanDoc-v0.1.4-macos-universal-preview.zip) | Preview, system WKWebView |
 
 Each artifact has an adjacent `.sha256` sidecar on the
-[v0.1.3 release](https://github.com/abooodbah/leandoc/releases/tag/v0.1.3).
+[v0.1.4 release](https://github.com/abooodbah/leandoc/releases/tag/v0.1.4).
 The macOS preview also has a `.metadata.json` file that records how it was
 signed. Windows ARM64 and Linux ARM64 are not part of this release.
 
@@ -88,11 +88,11 @@ signed. Windows ARM64 and Linux ARM64 are not part of this release.
 Check a download against its sidecar before you run it:
 
 ```powershell
-Get-FileHash .\LeanDoc-v0.1.3-windows-x64.zip -Algorithm SHA256
+Get-FileHash .\LeanDoc-v0.1.4-windows-x64.zip -Algorithm SHA256
 ```
 
 ```sh
-sha256sum -c LeanDoc-v0.1.3-linux-x86_64.deb.sha256
+sha256sum -c LeanDoc-v0.1.4-linux-x86_64.deb.sha256
 ```
 
 ## Package use
@@ -133,7 +133,7 @@ The Debian package declares its GTK 4 and WebKitGTK 6.0 dependencies, so APT
 resolves them:
 
 ```sh
-sudo apt install ./LeanDoc-v0.1.3-linux-x86_64.deb
+sudo apt install ./LeanDoc-v0.1.4-linux-x86_64.deb
 ```
 
 It installs `/usr/bin/leandoc`, a desktop entry, AppStream metadata, the icon,
@@ -331,8 +331,8 @@ disk.
 | Linux `.deb` | 568 KiB (581,680 bytes) | 1.09 MiB installed (1,144,059 bytes) |
 | macOS universal ZIP | 750 KiB (767,584 bytes) | 1.64 MiB in 29 files (1,720,373 bytes) |
 
-Sizes are from the v0.1.0 release files, read on 2026-10-20. In 0.1.3 the
-reader's two scripts and its style sheet are 61,824 bytes larger than in
+Sizes are from the v0.1.0 release files, read on 2026-10-20. In 0.1.4 the
+reader's two scripts and its style sheet are 106,112 bytes larger than in
 0.1.0, and the core changed; the packages have not been measured again.
 
 Measured figures will be added after a run on a reference Windows machine; the method is in [tests/owner/README.md](tests/owner/README.md).
@@ -356,7 +356,7 @@ WebView2 SDK and checks its SHA-256.
 ```powershell
 .\scripts\build.ps1 -Configuration Release -Platform x64
 .\tests\Test-LeanDoc.ps1 -DistPath .\dist -Smoke -Runtime
-.\scripts\package-release.ps1 -Version 0.1.3 -Platform x64
+.\scripts\package-release.ps1 -Version 0.1.4 -Platform x64
 ```
 
 ### Linux
@@ -370,7 +370,7 @@ cmake -S . -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTING=ON -DLEANDOC_ENABLE_GUI_TESTS=ON
 cmake --build build/linux
 dbus-run-session -- ctest --test-dir build/linux --output-on-failure
-bash scripts/package-linux.sh --version 0.1.3
+bash scripts/package-linux.sh --version 0.1.4
 ```
 
 ### macOS
