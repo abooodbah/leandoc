@@ -1900,11 +1900,27 @@ describe("page view follows Word's page starts and stand-in fonts", () => {
         const pages = document.querySelectorAll("#docBody .docx-wrapper > section.docx");
         pages[pages.length - 1].scrollIntoView();
       });
-      await host.page.waitForFunction(() => {
+      const state = () => host.page.evaluate(() => {
+        const scroller = document.getElementById("docScroller");
         const pages = document.querySelectorAll("#docBody .docx-wrapper > section.docx");
-        const paragraphs = Array.from(pages[pages.length - 1].querySelectorAll("p")).filter((p) => /\S/.test(p.textContent));
-        return paragraphs.every((p) => /(^|\s)ld-l\d+(\s|$)/.test(p.className));
-      }, null, { timeout: 5000 });
+        const last = pages[pages.length - 1];
+        const paragraphs = Array.from(last.querySelectorAll("p")).filter((p) => /\S/.test(p.textContent));
+        return {
+          done: paragraphs.every((p) => /(^|\s)ld-l\d+(\s|$)/.test(p.className)),
+          matched: paragraphs.filter((p) => /(^|\s)ld-l\d+(\s|$)/.test(p.className)).length,
+          paragraphs: paragraphs.length,
+          pages: pages.length,
+          scrollTop: Math.round(scroller.scrollTop),
+          lastTop: Math.round(last.getBoundingClientRect().top - scroller.getBoundingClientRect().top),
+          visibility: document.visibilityState
+        };
+      });
+      let seen = await state();
+      for (let tries = 0; !seen.done && tries < 50; tries += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        seen = await state();
+      }
+      assert.ok(seen.done, `the last page is matched once near: ${JSON.stringify(seen)}`);
     });
   });
 });
