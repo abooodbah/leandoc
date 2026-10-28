@@ -220,6 +220,66 @@ test("Paragraphs inside mc:Fallback are skipped, as the core skips them", () => 
   assert.equal(indexes.get(before), 0);
 });
 
+test("Justified runs shrink their spaces by a quarter, as Word's justification does", () => {
+  assert.equal(Fixups.JUSTIFY_SPACE_SHRINK, 0.25);
+  // Times New Roman's space at 12 pt (16 px) is 4 px.
+  assert.equal(Fixups.justifiedWordSpacing(4), -1);
+  assert.equal(Fixups.justifiedWordSpacing(3.3333), -0.833);
+  assert.equal(Fixups.justifiedWordSpacing(0), 0);
+  assert.equal(Fixups.justifiedWordSpacing(NaN), 0);
+});
+
+test("Page-break rules resolve as Word resolves them: paragraph, style chain, defaults, then Word's default", () => {
+  const pPr = (...children) => el("pPr", children);
+  const flag = (name, value) => el(name, [], value === undefined ? {} : { val: value });
+  const style = (id, basedOn, ...properties) => el("style", [
+    ...(basedOn ? [el("basedOn", [], { val: basedOn })] : []),
+    pPr(...properties)
+  ], { type: "paragraph", styleId: id });
+  const stylesRoot = el("styles", [
+    el("docDefaults", [el("pPrDefault", [pPr()])]),
+    style("Normal", null),
+    style("NoWidow", "Normal", flag("widowControl", "0")),
+    style("Inherits", "NoWidow"),
+    style("Heading", "Normal", flag("keepNext"), flag("keepLines", "1"))
+  ]);
+  const p = (styleId, ...properties) => el("p", [pPr(...(styleId ? [el("pStyle", [], { val: styleId })] : []), ...properties)]);
+  const xmlParagraphs = [
+    p(null),                                  // nothing set: widow control on
+    p(null, flag("widowControl", "0")),       // turned off on the paragraph
+    p("NoWidow"),                             // off in its style
+    p("Inherits"),                            // off in its base style
+    p("NoWidow", flag("widowControl")),       // on again on the paragraph
+    p("Heading"),                             // keep with next, keep lines
+    p("Heading", flag("keepLines", "false"))  // keep lines turned off
+  ];
+  const body = el("body", xmlParagraphs);
+  const model = { children: xmlParagraphs.map(() => ({ type: "paragraph", children: [] })) };
+  const counts = Fixups.markPageBreakRules(model, body, stylesRoot, "Normal");
+  assert.deepEqual(counts, { widowOff: 3, keepLines: 1, keepNext: 2 });
+  assert.deepEqual(model.children.map((paragraph) => paragraph.className || ""), [
+    "", "ld-widow-off", "ld-widow-off", "ld-widow-off", "", "ld-keep-lines ld-keep-next", "ld-keep-next"
+  ]);
+});
+
+test("Document defaults set a page-break rule for paragraphs whose styles do not", () => {
+  const stylesRoot = el("styles", [
+    el("docDefaults", [el("pPrDefault", [el("pPr", [el("widowControl", [], { val: "0" })])])]),
+    el("style", [el("pPr")], { type: "paragraph", styleId: "Normal" })
+  ]);
+  const xmlParagraphs = [el("p"), el("p", [el("pPr", [el("widowControl")])])];
+  const model = { children: [{ type: "paragraph" }, { type: "paragraph" }] };
+  Fixups.markPageBreakRules(model, el("body", xmlParagraphs), stylesRoot, "Normal");
+  assert.deepEqual(model.children.map((paragraph) => paragraph.className || ""), ["ld-widow-off", ""]);
+});
+
+test("Page-break rules are left alone when the model and the XML do not pair", () => {
+  const model = { children: [{ type: "paragraph" }] };
+  const counts = Fixups.markPageBreakRules(model, el("body", [el("p"), el("p")]), el("styles"), "Normal");
+  assert.deepEqual(counts, { widowOff: 0, keepLines: 0, keepNext: 0 });
+  assert.equal(model.children[0].className, undefined);
+});
+
 test("Without XML the model order is used", () => {
   const model = { children: [{ type: "paragraph" }, { type: "paragraph", className: "x" }] };
   const result = Fixups.annotateBody(model, null);
@@ -311,16 +371,37 @@ test("A paragraph style does not take its linked character style's run propertie
 // Word prints 10 pt Times New Roman single spaced at an 11.52 pt pitch
 // (measured on Word's PDF of make-columns-docx). docx-preview wrote
 // lineRule="auto" spacing as a bare multiple of the font size.
-test("Automatic line spacing scales Word's single line; exact spacing is unchanged", () => {
+// lineRule="atLeast" is the larger of a single line and the given height;
+// docx-preview wrote it as their sum (calc(100% + Npt)).
+test("Automatic line spacing scales Word's single line; at-least spacing takes the larger; exact is unchanged", () => {
   const paragraph = (lineHeight) => ({ type: "paragraph", cssStyle: { "line-height": lineHeight }, children: [] });
-  const body = { children: [paragraph("1.00"), paragraph("1.50"), paragraph("2.00"), paragraph("12pt"), paragraph("calc(100% + 6pt)")] };
+  const body = { children: [paragraph("1.00"), paragraph("1.50"), paragraph("2.00"), paragraph("12pt"),
+    paragraph("calc(100% + 6pt)"), paragraph("calc(100% + 12.5pt)")] };
   const doc = {
-    stylesPart: { styles: [{ id: "Normal", target: "p", styles: [{ target: "p", values: { "line-height": "1.00" } }] }] },
+    stylesPart: { styles: [{ id: "Normal", target: "p", styles: [{ target: "p", values: { "line-height": "calc(100% + 12pt)" } }] }] },
     documentPart: { body }, parts: []
   };
   Fixups.prepareModel(doc);
-  assert.deepEqual(body.children.map((p) => p.cssStyle["line-height"]), ["1.152", "1.728", "2.304", "12pt", "calc(100% + 6pt)"]);
-  assert.equal(doc.stylesPart.styles[0].styles[0].values["line-height"], "1.152");
+  const single = "var(--ld-line, 1.152)";
+  assert.deepEqual(body.children.map((p) => p.cssStyle["line-height"]), [
+    `calc(${single} * 1)`, `calc(${single} * 1.5)`, `calc(${single} * 2)`, "12pt",
+    `max(calc(${single} * 1em), 6pt)`, `max(calc(${single} * 1em), 12.5pt)`
+  ]);
+  assert.equal(doc.stylesPart.styles[0].styles[0].values["line-height"], `max(calc(${single} * 1em), 12pt)`);
+});
+
+// Word's single line is the font's ascent, descent and line gap, measured in
+// Word 365 (tests/reader/parity/word-line-pitch.ps1).
+test("A font's single line is Word's for known fonts, the browser's for others", () => {
+  assert.equal(Fixups.SINGLE_LINE, 1.152);
+  assert.equal(Fixups.wordSingleLine("Times New Roman", 1.149), 1.152);
+  assert.equal(Fixups.wordSingleLine("\"Aptos\"", NaN), 1.2212);
+  assert.equal(Fixups.wordSingleLine("Calibri", 1.221), 1.2207);
+  assert.equal(Fixups.wordSingleLine("segoe ui", 1.33), 1.3304);
+  // A font Word was not measured with: the browser's measure when installed.
+  assert.equal(Fixups.wordSingleLine("Some Installed Font", 1.18765), 1.1877);
+  assert.equal(Fixups.wordSingleLine("Not Installed Font", NaN), 1.152);
+  assert.equal(Fixups.wordSingleLine("", 0), 1.152);
 });
 
 // docx-preview writes the default paragraph style's run rules as
@@ -647,4 +728,97 @@ test("Reader files contain no em dash and no banned wording", () => {
     const pattern = file.endsWith("fixups.test.mjs") ? /\u2014/ : banned;
     assert.equal(pattern.test(text), false, file);
   }
+});
+
+// Word repeats the leading w:tblHeader rows on each page a table runs onto
+// and keeps a w:cantSplit row whole; other rows break between lines.
+test("Header rows and rows that must not split are marked for the page view", () => {
+  const tr = (...properties) => el("tr", [el("trPr", properties), el("tc", [el("p")])]);
+  const xml = el("body", [el("tbl", [
+    tr(el("tblHeader")),
+    tr(el("tblHeader", [], { val: "on" }), el("cantSplit")),
+    tr(el("cantSplit", [], { val: "0" })),
+    tr(el("tblHeader"))
+  ])]);
+  const row = () => ({ type: "row", children: [{ type: "cell", children: [{ type: "paragraph", children: [] }] }] });
+  const table = { type: "table", children: [row(), row(), row(), row()] };
+  const result = Fixups.annotateBody({ children: [table] }, xml);
+  const classes = table.children.map((r) => r.className || "");
+  assert.deepEqual(classes.map((c) => /ld-header-row/.test(c)), [true, true, false, false], "only leading header rows repeat");
+  assert.deepEqual(classes.map((c) => /ld-cant-split/.test(c)), [false, true, false, false]);
+  assert.equal(result.headerRows, 2);
+  assert.equal(result.cantSplitRows, 1);
+});
+
+// docx-preview renders a section's text as one page with the first page's
+// header and footer; the reader gives the pages it splits off the others.
+test("A section with its own first-page header or footer marks its first block", () => {
+  const first = { type: "paragraph", children: [] };
+  const ending = { type: "paragraph", children: [], sectionProps: { titlePage: true, footerRefs: [{ type: "first", id: "r1" }, { type: "default", id: "r2" }] } };
+  const plain = { type: "paragraph", children: [] };
+  const table = { type: "table", children: [] };
+  const body = { children: [first, ending, plain, table], props: { titlePage: true, headerRefs: [{ type: "default", id: "r3" }] } };
+  const sections = Fixups.markTitleSections(body);
+  assert.equal(sections.length, 1, "a title page with no first-page header or footer needs nothing");
+  assert.equal(sections[0], ending.sectionProps);
+  assert.match(first.className, new RegExp(Fixups.TITLE_SECTION + "0"));
+  assert.equal(plain.className, undefined);
+});
+
+// Word draws a missing font in the stand-in the document's font table names.
+test("A missing font falls back to the font table's stand-in, ahead of other scripts' families", () => {
+  const doc = {
+    fontTablePart: { fonts: [
+      { name: "Linux Libertine O", altName: "Times New Roman" },
+      { name: "Odd Sans", altName: "Odd Sans" },
+      { name: "Calibri", altName: "Arial" }
+    ] },
+    stylesPart: { styles: [{ id: "Footer", target: "p", styles: [{ target: "span", values: { "font-family": "'Linux Libertine O', 'MS Mincho'", "font-size": "9pt" } }] }] },
+    documentPart: { body: { children: [] } }, parts: []
+  };
+  const stats = Fixups.prepareModel(doc);
+  assert.equal(stats.fontStandIns, 1, "a stand-in that names the font itself, or a known font, adds nothing");
+  const footer = doc.stylesPart.styles[0].styles;
+  assert.equal(footer.find((s) => s.target === "span").values["font-family"],
+    "'Linux Libertine O', \"Times New Roman\", \"Liberation Serif\", Tinos, Times, 'MS Mincho', serif");
+  // The style's run font is its paragraphs' too: an empty paragraph is a line of it.
+  assert.equal(footer.find((s) => s.target === "p").values["font-family"], footer.find((s) => s.target === "span").values["font-family"]);
+  assert.equal(Fixups.withFontFallback("\"Calibri\", \"MS Mincho\""), "\"Calibri\", Carlito, \"MS Mincho\", sans-serif");
+  Fixups.prepareModel({ documentPart: { body: { children: [] } }, parts: [] });
+  assert.equal(Fixups.withFontFallback("Linux Libertine O"), "Linux Libertine O", "each document reads its own table");
+});
+
+// Word 365, a 73-letter line at 12 pt: Aptos 388.5 pt, Aptos Display 366,
+// Aptos Narrow 359.25, Calibri 372 (tests/reader/parity/word-widths.ps1).
+test("Aptos drawn in Calibri gets the letter spacing that brings it to Aptos's width", () => {
+  const spacing = (family, word) => Math.round((372 + 73 * 12 * Fixups.standInSpacing(family)) * 100) / 100 - word;
+  assert.ok(Math.abs(spacing("Aptos", 388.5)) < 0.1);
+  assert.ok(Math.abs(spacing("'Aptos Display'", 366)) < 0.1);
+  assert.ok(Math.abs(spacing("aptos narrow", 359.25)) < 0.1);
+  assert.equal(Fixups.standInSpacing("Calibri"), 0);
+  assert.equal(Fixups.withFontFallback("Aptos"), "Aptos, Calibri, Carlito, sans-serif");
+});
+
+// A saved page start right after a continuous section break is where Word's
+// text reached the bottom; after a break that starts a page it adds nothing.
+test("A saved page start after a continuous section break is marked", () => {
+  const saved = () => ({ type: "paragraph", children: [{ type: "run", children: [{ type: "break", break: "lastRenderedPageBreak" }, { type: "drawing", children: [] }] }] });
+  const afterContinuous = saved();
+  const afterNextPage = saved();
+  const body = {
+    children: [
+      { type: "paragraph", children: [], sectionProps: { type: "nextPage" } },
+      afterContinuous,
+      { type: "paragraph", children: [], sectionProps: { type: "continuous" } },
+      afterNextPage
+    ],
+    props: { type: "nextPage" }
+  };
+  const stats = Fixups.prepareModel({ documentPart: { body }, parts: [] });
+  const marked = (p) => p.children[0].children.some((child) => child.type === "bookmarkStart" && child.name.startsWith(Fixups.SAVED_PAGE_START));
+  // The first break's next section is the second break's: continuous.
+  assert.equal(marked(afterContinuous), true);
+  // The second break's next section is the body's: a new page.
+  assert.equal(marked(afterNextPage), false);
+  assert.equal(stats.savedPageStarts, 1);
 });
