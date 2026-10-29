@@ -63,6 +63,10 @@ requireMatch(html, /<meta\s+property="og:image"\s+content="https:\/\/abooodbah\.
 requireMatch(html, /<main\s+id="main-content">/i, "a named main landmark is required");
 requireMatch(html, /class="skip-link"\s+href="#main-content"/i, "a skip link to the main content is required");
 requireMatch(html, /Read the document, not the office suite\./, "the hero must state the promise");
+requireMatch(html, /<h1>[^<]*Word document viewer[^<]*<\/h1>/, "the h1 must name what LeanDoc is in search words");
+requireMatch(html, /<section class="section" id="faq" aria-labelledby="faq-heading">/,
+  "the page must keep its visible FAQ section");
+requireMatch(html, /href="https:\/\/abooodbah\.github\.io\/"/, "the page must link the Lean Apps hub");
 requireMatch(html, /<figcaption>[^<]*Linux build[^<]*real capture/i,
   "the hero screenshot caption must say it is a real capture of the Linux build");
 requireMatch(html, /href="https:\/\/abooodbah\.github\.io\/leanmark\/"/, "the family section must link the LeanMark site");
@@ -82,8 +86,11 @@ requireMatch(html, /<a href="https:\/\/apps\.microsoft\.com\/detail\/9NSM04BJL6F
   "the page must link the Microsoft Store listing");
 requireMatch(html, /<code>winget install --id 9NSM04BJL6F6 --source msstore<\/code>/,
   "the page must give the winget command for the Microsoft Store build");
-requireMatch(html, /Pending review in winget; until then, download from/,
-  "winget must be marked as pending review");
+requireMatch(html, /<code>winget install abooodbah\.LeanDoc<\/code>/,
+  "the page must give the winget community command");
+if (/pending review/i.test(html)) {
+  fail("abooodbah.LeanDoc is merged in winget; the page must not say it is pending review");
+}
 
 const h1Count = (html.match(/<h1\b/gi) ?? []).length;
 if (h1Count !== 1) fail(`expected exactly one h1; found ${h1Count}`);
@@ -225,6 +232,7 @@ requireMatch(robots, /^Sitemap: https:\/\/abooodbah\.github\.io\/leandoc\/sitema
   "robots.txt must name the sitemap");
 const sitemap = await readFile(resolve(siteRoot, "sitemap.xml"), "utf8").catch(() => "");
 requireMatch(sitemap, /<loc>https:\/\/abooodbah\.github\.io\/leandoc\/<\/loc>/, "sitemap.xml must list the site URL");
+requireMatch(sitemap, /<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/, "sitemap.xml must give a lastmod date");
 
 // --- Accessibility and responsive CSS --------------------------------------------------
 
