@@ -1,4 +1,8 @@
-# LeanDoc
+# LeanDoc: a free, read-only Word (.docx) viewer for Windows, Linux and macOS
+
+Open a .docx without Microsoft Office. LeanDoc shows the document as pages, never runs macros, and never fetches anything the document points to. MIT licensed, no telemetry.
+
+[Website](https://abooodbah.github.io/leandoc/) · [Microsoft Store](https://apps.microsoft.com/detail/9NSM04BJL6F6) · `winget install abooodbah.LeanDoc` · [All Lean apps](https://abooodbah.github.io/)
 
 **Read the document, not the office suite.**
 
@@ -19,8 +23,9 @@ read the document someone just emailed.
 People who do have Word often only want to read. Word takes seconds to start
 and is built for writing. LeanDoc is built for reading: it opens the file,
 shows it, and gets out of the way. It is MIT licensed, like its siblings
-[LeanMark](https://github.com/abooodbah/leanmark) and
-[LeanRows](https://github.com/abooodbah/leanrows).
+[LeanMark](https://github.com/abooodbah/leanmark), a Markdown viewer with
+offline Mermaid diagrams, and [LeanRows](https://github.com/abooodbah/leanrows),
+a large CSV viewer for files too big for Excel.
 
 ## Install
 

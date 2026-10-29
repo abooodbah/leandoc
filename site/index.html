@@ -6,8 +6,8 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0e0d0b" media="(prefers-color-scheme: dark)">
-  <title>LeanDoc: read the document, not the office suite</title>
-  <meta name="description" content="LeanDoc is an MIT-licensed, read-only viewer for Word documents on Windows, Linux, and macOS. It never runs macros and never fetches what a document points to.">
+  <title>LeanDoc: free Word (.docx) viewer for Windows, Linux, macOS</title>
+  <meta name="description" content="Open and read Word documents without Office. LeanDoc is a free, MIT-licensed .docx viewer for Windows 11, Linux and macOS. Macros never run; nothing is fetched.">
   <link rel="canonical" href="https://abooodbah.github.io/leandoc/">
   <link rel="icon" href="assets/leandoc-icon.svg" type="image/svg+xml">
   <link rel="icon" href="assets/leandoc-icon.png" sizes="256x256" type="image/png">
@@ -17,14 +17,14 @@
   <link rel="preload" href="assets/fonts/ibm-plex-serif-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="LeanDoc: read the document, not the office suite">
-  <meta property="og:description" content="A read-only desktop viewer for Word documents. No macros run, nothing fetched, one button to a real editor. MIT licensed.">
+  <meta property="og:title" content="LeanDoc: free Word (.docx) viewer for Windows, Linux, macOS">
+  <meta property="og:description" content="Open and read Word documents without Office. LeanDoc is a free, MIT-licensed .docx viewer for Windows 11, Linux and macOS. Macros never run; nothing is fetched.">
   <meta property="og:url" content="https://abooodbah.github.io/leandoc/">
   <meta property="og:image" content="https://abooodbah.github.io/leandoc/assets/social-preview.png">
   <meta property="og:image:type" content="image/png">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="640">
-  <meta property="og:image:alt" content="LeanDoc: read the document, not the office suite.">
+  <meta property="og:image:alt" content="LeanDoc, a Word document viewer, showing a report with headings, a list, a table, and an Arabic paragraph. Read the document, not the office suite.">
   <meta name="twitter:card" content="summary_large_image">
   <script type="application/ld+json">
   {
@@ -37,7 +37,8 @@
     "license": "https://opensource.org/license/mit",
     "downloadUrl": "https://github.com/abooodbah/leandoc/releases/tag/v0.1.4",
     "codeRepository": "https://github.com/abooodbah/leandoc",
-    "description": "A read-only desktop viewer for Word documents on Windows, Linux, and macOS.",
+    "description": "A free, read-only Word (.docx) viewer for Windows, Linux, and macOS. It never runs macros and never fetches what a document points to.",
+    "url": "https://abooodbah.github.io/leandoc/",
     "offers": {
       "@type": "Offer",
       "price": "0",
@@ -64,6 +65,7 @@
         <a href="#fidelity">Fidelity</a>
         <a href="#safety">Safety</a>
         <a href="#platforms">Platforms</a>
+        <a href="#faq">FAQ</a>
         <a href="https://github.com/abooodbah/leandoc">Source</a>
       </nav>
       <a class="button button-small button-primary header-download" href="#platforms">
@@ -76,8 +78,9 @@
     <section class="hero" id="top">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <p class="eyebrow">A read-only viewer for Word documents</p>
-          <h1>Read the document, not the office suite.</h1>
+          <p class="eyebrow">A read-only .docx viewer</p>
+          <h1>A free Word document viewer for Windows, Linux and macOS</h1>
+          <p class="hero-slogan">Read the document, not the office suite.</p>
           <p class="hero-lead">
             LeanDoc opens a <code>.docx</code> as pages, never runs anything
             inside it, never fetches anything it points to, and has one button
@@ -133,8 +136,8 @@
             <dd>Desktop platforms: Windows, Linux, and a macOS preview</dd>
           </div>
           <div>
-            <dt>547 KiB</dt>
-            <dd>Linux package, measured from the built <code>.deb</code></dd>
+            <dt>600 KiB</dt>
+            <dd>Linux package: the v0.1.4 <code>.deb</code> is 613,946 bytes</dd>
           </div>
           <div>
             <dt>1 button</dt>
@@ -152,7 +155,7 @@
       <div class="container">
         <div class="section-copy section-intro">
           <p class="eyebrow">Who it is for</p>
-          <h2 id="audiences-heading">A Word document should not need Word.</h2>
+          <h2 id="audiences-heading">Open a .docx without Word on Windows 11.</h2>
           <p class="section-lead">
             Windows 11 24H2 removed WordPad, and the Explorer preview for
             <code>.docx</code> files needs Microsoft Office. LeanDoc fills that gap
@@ -344,9 +347,53 @@
             <div class="winget-note">
               <p class="winget-label">winget</p>
               <pre><code>winget install abooodbah.LeanDoc</code></pre>
-              <p>Pending review in winget; until then, download from
-                <a href="https://github.com/abooodbah/leandoc/releases">Releases</a>.</p>
+              <p>LeanDoc is in the winget community repository. This command
+                installs the portable build from the GitHub
+                <a href="https://github.com/abooodbah/leandoc/releases">Releases</a> page.</p>
             </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="faq" aria-labelledby="faq-heading">
+      <div class="container">
+        <div class="section-copy section-intro">
+          <p class="eyebrow">Questions</p>
+          <h2 id="faq-heading">Reading Word documents without Word</h2>
+        </div>
+        <div class="faq-list">
+          <div class="faq-item">
+            <h3>How do I open a .docx file without Microsoft Word?</h3>
+            <p>Install LeanDoc from the <a href="https://apps.microsoft.com/detail/9NSM04BJL6F6">Microsoft Store</a>, with <code>winget install abooodbah.LeanDoc</code>, or from <a href="https://github.com/abooodbah/leandoc/releases">GitHub Releases</a>. Then open the file, drop it on the window, or pick LeanDoc in Open With. It shows the document as pages. No Office install and no account are needed.</p>
+          </div>
+          <div class="faq-item">
+            <h3>Is LeanDoc free?</h3>
+            <p>Yes. It is MIT licensed and free on GitHub, the Microsoft Store, winget, Scoop, and Homebrew.</p>
+          </div>
+          <div class="faq-item">
+            <h3>What replaced Microsoft Word Viewer and WordPad?</h3>
+            <p>Microsoft retired Word Viewer in November 2017 and removed WordPad in Windows 11 version 24H2. LeanDoc is an independent viewer for the same job, reading a document. It is not a Microsoft product.</p>
+          </div>
+          <div class="faq-item">
+            <h3>Can I edit documents?</h3>
+            <p>No. LeanDoc is read-only and never saves. The <strong>Open in ...</strong> button hands the file to Word, LibreOffice, Pages, or your default editor when you need to change it.</p>
+          </div>
+          <div class="faq-item">
+            <h3>Can I open an email attachment without running its macros?</h3>
+            <p>Yes. LeanDoc has no macro engine, and it never fetches remote templates, linked images, or include and DDE fields. It reads a cleaned copy of the document, not the original file.</p>
+          </div>
+          <div class="faq-item">
+            <h3>Which file types does it open?</h3>
+            <p>It renders <code>.docx</code>, <code>.dotx</code>, <code>.docm</code>, and <code>.dotm</code>, including Strict OOXML. Older <code>.doc</code> files, <code>.rtf</code>, and <code>.odt</code> are not rendered: they open to a page that says what the file is, with the button to your editor.</p>
+          </div>
+          <div class="faq-item">
+            <h3>Does it work on Linux and Mac?</h3>
+            <p>Yes. There is a <code>.deb</code> for Ubuntu 24.04 and compatible systems, and a preview for macOS 12 or later that is ad-hoc signed and not notarized.</p>
+          </div>
+          <div class="faq-item">
+            <h3>Does LeanDoc collect data?</h3>
+            <p>No. It has no telemetry, update check, or account, and its own code makes no network requests. The system web runtime that draws the page may contact its vendor on its own.</p>
           </div>
         </div>
       </div>
@@ -360,21 +407,23 @@
           <p class="section-lead">
             LeanDoc is the third read-only viewer in the family. Each one opens
             a kind of file without the heavy application that usually comes
-            with it, and none of them changes the file.
+            with it, and none of them changes the file. The
+            <a href="https://abooodbah.github.io/">Lean Apps page</a> lists all
+            three with their install commands.
           </p>
         </div>
         <ul class="family-list">
           <li>
             <h3><a href="https://abooodbah.github.io/leanmark/">LeanMark</a></h3>
-            <p>Read Markdown and Mermaid diagrams offline without opening an IDE, on Windows, Linux, and macOS.</p>
+            <p>A Markdown viewer: read <code>.md</code> files and Mermaid diagrams offline without opening an IDE, on Windows, Linux, and macOS.</p>
           </li>
           <li>
             <h3><a href="https://abooodbah.github.io/leanrows/">LeanRows</a></h3>
-            <p>Open very large CSV, log, and JSON Lines files on Windows without loading them into memory.</p>
+            <p>A large CSV viewer: open CSV, log, and JSON Lines files too big for Excel on Windows without loading them into memory.</p>
           </li>
           <li class="family-current">
             <h3>LeanDoc</h3>
-            <p>Read Word documents without an office suite, on Windows, Linux, and macOS.</p>
+            <p>A Word document viewer: read <code>.docx</code> files without an office suite, on Windows, Linux, and macOS.</p>
           </li>
         </ul>
       </div>
@@ -452,6 +501,7 @@
         <a href="https://github.com/abooodbah/leandoc/blob/main/CONTRIBUTING.md">Contribute</a>
         <a href="https://github.com/abooodbah/leandoc/blob/main/THIRD_PARTY_NOTICES.md">Notices</a>
         <a href="https://github.com/abooodbah/leandoc/blob/main/LICENSE">License</a>
+        <a href="https://abooodbah.github.io/">All Lean apps</a>
       </nav>
     </div>
   </footer>
