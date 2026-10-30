@@ -176,7 +176,9 @@ if (manifest.name !== "LeanDoc") fail("site.webmanifest must name LeanDoc");
 
 // apps.microsoft.com is a plain link to the Microsoft Store listing; the page
 // loads nothing from it.
-const allowedHosts = new Set(["https://apps.microsoft.com", "https://github.com", "https://abooodbah.github.io", "https://opensource.org", "https://schema.org"]);
+const allowedHosts = new Set(["https://apps.microsoft.com", "https://github.com", "https://abooodbah.github.io", "https://opensource.org", "https://schema.org",
+  // Plain links for the Android closed test: the testers group and the Play opt-in page.
+  "https://groups.google.com", "https://play.google.com"]);
 for (const match of html.matchAll(/(?:href|src|content)="(https?:\/\/[^"/]+)/g)) {
   if (!allowedHosts.has(match[1])) fail(`unexpected external host: ${match[1]}`);
 }
