@@ -2,7 +2,7 @@
 
 Open a .docx without Microsoft Office. LeanDoc shows the document as pages, never runs macros, and never fetches anything the document points to. MIT licensed, no telemetry.
 
-[Website](https://abooodbah.github.io/leandoc/) · [Microsoft Store](https://apps.microsoft.com/detail/9NSM04BJL6F6) · `winget install abooodbah.LeanDoc` · [All Lean apps](https://abooodbah.github.io/)
+[Website](https://abooodbah.github.io/leandoc/) · [Microsoft Store](https://apps.microsoft.com/detail/9NSM04BJL6F6) · `winget install abooodbah.LeanDoc` · `choco install leandoc` · [All Lean apps](https://abooodbah.github.io/)
 
 **Read the document, not the office suite.**
 
@@ -57,6 +57,26 @@ winget install --id 9NSM04BJL6F6 --source msstore
 scoop bucket add lean https://github.com/abooodbah/scoop-bucket
 scoop install lean/leandoc
 ```
+
+### Chocolatey
+
+From an administrator PowerShell:
+
+```powershell
+choco install leandoc -y
+```
+
+The [LeanDoc package](https://community.chocolatey.org/packages/leandoc) installs
+the portable Windows ZIP from the GitHub release, checks its SHA-256, and adds a
+Start menu shortcut and a command-line shim. To move an existing Chocolatey
+installation to the newest release:
+
+```powershell
+choco upgrade leandoc -y
+```
+
+A new version reaches Chocolatey once its moderators have approved the package,
+which can take a few days after the GitHub release.
 
 ### Homebrew (macOS)
 
@@ -467,6 +487,8 @@ runtime may contact its vendor on its own, under its vendor's terms.
 - Windows, portable ZIP: delete the extracted folder. The settings key
   `HKCU\Software\LeanDoc` and the WebView2 folder `%LOCALAPPDATA%\LeanDoc`
   stay until you delete them.
+- Windows, through Chocolatey: `choco uninstall leandoc`, from an administrator
+  shell.
 - Linux: `sudo apt remove leandoc`. Your settings file
   `$XDG_CONFIG_HOME/leandoc/settings.ini` stays until you delete it.
 - macOS: move `LeanDoc.app` to the Trash.

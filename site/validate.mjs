@@ -177,6 +177,8 @@ if (manifest.name !== "LeanDoc") fail("site.webmanifest must name LeanDoc");
 // apps.microsoft.com is a plain link to the Microsoft Store listing; the page
 // loads nothing from it.
 const allowedHosts = new Set(["https://apps.microsoft.com", "https://github.com", "https://abooodbah.github.io", "https://opensource.org", "https://schema.org",
+  // A plain link to the Chocolatey package page; the page loads nothing from it.
+  "https://community.chocolatey.org",
   // Plain links for the Android closed test: the testers group and the Play opt-in page.
   "https://groups.google.com", "https://play.google.com"]);
 for (const match of html.matchAll(/(?:href|src|content)="(https?:\/\/[^"/]+)/g)) {
