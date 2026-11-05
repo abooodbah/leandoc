@@ -86,6 +86,11 @@ async function findCount(host, query) {
   return host.page.$eval("#findCount", (node) => node.textContent);
 }
 
+// The reader lays a zoom out in the next frame; this waits for it.
+async function zoomSettled(host) {
+  await host.page.waitForFunction(() => !document.documentElement.hasAttribute("data-zoom-pending"));
+}
+
 function countFrom(text) {
   if (text === "0") {
     return 0;
@@ -773,6 +778,7 @@ describe("chrome interactions (VIEW-01)", () => {
       const base = await pageWidth();
       await host.page.click("#zoomIn");
       assert.equal(await label(), "110%");
+      await zoomSettled(host);
       assert.ok(Math.abs(await pageWidth() - base * 1.1) < 2, "page grows by 10%");
       for (let index = 0; index < 20; index += 1) {
         await host.page.keyboard.press("Control+=");
@@ -783,9 +789,11 @@ describe("chrome interactions (VIEW-01)", () => {
         await host.page.click("#zoomOut", { force: true }).catch(() => {});
       }
       assert.equal(await label(), "50%");
+      await zoomSettled(host);
       assert.ok(Math.abs(await pageWidth() - base * 0.5) < 2, "page shrinks to half");
       await host.page.click("#zoomValue");
       assert.equal(await host.page.getAttribute("html", "data-zoom-mode"), "fit");
+      await zoomSettled(host);
       const available = await host.page.$eval("#docScroller", (node) => node.clientWidth);
       const fitted = await pageWidth();
       assert.ok(Math.abs(fitted - (available - 64)) < 3, `fit width ${fitted} in ${available}`);
@@ -799,6 +807,40 @@ describe("chrome interactions (VIEW-01)", () => {
       await host.page.keyboard.press("Control+0");
       assert.equal(await host.page.getAttribute("html", "data-zoom-mode"), "auto");
       assert.equal(await label(), "100%");
+    });
+  });
+
+  // Each layout of the 300-page report took 182 to 210 ms in WebKitGTK, and
+  // three steps in one frame (Ctrl+wheel, a held key) laid it out three times.
+  test("zoom steps in one frame are laid out once and keep the position", async () => {
+    await withHost({ viewport: { width: 1400, height: 600 } }, async (host) => {
+      await openFixture(host, "headings.docx");
+      const result = await host.page.evaluate(async () => {
+        const wrapper = document.querySelector("#docBody .docx-wrapper");
+        const scroller = document.getElementById("docScroller");
+        scroller.scrollTop = (scroller.scrollHeight - scroller.clientHeight) * 0.4;
+        let changes = 0;
+        const observer = new MutationObserver((records) => { changes += records.length; });
+        observer.observe(wrapper, { attributes: true, attributeFilter: ["style"] });
+        for (let step = 0; step < 3; step += 1) {
+          document.getElementById("zoomIn").click();
+        }
+        const label = document.getElementById("zoomValue").textContent;
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        observer.disconnect();
+        return {
+          changes,
+          label,
+          zoom: wrapper.style.zoom,
+          ratio: scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight),
+          pending: document.documentElement.hasAttribute("data-zoom-pending")
+        };
+      });
+      assert.equal(result.label, "150%", "the label follows each step at once");
+      assert.equal(result.zoom, "1.5");
+      assert.equal(result.changes, 1, "three steps change the zoom once");
+      assert.ok(Math.abs(result.ratio - 0.4) < 0.02, `position kept: ${result.ratio}`);
+      assert.equal(result.pending, false);
     });
   });
 
@@ -823,6 +865,7 @@ describe("chrome interactions (VIEW-01)", () => {
       for (let index = 0; index < 3; index += 1) {
         await host.page.click("#zoomIn");
       }
+      await zoomSettled(host);
       const large = await measure();
       assert.equal(await host.page.textContent("#zoomValue"), "150%");
       assert.ok(Math.abs(large.width - base.width * 1.5) < 2, "page is scaled");
@@ -831,6 +874,7 @@ describe("chrome interactions (VIEW-01)", () => {
       for (let index = 0; index < 8; index += 1) {
         await host.page.click("#zoomOut", { force: true }).catch(() => {});
       }
+      await zoomSettled(host);
       const small = await measure();
       assert.ok(Math.abs(small.width - base.width * 0.5) < 2, "page is scaled down");
       assert.ok(Math.abs(small.left - small.right) < 4, "a small page stays centred");
