@@ -2860,6 +2860,24 @@
     root.dataset.zoomMode = zoomMode;
   }
 
+  // Zoom steps that arrive together (Ctrl+wheel, a held key) are laid out
+  // once, in the next frame. Each layout of a long document is a full one:
+  // 182 to 210 ms for a 300-page report in WebKitGTK, and three steps in one
+  // frame took half a second. The label and buttons follow each step at once.
+  var zoomFrame = 0;
+
+  function requestZoom() {
+    updateZoomLabel(effectiveZoom());
+    if (!zoomFrame) {
+      root.setAttribute("data-zoom-pending", "");
+      zoomFrame = window.requestAnimationFrame(function () {
+        zoomFrame = 0;
+        root.removeAttribute("data-zoom-pending");
+        applyZoom(true);
+      });
+    }
+  }
+
   function applyZoom(keepPosition) {
     var factor = effectiveZoom();
     var ratio = keepPosition ? scrollRatio() : 0;
@@ -2908,7 +2926,7 @@
     }
     zoomMode = "fixed";
     zoomFactor = next;
-    applyZoom(true);
+    requestZoom();
   }
 
   function toggleFitWidth() {
@@ -2921,12 +2939,12 @@
     } else {
       zoomMode = "fit";
     }
-    applyZoom(true);
+    requestZoom();
   }
 
   function resetZoom() {
     zoomMode = "auto";
-    applyZoom(true);
+    requestZoom();
   }
 
   // Find
