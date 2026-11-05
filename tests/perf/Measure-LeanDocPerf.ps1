@@ -69,6 +69,7 @@ function Wait-Settled([int]$RootId, [int]$MinimumProcesses = 3) {
     [pscustomobject]@{
         PrivateMiB = [Math]::Round($sample.PrivateBytes / 1MB, 2)
         WorkingSetMiB = [Math]::Round($sample.WorkingSetBytes / 1MB, 2)
+        PeakWorkingSetMiB = [Math]::Round($sample.PeakWorkingSetBytes / 1MB, 2)
         Processes = $sample.ProcessCount
         Complete = $sample.ProcessCount -ge $MinimumProcesses
         SettledAfterS = [Math]::Round($clock.Elapsed.TotalSeconds, 1)
@@ -149,6 +150,7 @@ function Add-Measure([string]$Id, $Value, [string]$Unit, [string]$Budget, $Passe
 function Summary($scenario, [string]$Property) {
     Get-Median ([double[]]@($scenario.Records | ForEach-Object {
         if ($Property -eq 'private') { $_.memory.PrivateMiB }
+        elseif ($Property -eq 'peak') { $_.memory.PeakWorkingSetMiB }
         elseif ($Property -eq 'visible') { $_.timings['window-visible'] }
         else { $_.timings['rendered'] }
     }))
@@ -269,12 +271,26 @@ if (-not [string]::IsNullOrWhiteSpace($LeanMarkExePath) -and (Test-Path -Literal
     }
 }
 
+# The size of what the Windows ZIP ships, from the same build the launches
+# used: the executable, the WebView2 loader, and the reader assets.
+$payloadRoot = Split-Path -Parent $ExePath
+$payload = [ordered]@{}
+foreach ($name in @('LeanDoc.exe', 'WebView2Loader.dll', 'tools\leandoc-inspect.exe')) {
+    $file = Join-Path $payloadRoot $name
+    if (Test-Path -LiteralPath $file) { $payload[$name] = (Get-Item -LiteralPath $file).Length }
+}
+$assetsRoot = Join-Path $payloadRoot 'assets'
+if (Test-Path -LiteralPath $assetsRoot) {
+    $payload['assets'] = [int64](Get-ChildItem -LiteralPath $assetsRoot -Recurse -File | Measure-Object -Property Length -Sum).Sum
+}
+
 $revision = (& git -C $repoRoot rev-parse --short HEAD)
 $data = [ordered]@{
     meta = [ordered]@{ machine = $machine; revision = $revision; runs = $Runs; started = (Get-Date).ToUniversalTime().ToString('o') }
     measures = $measures
     launches = $launches
     leanmark = $leanmark
+    payload = $payload
 }
 $data | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $out 'perf-windows.json') -Encoding utf8
 $lines = [System.Collections.Generic.List[string]]::new()
@@ -287,6 +303,20 @@ $lines.Add('| --- | ---: | --- | --- | --- |')
 foreach ($id in ($measures.Keys | Sort-Object)) {
     $m = $measures[$id]
     $lines.Add(('| {0} | {1} {2} | {3} | {4} | {5} |' -f $id, $m.value, $m.unit, $m.budget, $m.result, $m.note))
+}
+$lines.Add('')
+$lines.Add('| Scenario | Peak working set of the tree (MiB) |')
+$lines.Add('| --- | ---: |')
+foreach ($name in @('empty window', 'report-3', 'report-300', 'report-1000', 'five tabs')) {
+    if ($launches.Contains($name)) {
+        $lines.Add(('| {0} | {1} |' -f $name, (Summary ([pscustomobject]@{ Records = $launches[$name] }) 'peak')))
+    }
+}
+$lines.Add('')
+$lines.Add('| Payload file | Bytes |')
+$lines.Add('| --- | ---: |')
+foreach ($entry in $payload.GetEnumerator()) {
+    $lines.Add(('| {0} | {1} |' -f $entry.Key, $entry.Value))
 }
 if ($leanmark.Count -gt 0) {
     $lines.Add('')
