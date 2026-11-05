@@ -89,6 +89,12 @@
   // jump, so an exact position cannot tell.
   var pinnedOutline = null;
   var search = { matches: [], index: -1, marks: false };
+  // Find runs after a short pause in typing, as in LeanMark. Each search
+  // walks the whole document and repaints every match: one search per key
+  // held a 300-page report for up to 0.8 s after each key in WebKitGTK.
+  // Enter, F3, and Escape act on a waiting search at once.
+  var SEARCH_PAUSE_MS = 120;
+  var searchTimer = 0;
   var toastTimer = 0;
   var scrollFrame = 0;
   var resizeTimer = 0;
@@ -3114,6 +3120,28 @@
     }
   }
 
+  function cancelPendingSearch() {
+    if (!searchTimer) {
+      return false;
+    }
+    window.clearTimeout(searchTimer);
+    searchTimer = 0;
+    return true;
+  }
+
+  function scheduleSearch() {
+    cancelPendingSearch();
+    if (!elements.findInput.value.trim()) {
+      // Nothing to search for: the old matches go at once.
+      runSearch(true);
+      return;
+    }
+    searchTimer = window.setTimeout(function () {
+      searchTimer = 0;
+      runSearch(true);
+    }, SEARCH_PAUSE_MS);
+  }
+
   function moveSearch(direction) {
     if (elements.findInput.disabled) {
       return;
@@ -3121,6 +3149,13 @@
     if (!elements.findInput.value.trim()) {
       elements.findInput.focus();
       return;
+    }
+    if (cancelPendingSearch()) {
+      runSearch(true);
+      // The new search has already selected its first match.
+      if (!search.matches.length || direction > 0) {
+        return;
+      }
     }
     if (!search.matches.length) {
       runSearch(true);
@@ -3503,9 +3538,7 @@
     }
   });
 
-  elements.findInput.addEventListener("input", function () {
-    runSearch(true);
-  });
+  elements.findInput.addEventListener("input", scheduleSearch);
   elements.findInput.addEventListener("keydown", function (event) {
     if (event.key === "Enter") {
       event.preventDefault();
