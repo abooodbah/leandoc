@@ -864,6 +864,49 @@ describe("chrome interactions (VIEW-01)", () => {
     });
   });
 
+  // After a long jump, the pages that come into view are still skipped by
+  // content-visibility in the first frame, so their headings report places
+  // they do not have yet. The outline then marked a section several entries
+  // off (Section 126 for 121 at 40 percent), and nothing scrolled again to
+  // correct it.
+  test("the current section is right after a long jump, once scrolling stops", async () => {
+    await withHost({ viewport: { width: 1280, height: 800 } }, async (host) => {
+      const expected = JSON.parse(readFileSync(path.resolve(repositoryRoot, fixtures.config.coreExpectedFile), "utf8"));
+      const outline = expected["features/long-300-pages.docx"].outline
+        .map(([level, text, paragraph]) => ({ level, text, paragraph }));
+      const file = path.join(repositoryRoot, "tests", "fixtures", "features", "long-300-pages.docx");
+      const { bytes, report } = fixture(file, { outline });
+      await host.openDocument({ bytes, report, fileName: "long-300-pages.docx" });
+      for (const share of [0.4, 0.75, 0.2]) {
+        await host.page.evaluate((value) => {
+          const scroller = document.getElementById("docScroller");
+          scroller.scrollTop = scroller.scrollHeight * value;
+        }, share);
+        await host.page.waitForTimeout(600);
+        const state = await host.page.evaluate(() => {
+          const scroller = document.getElementById("docScroller");
+          const top = scroller.getBoundingClientRect().top;
+          const threshold = Math.max(48, scroller.clientHeight * 0.25);
+          let wanted = 0;
+          document.querySelectorAll("#docBody [data-ld-target]").forEach((node) => {
+            if (node.getBoundingClientRect().top - top <= threshold) {
+              wanted = Math.max(wanted, Number(node.getAttribute("data-ld-target")));
+            }
+          });
+          const marked = document.querySelector("#outlineList [aria-current]");
+          return {
+            wanted,
+            wantedText: document.querySelector(`#outlineList a[data-index="${wanted}"]`).textContent,
+            marked: marked ? Number(marked.dataset.index) : -1,
+            markedText: marked ? marked.textContent : ""
+          };
+        });
+        assert.equal(state.marked, state.wanted,
+          `at ${share * 100}%: marked ${state.markedText}, the section on screen is ${state.wantedText}`);
+      }
+    });
+  });
+
   test("outline entries whose index misses fall back to the heading text", async () => {
     await withHost({}, async (host) => {
       const { report } = fixture("headings.docx");
