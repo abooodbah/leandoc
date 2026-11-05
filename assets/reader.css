@@ -347,7 +347,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  padding: var(--space-2) var(--space-4) var(--space-2) var(--space-5);
+  padding: var(--space-2) var(--space-5);
 }
 
 .identity,
@@ -375,14 +375,14 @@ body {
   color: var(--wordmark-ink);
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
 }
 
 .file-copy {
   min-width: 0;
   align-items: flex-start;
   flex-direction: column;
-  line-height: 1.25;
+  line-height: 1.2;
 }
 
 .file-copy strong,
@@ -411,7 +411,7 @@ body {
 }
 
 .file-copy span {
-  margin-top: 2px;
+  margin-top: 3px;
   color: var(--text-secondary);
   font-size: 12px;
 }
@@ -423,11 +423,11 @@ body {
 
 .search-field {
   position: relative;
-  width: 220px;
-  height: 36px;
+  min-width: 220px;
+  height: 40px;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--canvas);
   transition:
     border-color var(--duration-short) var(--ease-standard),
@@ -436,25 +436,14 @@ body {
 
 .search-field:focus-within {
   border-color: var(--accent-500);
-  box-shadow: 0 0 0 1px var(--accent-500);
-}
-
-.search-icon {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 auto;
-  margin-left: var(--space-3);
-  fill: none;
-  stroke: var(--text-secondary);
-  stroke-linecap: round;
-  stroke-width: 1.5;
+  box-shadow: 0 0 0 2px var(--ring);
 }
 
 .search-field input {
   width: 100%;
   min-width: 0;
   height: 100%;
-  padding: 0 var(--space-2);
+  padding: 0 var(--space-3);
   border: 0;
   outline: 0;
   background: transparent;
@@ -476,19 +465,20 @@ body {
 
 #findCount {
   flex: 0 0 auto;
+  min-width: 52px;
   padding-right: var(--space-3);
   color: var(--text-secondary);
-  font-family: var(--font-mono);
   font-size: 12px;
+  text-align: right;
   white-space: nowrap;
 }
 
 .button {
   display: inline-flex;
-  height: 36px;
+  height: 40px;
   align-items: center;
   justify-content: center;
-  padding: 0 var(--space-3);
+  padding: 0 var(--space-4);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: transparent;
@@ -503,7 +493,7 @@ body {
 }
 
 .button:hover:not(:disabled) {
-  background: var(--surface-hover);
+  background: var(--surface-muted);
 }
 
 .button:disabled {
@@ -511,13 +501,8 @@ body {
   opacity: 0.45;
 }
 
-.button-ghost {
-  min-width: 72px;
-  color: var(--text-secondary);
-}
-
-.button-ghost:hover:not(:disabled) {
-  color: var(--text-primary);
+.button:active:not(:disabled) {
+  filter: brightness(0.9);
 }
 
 .button-secondary {
@@ -550,7 +535,7 @@ body {
 .segmented,
 .zoom {
   display: inline-flex;
-  height: 36px;
+  height: 40px;
   align-items: stretch;
   padding: 2px;
   border: 1px solid var(--border);
@@ -606,7 +591,7 @@ body {
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 1.5;
+  stroke-width: 1.6;
 }
 
 .zoom-step:hover:not(:disabled),
@@ -696,7 +681,7 @@ body {
    It is not modal: the reader keeps working, and Escape returns the focus. */
 
 .button-icon {
-  width: 36px;
+  width: 40px;
   padding: 0;
 }
 
@@ -914,7 +899,7 @@ body {
 }
 
 .tab:hover {
-  background: var(--surface-hover);
+  background: var(--surface-muted);
   color: var(--text-primary);
 }
 
@@ -1547,7 +1532,7 @@ body {
 
 @media (max-width: 1080px) {
   .search-field {
-    width: 160px;
+    min-width: 160px;
   }
 
   .outline {
@@ -1556,7 +1541,6 @@ body {
 }
 
 @media (max-width: 900px) {
-  .button-ghost,
   .segmented .segment {
     min-width: 0;
   }
@@ -1582,12 +1566,34 @@ body {
   }
 
   .search-field {
-    width: auto;
+    min-width: 132px;
     flex: 1 1 140px;
   }
 
   .outline {
     display: none;
+  }
+
+  /* As in LeanMark: the theme stays in the settings panel. */
+  .wordmark,
+  .file-copy span,
+  #themeButton {
+    display: none;
+  }
+
+  .file-copy strong {
+    max-width: 160px;
+  }
+}
+
+@media (max-width: 560px) {
+  .file-copy {
+    display: none;
+  }
+
+  .button {
+    padding-right: var(--space-3);
+    padding-left: var(--space-3);
   }
 }
 
