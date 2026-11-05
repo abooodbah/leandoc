@@ -34,7 +34,11 @@ Each pull request updates its own item below when it merges.
 - Bug: the outline's current section after a long jump (found by the
   LeanDoc Android port): #25, in progress.
 
-- Efficiency: a view switch reuses the parsed document: in progress.
+- Efficiency: a view switch reuses the parsed document: #26, merged. After
+  the first switch to each view, the 300-page report switches to reading
+  view in 551 ms (921 on main) and back in 837 ms (963) (WebKitGTK). An
+  opened document keeps nothing extra; after switching, the two kept copies
+  cost about 10 MiB for 1,000 pages (402.0 against 391.9 MiB).
 
 - The Dim and Dusk themes (reader and the three hosts): planned.
 
