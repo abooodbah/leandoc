@@ -640,6 +640,90 @@ describe("keyboard reading and the outline (U-02, U-06)", () => {
   });
 });
 
+describe("toolbar and tabs (LeanMark's layout)", () => {
+  // LeanMark 0.6.0's toolbar and tab strip (assets/reader.css in the
+  // leanmark repository): 56 px bar with 20 px sides, 40 px controls with
+  // 16 px sides, the find box without an icon, icons drawn at 1.6 px.
+  test("the toolbar and tabs use LeanMark's sizes, spacing, and icons", async () => {
+    await withHost({ viewport: { width: 1400, height: 900 } }, async (host) => {
+      await host.send({ type: "tabs", tabs: [
+        { id: 1, name: "headings.docx", path: "/docs/headings.docx" },
+        { id: 2, name: "tables.docx", path: "/docs/tables.docx" }], active: 1 });
+      await openFixture(host, "headings.docx", { tab: 1 });
+      const measured = await host.page.evaluate(() => {
+        const style = (selector) => getComputedStyle(document.querySelector(selector));
+        const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+        const pick = (selector, names) => {
+          const computed = style(selector);
+          return Object.fromEntries(names.map((name) => [name, computed.getPropertyValue(name)]));
+        };
+        const visible = Array.from(document.querySelectorAll(".toolbar button, .toolbar input"))
+          .filter((node) => node.getClientRects().length > 0).map((node) => node.id);
+        return {
+          topbar: pick(".topbar", ["min-height", "padding-left", "padding-right", "column-gap"]),
+          toolbarGap: style(".toolbar").columnGap,
+          wordmark: pick(".wordmark", ["width", "height", "border-radius", "font-size", "font-weight", "letter-spacing"]),
+          fileMeta: pick("#fileMeta", ["font-size", "margin-top"]),
+          search: { ...pick(".search-field", ["height", "min-width", "border-top-left-radius"]),
+            icons: document.querySelectorAll(".search-field svg").length },
+          searchInput: pick("#findInput", ["padding-left", "font-size"]),
+          findCount: pick("#findCount", ["min-width", "text-align", "font-size"]),
+          buttons: ["#themeButton", "#editorButton", "#openButton"].map((id) =>
+            pick(id, ["height", "border-top-left-radius", "padding-left", "padding-right", "font-size", "font-weight"])),
+          ghostColor: style("#themeButton").color,
+          settings: [box("#settingsButton").width, box("#settingsButton").height],
+          groups: [box(".segmented").height, box(".zoom").height],
+          strokes: Array.from(document.querySelectorAll(".toolbar svg, .tab-strip svg"))
+            .map((svg) => getComputedStyle(svg).strokeWidth),
+          order: visible,
+          strip: pick(".tab-strip", ["height", "padding-left"]),
+          tab: pick(".tab", ["font-size", "padding-left", "min-width", "max-width"]),
+          selected: style('.tab[aria-selected="true"]').boxShadow
+        };
+      });
+      assert.deepEqual(measured.topbar, { "min-height": "56px", "padding-left": "20px", "padding-right": "20px", "column-gap": "16px" });
+      assert.equal(measured.toolbarGap, "8px");
+      assert.deepEqual(measured.wordmark, { width: "32px", height: "32px", "border-radius": "6px", "font-size": "12px",
+        "font-weight": "600", "letter-spacing": "0.36px" });
+      assert.deepEqual(measured.fileMeta, { "font-size": "12px", "margin-top": "3px" });
+      assert.deepEqual(measured.search, { height: "40px", "min-width": "220px", "border-top-left-radius": "4px", icons: 0 });
+      assert.deepEqual(measured.searchInput, { "padding-left": "12px", "font-size": "14px" });
+      assert.deepEqual(measured.findCount, { "min-width": "52px", "text-align": "right", "font-size": "12px" });
+      for (const button of measured.buttons) {
+        assert.deepEqual(button, { height: "40px", "border-top-left-radius": "6px", "padding-left": "16px",
+          "padding-right": "16px", "font-size": "14px", "font-weight": "500" });
+      }
+      assert.equal(measured.ghostColor, "rgb(26, 25, 23)", "ghost buttons use the text colour");
+      assert.deepEqual(measured.settings, [40, 40]);
+      assert.deepEqual(measured.groups, [40, 40]);
+      assert.ok(measured.strokes.length > 0 && measured.strokes.every((width) => width === "1.6px"),
+        `icons at 1.6 px: ${measured.strokes.join(" ")}`);
+      assert.deepEqual(measured.order, ["findInput", "viewPage", "viewReading", "zoomOut", "zoomValue", "zoomIn",
+        "themeButton", "settingsButton", "editorButton", "openButton"]);
+      assert.deepEqual(measured.strip, { height: "36px", "padding-left": "12px" });
+      assert.deepEqual(measured.tab, { "font-size": "13px", "padding-left": "12px", "min-width": "96px", "max-width": "240px" });
+      assert.equal(measured.selected, "rgb(29, 78, 216) 0px -2px 0px 0px inset");
+      await host.page.hover('.tab[aria-selected="false"]');
+      assert.equal(await host.page.$eval('.tab[aria-selected="false"]', (node) => getComputedStyle(node).backgroundColor),
+        "rgb(244, 242, 238)", "a hovered tab takes the muted surface");
+      await host.send({ type: "theme", theme: "dark", view: "page" });
+      assert.equal(await host.page.$eval('.tab[aria-selected="false"]', (node) => getComputedStyle(node).backgroundColor),
+        "rgb(43, 41, 36)", "in Dark too");
+    });
+  });
+
+  test("a narrow window hides the wordmark, the file details, and the theme button, as LeanMark does", async () => {
+    await withHost({ viewport: { width: 700, height: 800 } }, async (host) => {
+      await openFixture(host, "headings.docx");
+      const shown = await host.page.evaluate(() => Object.fromEntries(
+        [".wordmark", "#fileMeta", "#themeButton", "#settingsButton", "#openButton", "#findInput"]
+          .map((selector) => [selector, document.querySelector(selector).getClientRects().length > 0])));
+      assert.deepEqual(shown, { ".wordmark": false, "#fileMeta": false, "#themeButton": false,
+        "#settingsButton": true, "#openButton": true, "#findInput": true });
+    });
+  });
+});
+
 describe("settings panel and shortcuts", () => {
   test("the settings button opens the panel; Ctrl+/ and F1 open it; Escape closes it", async () => {
     await withHost({}, async (host) => {
