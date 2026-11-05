@@ -822,3 +822,69 @@ test("A saved page start after a continuous section break is marked", () => {
   assert.equal(marked(afterNextPage), false);
   assert.equal(stats.savedPageStarts, 1);
 });
+
+// The page colour setting: every colour the document names goes through a
+// variable that is unset on paper, so paper pages draw exactly as before.
+test("Document colours are routed through variables that fall back to the colour itself", () => {
+  const shared = { color: "#1F3763", "font-size": "12pt" };
+  const doc = {
+    parts: [
+      { _package: { color: "#ffffff" }, body: { children: [
+        { type: "paragraph", cssStyle: { "background-color": "#D9D9D9", "border-top": "0.5pt solid black" },
+          children: [{ type: "run", cssStyle: shared }, { type: "run", cssStyle: { color: "darkYellow" } },
+            { type: "run", cssStyle: { color: "inherit", "text-decoration-color": "red" } },
+            { type: "run", cssStyle: { "background-color": "transparent", "font-family": "Black Ops" } }] }] } },
+      { styles: [{ styles: [{ target: "span", values: { color: "#1f3763", background: "#FFFF00" } }] }] }
+    ]
+  };
+  const palette = Fixups.colorPalette(doc);
+  const body = doc.parts[0].body.children[0];
+  assert.equal(shared.color, "var(--ldc-2, #1F3763)");
+  assert.equal(shared["font-size"], "12pt");
+  assert.equal(body.cssStyle["background-color"], "var(--ldc-0, #D9D9D9)");
+  assert.equal(body.cssStyle["border-top"], "0.5pt solid var(--ldc-1, black)");
+  assert.equal(body.children[1].cssStyle.color, "darkYellow", "names CSS does not know are left alone");
+  assert.equal(body.children[2].cssStyle.color, "inherit");
+  assert.equal(body.children[2].cssStyle["text-decoration-color"], "var(--ldc-3, red)");
+  assert.equal(body.children[3].cssStyle["background-color"], "transparent");
+  assert.equal(body.children[3].cssStyle["font-family"], "Black Ops", "only colour properties change");
+  const values = doc.parts[1].styles[0].styles[0].values;
+  assert.equal(values.color, "var(--ldc-2, #1f3763)", "one variable per colour and role, whatever the case");
+  assert.equal(values.background, "var(--ldc-4, #FFFF00)");
+  assert.equal(doc.parts[0]._package.color, "#ffffff", "the package is not touched");
+  assert.deepEqual(palette, [
+    { color: "#d9d9d9", role: "fill" }, { color: "black", role: "line" }, { color: "#1f3763", role: "line" },
+    { color: "red", role: "line" }, { color: "#ffff00", role: "fill" }], "in document order");
+  assert.deepEqual(Fixups.colorPalette(doc), [], "running it again finds nothing new");
+  assert.equal(shared.color, "var(--ldc-2, #1F3763)");
+});
+
+test("Theme colours keep text readable and turn light fills dark on a dark page", () => {
+  const rgb = (text) => text.match(/\d+/g).map(Number);
+  const luminance = (text) => {
+    const [r, g, b] = rgb(text).map((v) => v / 255).map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (a, b) => {
+    const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+    return (x + 0.05) / (y + 0.05);
+  };
+  for (const [paper, ink] of [["#0e0d0b", "#faf9f7"], ["#1e2023", "#c8ccd2"], ["#221e19", "#d4c8b4"]]) {
+    const paperRgb = `rgb(${rgb("rgb(" + parseInt(paper.slice(1, 3), 16) + "," + parseInt(paper.slice(3, 5), 16) + "," + parseInt(paper.slice(5, 7), 16) + ")").join(", ")})`;
+    assert.equal(Fixups.darkPageColor("white", "fill", paper, ink), paperRgb, "white fills become the page");
+    assert.equal(Fixups.darkPageColor("#000000", "line", paper, ink),
+      `rgb(${parseInt(ink.slice(1, 3), 16)}, ${parseInt(ink.slice(3, 5), 16)}, ${parseInt(ink.slice(5, 7), 16)})`,
+      "black text becomes the theme's text");
+    for (const color of ["#1F3763", "#2F5496", "#C00000", "#0563C1", "#00B050", "#7030A0", "#808080", "yellow",
+      "#FFC000", "darkBlue", "#F2F2F2"]) {
+      const line = Fixups.darkPageColor(color, "line", paper, ink);
+      assert.ok(contrast(line, paperRgb) >= 4.5, `${color} as text on ${paper}: ${line}`);
+    }
+    for (const color of ["#D9D9D9", "#FFFF00", "#DEEAF6", "#FBE4D5", "#F2F2F2"]) {
+      const fill = Fixups.darkPageColor(color, "fill", paper, ink);
+      assert.ok(luminance(fill) < 0.12, `${color} as a fill turns dark: ${fill}`);
+      assert.ok(contrast(Fixups.darkPageColor("#000000", "line", paper, ink), fill) >= 4.5,
+        `the theme's text stays readable on ${color} turned ${fill}`);
+    }
+  }
+});

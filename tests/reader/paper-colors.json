@@ -1,0 +1,98 @@
+{
+  "static:tests/reader/dev-fixtures/headings.docx": {
+    "elements": 75,
+    "sha256": "b39ba8a22ccea78f91b01a165bdbebd51aca1808754161111951b28e6dfae102"
+  },
+  "static:tests/reader/dev-fixtures/tables.docx": {
+    "elements": 66,
+    "sha256": "f1fde4145dc56a7500b5c404705ec43fe95798447cb426d05181c262b9b87da1"
+  },
+  "static:tests/reader/dev-fixtures/hyperlinks.docx": {
+    "elements": 194,
+    "sha256": "f84bb59a0ad37b9f869e0642a3211683a9ccfcc9ef2406681f4bd6e17396dbd8"
+  },
+  "static:tests/reader/dev-fixtures/bullets.docx": {
+    "elements": 40,
+    "sha256": "c4de9b2f2b0226ba66cafd81040e68f9cfdbbe6c183ed9959f98b981b1b9a770"
+  },
+  "static:tests/fixtures/features/styles.docx": {
+    "elements": 25,
+    "sha256": "014197c6ac670c41cb281a4e740a7fcf03aead67083088012f825ad6aab0dec8"
+  },
+  "static:tests/fixtures/features/theme.docx": {
+    "elements": 14,
+    "sha256": "bcec2447440102156214c354f36b2e751d9ad51ba63ca53af72ec7e173ee74e3"
+  },
+  "static:tests/fixtures/features/tables.docx": {
+    "elements": 38,
+    "sha256": "ff892fee1513a7f17bffbba9841bbf5179e1d13c161e9b618022c4709fa744a5"
+  },
+  "static:tests/fixtures/features/numbering.docx": {
+    "elements": 25,
+    "sha256": "01fb4a541a507eef8a744bfb1e3ddbb36731f91c5fa9f89b41aa6fb575f70f73"
+  },
+  "static:tests/fixtures/features/headers-footers.docx": {
+    "elements": 59,
+    "sha256": "ec8ddc1266fc3a247ea2a18f97cc41451fd53890da602fdedfc0cc2fd8a8b7ee"
+  },
+  "static:tests/fixtures/features/notes.docx": {
+    "elements": 34,
+    "sha256": "ef7802f791d2b027482c2fc2b7e00d794426da874519859b4b73c5c5d28dcb1b"
+  },
+  "static:tests/fixtures/features/arabic-table.docx": {
+    "elements": 32,
+    "sha256": "104d3c99b410fc0f98ba05faa0d6478bfdc32bf54a3188a07e828a4150f9d4f1"
+  },
+  "static:tests/fixtures/features/tracked-changes.docx": {
+    "elements": 29,
+    "sha256": "2387c7ea472f114ab6d7b85e4527a23d94d5af07e133b045d439a2ad72c1d6e7"
+  },
+  "core:tests/reader/dev-fixtures/headings.docx": {
+    "elements": 75,
+    "sha256": "b39ba8a22ccea78f91b01a165bdbebd51aca1808754161111951b28e6dfae102"
+  },
+  "core:tests/reader/dev-fixtures/tables.docx": {
+    "elements": 66,
+    "sha256": "f1fde4145dc56a7500b5c404705ec43fe95798447cb426d05181c262b9b87da1"
+  },
+  "core:tests/reader/dev-fixtures/hyperlinks.docx": {
+    "elements": 192,
+    "sha256": "89690e844f25603b2f98b4fe58150de10cab183c5c5a9c3785baf7b2392fe428"
+  },
+  "core:tests/reader/dev-fixtures/bullets.docx": {
+    "elements": 40,
+    "sha256": "c4de9b2f2b0226ba66cafd81040e68f9cfdbbe6c183ed9959f98b981b1b9a770"
+  },
+  "core:tests/fixtures/features/styles.docx": {
+    "elements": 25,
+    "sha256": "014197c6ac670c41cb281a4e740a7fcf03aead67083088012f825ad6aab0dec8"
+  },
+  "core:tests/fixtures/features/theme.docx": {
+    "elements": 14,
+    "sha256": "bcec2447440102156214c354f36b2e751d9ad51ba63ca53af72ec7e173ee74e3"
+  },
+  "core:tests/fixtures/features/tables.docx": {
+    "elements": 38,
+    "sha256": "ff892fee1513a7f17bffbba9841bbf5179e1d13c161e9b618022c4709fa744a5"
+  },
+  "core:tests/fixtures/features/numbering.docx": {
+    "elements": 25,
+    "sha256": "01fb4a541a507eef8a744bfb1e3ddbb36731f91c5fa9f89b41aa6fb575f70f73"
+  },
+  "core:tests/fixtures/features/headers-footers.docx": {
+    "elements": 63,
+    "sha256": "cbdd691d05e9d4e96dad1ad63fd07095778bc9716eed59fc76c31c51d96d01b3"
+  },
+  "core:tests/fixtures/features/notes.docx": {
+    "elements": 34,
+    "sha256": "ef7802f791d2b027482c2fc2b7e00d794426da874519859b4b73c5c5d28dcb1b"
+  },
+  "core:tests/fixtures/features/arabic-table.docx": {
+    "elements": 32,
+    "sha256": "104d3c99b410fc0f98ba05faa0d6478bfdc32bf54a3188a07e828a4150f9d4f1"
+  },
+  "core:tests/fixtures/features/tracked-changes.docx": {
+    "elements": 27,
+    "sha256": "be0f912059f7c00a8123916929db9245424cb5619815388a72335bca4c971f41"
+  }
+}
