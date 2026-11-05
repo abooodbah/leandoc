@@ -640,6 +640,216 @@ describe("keyboard reading and the outline (U-02, U-06)", () => {
   });
 });
 
+describe("settings panel and shortcuts", () => {
+  test("the settings button opens the panel; Ctrl+/ and F1 open it; Escape closes it", async () => {
+    await withHost({}, async (host) => {
+      await openFixture(host, "headings.docx");
+      const button = "#settingsButton";
+      assert.equal(await host.page.getAttribute(button, "aria-haspopup"), "dialog");
+      assert.equal(await host.page.getAttribute(button, "aria-controls"), "settingsPanel");
+      assert.equal(await host.page.getAttribute(button, "aria-expanded"), "false");
+      assert.equal(await host.page.getAttribute(button, "title"), "Settings and shortcuts (Ctrl+/)");
+      assert.equal(await host.page.getAttribute(button, "aria-label"), "Settings and keyboard shortcuts");
+      assert.equal(await host.page.isVisible("#settingsPanel"), false);
+
+      await host.page.click(button);
+      assert.equal(await host.page.isVisible("#settingsPanel"), true);
+      assert.equal(await host.page.getAttribute(button, "aria-expanded"), "true");
+      assert.equal(await host.page.getAttribute("#settingsPanel", "role"), "dialog");
+      assert.deepEqual(await host.page.evaluate(() =>
+        [document.activeElement.name, document.activeElement.value, document.activeElement.checked]),
+      ["settings-theme", "light", true], "the checked theme has the focus");
+      // The panel sits beside the document, below the toolbar; nothing overlaps.
+      const boxes = await host.page.evaluate(() => {
+        const box = (id) => document.getElementById(id).getBoundingClientRect().toJSON();
+        return { panel: box("settingsPanel"), doc: box("docScroller"), chrome: box("chrome") };
+      });
+      assert.ok(boxes.doc.right <= boxes.panel.left + 1, `the document moves over: ${JSON.stringify(boxes)}`);
+      assert.ok(Math.abs(boxes.panel.top - boxes.chrome.bottom) <= 1, "the panel starts below the toolbar");
+      await host.page.keyboard.press("Escape");
+      assert.equal(await host.page.isVisible("#settingsPanel"), false);
+      assert.equal(await host.page.evaluate(() => document.activeElement.id), "settingsButton");
+      assert.equal(await host.page.getAttribute(button, "aria-expanded"), "false");
+
+      await host.page.locator("#docScroller").focus();
+      await host.page.keyboard.press("Control+/");
+      assert.equal(await host.page.isVisible("#settingsPanel"), true, "Ctrl+/ opens the panel");
+      await host.page.keyboard.press("Escape");
+      assert.equal(await host.page.evaluate(() => document.activeElement.id), "docScroller",
+        "Escape returns the focus to where it was");
+      await host.page.keyboard.press("F1");
+      assert.equal(await host.page.isVisible("#settingsPanel"), true, "F1 opens the panel");
+      await host.page.click("#settingsClose");
+      assert.equal(await host.page.isVisible("#settingsPanel"), false);
+      // Escape in the find box clears the search and leaves the panel open.
+      await host.page.click(button);
+      await host.page.fill("#findInput", "Kingfisher");
+      await host.page.locator("#findInput").press("Escape");
+      assert.equal(await host.page.isVisible("#settingsPanel"), true);
+      await host.page.click(button);
+      assert.equal(await host.page.isVisible("#settingsPanel"), false, "the button closes it again");
+    });
+    await withHost({ platform: "macos", tabs: false }, async (host) => {
+      assert.equal(await host.page.getAttribute("#settingsButton", "title"), "Settings and shortcuts (Cmd+/)");
+      await host.page.keyboard.press("Meta+/");
+      assert.equal(await host.page.isVisible("#settingsPanel"), true, "Cmd+/ opens the panel on macOS");
+    });
+  });
+
+  test("the panel changes the theme, the view, and the zoom", async () => {
+    await withHost({ viewport: { width: 1700, height: 900 } }, async (host) => {
+      await host.send({ type: "empty", recent: [] });
+      await host.page.click("#settingsButton");
+      assert.equal(await host.page.isDisabled('input[name="settings-view"][value="reading"]'), true,
+        "no view without a document");
+      assert.equal(await host.page.isDisabled("#settingsZoomIn"), true, "no zoom without a document");
+      await host.page.click("#settingsClose");
+      await openFixture(host, "headings.docx");
+      await host.page.click("#settingsButton");
+      const themes = await host.page.$$eval('#settingsPanel input[name="settings-theme"]', (inputs) =>
+        inputs.map((input) => [input.value, input.closest("label").textContent.trim(),
+          input.closest("label").querySelector(".theme-swatch").dataset.swatch]));
+      assert.deepEqual(themes, [["system", "System", "system"], ["light", "Light", "light"],
+        ["dark", "Dark", "dark"], ["dim", "Dim", "dim"], ["dusk", "Dusk", "dusk"]]);
+      const posted = host.waitFor((message) => message.type === "setTheme");
+      await host.page.check('input[name="settings-theme"][value="dusk"]');
+      assert.equal((await posted).theme, "dusk");
+      assert.equal(await host.page.getAttribute("html", "data-theme"), "dusk");
+      assert.equal(await host.page.textContent("#themeLabel"), "Dusk");
+      await host.page.keyboard.press("Control+Shift+T");
+      assert.equal(await host.page.isChecked('input[name="settings-theme"][value="system"]'), true,
+        "the panel follows the theme key");
+
+      assert.equal(await host.page.isChecked('input[name="settings-view"][value="page"]'), true);
+      const view = host.waitFor((message) => message.type === "setView");
+      const rendered = nextRendered(host);
+      await host.page.check('input[name="settings-view"][value="reading"]');
+      assert.equal((await view).view, "reading");
+      await rendered;
+      assert.equal(await host.page.getAttribute("html", "data-view"), "reading");
+      const back = nextRendered(host);
+      await host.page.locator("#docScroller").focus();
+      await host.page.keyboard.press("Control+Shift+V");
+      await back;
+      assert.equal(await host.page.isChecked('input[name="settings-view"][value="page"]'), true,
+        "the panel follows the view key");
+
+      const zoom = () => host.page.textContent("#settingsZoomValue");
+      assert.equal(await zoom(), "100%");
+      await host.page.click("#settingsZoomIn");
+      assert.equal(await zoom(), "110%");
+      assert.equal(await host.page.textContent("#zoomValue"), "110%");
+      await host.page.click("#settingsZoomOut");
+      await host.page.click("#settingsZoomOut");
+      assert.equal(await zoom(), "90%");
+      await host.page.click("#settingsZoomFit");
+      assert.equal(await host.page.getAttribute("html", "data-zoom-mode"), "fit");
+      await host.page.click("#settingsZoomReset");
+      assert.equal(await host.page.getAttribute("html", "data-zoom-mode"), "auto");
+      assert.equal(await zoom(), "100%");
+    });
+  });
+
+  const WINDOWS_SHORTCUTS = [
+    ["Reader", "Ctrl+O", "Open a document"],
+    ["Reader", "Ctrl+F", "Find in the document"],
+    ["Reader", "F3", "Next match"],
+    ["Reader", "Shift+F3", "Previous match"],
+    ["Reader", "F5", "Reload from disk"],
+    ["Reader", "Ctrl+R", "Reload from disk"],
+    ["Reader", "Ctrl+Shift+V", "Switch page and reading view"],
+    ["Reader", "Ctrl+Shift+T", "Change the theme"],
+    ["Reader", "Ctrl+Shift+E", "Open in the editor"],
+    ["Reader", "Ctrl+Shift+C", "Copy all text"],
+    ["Reader", "Ctrl++", "Zoom in"],
+    ["Reader", "Ctrl+-", "Zoom out"],
+    ["Reader", "Ctrl+0", "Reset the zoom"],
+    ["Reader", "Ctrl+/", "Settings and shortcuts"],
+    ["Reader", "F1", "Settings and shortcuts"],
+    ["Settings panel", "Esc", "Close the settings panel"],
+    ["Tabs", "Ctrl+Tab", "Next tab"],
+    ["Tabs", "Ctrl+Shift+Tab", "Previous tab"],
+    ["Tabs", "Ctrl+Page Down", "Next tab"],
+    ["Tabs", "Ctrl+Page Up", "Previous tab"],
+    ["Tabs", "Ctrl+W", "Close the tab"],
+    ["Tabs", "Ctrl+1 to Ctrl+8", "Go to a tab by position"],
+    ["Tabs", "Ctrl+9", "Go to the last tab"],
+    ["Find box", "Enter", "Next match"],
+    ["Find box", "Shift+Enter", "Previous match"],
+    ["Find box", "Esc", "Clear the search"],
+    ["Tab strip", "Right arrow", "Next tab"],
+    ["Tab strip", "Left arrow", "Previous tab"],
+    ["Tab strip", "Home", "First tab"],
+    ["Tab strip", "End", "Last tab"],
+    ["Tab strip", "Delete", "Close the tab"]
+  ];
+
+  async function listedShortcuts(host) {
+    await host.page.click("#settingsButton");
+    return host.page.evaluate(() => {
+      const rows = [];
+      let group = "";
+      for (const node of document.getElementById("shortcutList").children) {
+        if (node.tagName === "H4") {
+          group = node.textContent;
+        } else {
+          node.querySelectorAll(".shortcut-row").forEach((row) => {
+            rows.push([group, row.querySelector("kbd").textContent, row.querySelector("dd").textContent]);
+          });
+        }
+      }
+      return rows;
+    });
+  }
+
+  test("the panel lists every keyboard shortcut, with Cmd on macOS", async () => {
+    await withHost({}, async (host) => {
+      assert.deepEqual(await listedShortcuts(host), WINDOWS_SHORTCUTS);
+    });
+    await withHost({ platform: "macos", tabs: false }, async (host) => {
+      const expected = WINDOWS_SHORTCUTS
+        .filter(([group]) => group !== "Tabs" && group !== "Tab strip")
+        .map(([group, keys, label]) => [group, keys.replace(/Ctrl\+/g, "Cmd+"), label])
+        .concat([["Menu", "Cmd+W", "Close the window"], ["Menu", "Cmd+M", "Minimize the window"],
+          ["Menu", "Cmd+H", "Hide LeanDoc"], ["Menu", "Cmd+Q", "Quit LeanDoc"]]);
+      assert.deepEqual(await listedShortcuts(host), expected);
+    });
+  });
+
+  // The list is built from the tables the key handlers use, so a listed key
+  // does what the list says.
+  test("listed reader shortcuts act as listed", async () => {
+    await withHost({}, async (host) => {
+      await host.send({ type: "tabs", tabs: [
+        { id: 1, name: "headings.docx", path: "/docs/headings.docx" },
+        { id: 2, name: "tables.docx", path: "/docs/tables.docx" }], active: 1 });
+      await openFixture(host, "headings.docx", { tab: 1 });
+      await host.page.locator("#docScroller").focus();
+      const posted = async (keys, type) => {
+        const message = host.waitFor((m) => m.type === type, 3000);
+        await host.page.keyboard.press(keys);
+        return message;
+      };
+      assert.equal((await posted("Control+o", "open")).type, "open");
+      assert.equal((await posted("F5", "reload")).type, "reload");
+      assert.equal((await posted("Control+r", "reload")).type, "reload");
+      assert.equal((await posted("Control+Shift+E", "openInEditor")).type, "openInEditor");
+      assert.equal((await posted("Control+Shift+T", "setTheme")).theme, "dark");
+      assert.equal((await posted("Control+Tab", "selectTab")).id, 2);
+      assert.equal((await posted("Control+PageDown", "selectTab")).id, 2);
+      assert.equal((await posted("Control+2", "selectTab")).id, 2);
+      assert.equal((await posted("Control+9", "selectTab")).id, 2);
+      assert.equal((await posted("Control+w", "closeTab")).id, 1);
+      await host.page.keyboard.press("Control+=");
+      assert.equal(await host.page.textContent("#zoomValue"), "110%");
+      await host.page.keyboard.press("Control+-");
+      assert.equal(await host.page.textContent("#zoomValue"), "100%");
+      await host.page.keyboard.press("Control+f");
+      assert.equal(await host.page.evaluate(() => document.activeElement.id), "findInput");
+    });
+  });
+});
+
 describe("chrome interactions (VIEW-01)", () => {
   test("tabs: strip, switching, closing, keyboard", async () => {
     await withHost({}, async (host) => {

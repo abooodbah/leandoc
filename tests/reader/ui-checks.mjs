@@ -112,6 +112,13 @@ const STATES = [
     }
   },
   {
+    name: "settings", document: true, setup: async (host) => {
+      const { bytes, report } = prepareFixture(fixtures, "headings.docx");
+      await host.openDocument({ bytes, report, fileName: "headings.docx" });
+      await host.page.click("#settingsButton");
+    }
+  },
+  {
     name: "status", setup: async (host) => {
       await host.send({ type: "empty", recent: [] });
       await host.send({ type: "status", message: "LeanDoc opens .docx, .dotx, .docm, .dotm, .doc, .rtf, and .odt files.", tone: "warning" });
