@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/ReaderSettings.h"
+
 #include <windows.h>
 #include <wrl.h>
 
@@ -35,7 +37,7 @@ public:
     int Run(HINSTANCE instance, int showCommand);
 
 private:
-    enum class ThemeMode { System, Light, Dark };
+    using ThemeMode = settings::Theme;
 
     struct FileStamp {
         FILETIME writeTime = {};
@@ -122,6 +124,7 @@ private:
     void AddRecent(const std::wstring& path);
     void ApplyWindowTheme();
     bool EffectiveDarkTheme() const;
+    settings::Rgb WindowCanvas() const;
     const char* ThemeName() const;
 
     HINSTANCE instance_ = nullptr;

@@ -292,7 +292,7 @@ bool LeanDocApp::SameStamp(const FileStamp& left, const FileStamp& right) {
 }
 
 bool LeanDocApp::CreateMainWindow(int showCommand) {
-    const bool dark = EffectiveDarkTheme();
+    const settings::Rgb canvas = WindowCanvas();
     WNDCLASSEXW windowClass = {};
     windowClass.cbSize = sizeof(windowClass);
     windowClass.lpfnWndProc = WindowProcedure;
@@ -302,7 +302,7 @@ bool LeanDocApp::CreateMainWindow(int showCommand) {
     windowClass.hIconSm = static_cast<HICON>(LoadImageW(
         instance_, MAKEINTRESOURCEW(IDI_LEANDOC), IMAGE_ICON,
         GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR));
-    windowClass.hbrBackground = CreateSolidBrush(dark ? RGB(14, 13, 11) : RGB(250, 249, 247));
+    windowClass.hbrBackground = CreateSolidBrush(RGB(canvas.red, canvas.green, canvas.blue));
     windowClass.lpszClassName = kWindowClassName;
     if (!RegisterClassExW(&windowClass) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
         return false;
@@ -581,10 +581,9 @@ void LeanDocApp::ConfigureWebView() {
 
     ComPtr<ICoreWebView2Controller2> controller2;
     if (SUCCEEDED(controller_.As(&controller2))) {
-        const COREWEBVIEW2_COLOR color = EffectiveDarkTheme()
-                                             ? COREWEBVIEW2_COLOR{255, 14, 13, 11}
-                                             : COREWEBVIEW2_COLOR{255, 250, 249, 247};
-        controller2->put_DefaultBackgroundColor(color);
+        const settings::Rgb canvas = WindowCanvas();
+        controller2->put_DefaultBackgroundColor(
+            COREWEBVIEW2_COLOR{255, canvas.red, canvas.green, canvas.blue});
     }
 
     if (smokeTest_) {
@@ -1296,10 +1295,8 @@ void LeanDocApp::HandleWebMessage(ICoreWebView2WebMessageReceivedEventArgs* argu
         }
     } else if (*type == "setTheme") {
         const auto theme = host_json::GetString(*message, "theme");
-        if (theme && (*theme == "system" || *theme == "light" || *theme == "dark")) {
-            theme_ = *theme == "light"  ? ThemeMode::Light
-                     : *theme == "dark" ? ThemeMode::Dark
-                                        : ThemeMode::System;
+        if (theme && settings::IsThemeName(*theme)) {
+            theme_ = settings::ParseTheme(*theme);
             SaveSettings();
             ApplyWindowTheme();
             SendTheme();
@@ -1479,10 +1476,7 @@ void LeanDocApp::LoadSettings() {
     DWORD bytes = sizeof(value);
     if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"Theme", RRF_RT_REG_SZ, nullptr, value,
                      &bytes) == ERROR_SUCCESS) {
-        const std::wstring saved(value);
-        theme_ = saved == L"light" ? ThemeMode::Light
-                 : saved == L"dark" ? ThemeMode::Dark
-                                    : ThemeMode::System;
+        theme_ = settings::ParseTheme(WideToUtf8(value));
     }
     bytes = sizeof(value);
     if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"View", RRF_RT_REG_SZ, nullptr, value,
@@ -1556,31 +1550,24 @@ void LeanDocApp::ApplyWindowTheme() {
     }
     ComPtr<ICoreWebView2Controller2> controller2;
     if (controller_ != nullptr && SUCCEEDED(controller_.As(&controller2))) {
-        const COREWEBVIEW2_COLOR color = dark ? COREWEBVIEW2_COLOR{255, 14, 13, 11}
-                                              : COREWEBVIEW2_COLOR{255, 250, 249, 247};
-        controller2->put_DefaultBackgroundColor(color);
+        const settings::Rgb canvas = WindowCanvas();
+        controller2->put_DefaultBackgroundColor(
+            COREWEBVIEW2_COLOR{255, canvas.red, canvas.green, canvas.blue});
     }
+}
+
+// The theme's canvas, painted before the reader draws, so a launch or a theme
+// change shows no flash of another colour.
+settings::Rgb LeanDocApp::WindowCanvas() const {
+    return settings::ThemeCanvas(theme_, SystemUsesDarkApps());
 }
 
 bool LeanDocApp::EffectiveDarkTheme() const {
-    if (theme_ == ThemeMode::Dark) {
-        return true;
-    }
-    if (theme_ == ThemeMode::Light) {
-        return false;
-    }
-    return SystemUsesDarkApps();
+    return settings::IsDarkTheme(theme_, SystemUsesDarkApps());
 }
 
 const char* LeanDocApp::ThemeName() const {
-    switch (theme_) {
-        case ThemeMode::Light:
-            return "light";
-        case ThemeMode::Dark:
-            return "dark";
-        default:
-            return "system";
-    }
+    return settings::ThemeName(theme_);
 }
 
 }  // namespace leandoc::windows_host

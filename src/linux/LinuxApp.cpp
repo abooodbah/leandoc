@@ -984,10 +984,8 @@ void LinuxApp::HandleMessage(JSCValue* message) {
         }
     } else if (*type == "setTheme") {
         const auto theme = StringProperty(message, "theme");
-        if (theme && (*theme == "system" || *theme == "light" || *theme == "dark")) {
-            theme_ = *theme == "light" ? ThemeMode::Light
-                     : *theme == "dark" ? ThemeMode::Dark
-                                        : ThemeMode::System;
+        if (theme && settings::IsThemeName(*theme)) {
+            theme_ = settings::ParseTheme(*theme);
             SaveSettings();
             ApplyWindowTheme();
             SendTheme();
@@ -1172,10 +1170,7 @@ void LinuxApp::LoadSettings() {
         return;
     }
     if (char* theme = g_key_file_get_string(settings, "Reader", "Theme", nullptr)) {
-        const std::string value = LowercaseAscii(theme);
-        theme_ = value == "light" ? ThemeMode::Light
-                 : value == "dark" ? ThemeMode::Dark
-                                   : ThemeMode::System;
+        theme_ = settings::ParseTheme(theme);
         g_free(theme);
     }
     if (char* view = g_key_file_get_string(settings, "Reader", "View", nullptr)) {
@@ -1249,6 +1244,9 @@ void LinuxApp::AddRecent(const std::filesystem::path& path) {
     SaveSettings();
 }
 
+// The theme's canvas (LeanMark's values), painted before the reader draws.
+// System paints the light canvas, as before: the reader follows the desktop's
+// colour scheme itself.
 void LinuxApp::ApplyWindowBackground() {
     if (windowCss_ == nullptr) {
         windowCss_ = gtk_css_provider_new();
@@ -1257,9 +1255,11 @@ void LinuxApp::ApplyWindowBackground() {
             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
         gtk_widget_add_css_class(window_, "leandoc-window");
     }
-    gtk_css_provider_load_from_string(
-        windowCss_, theme_ == ThemeMode::Dark ? "window.leandoc-window { background: #0e0d0b; }"
-                                              : "window.leandoc-window { background: #faf9f7; }");
+    const settings::Rgb canvas = settings::ThemeCanvas(theme_, false);
+    char css[80];
+    std::snprintf(css, sizeof(css), "window.leandoc-window { background: #%02x%02x%02x; }",
+                  canvas.red, canvas.green, canvas.blue);
+    gtk_css_provider_load_from_string(windowCss_, css);
 }
 
 void LinuxApp::ApplyWindowTheme() {
@@ -1267,22 +1267,15 @@ void LinuxApp::ApplyWindowTheme() {
         ApplyWindowBackground();
     }
     if (webView_ != nullptr) {
-        const bool dark = theme_ == ThemeMode::Dark;
-        GdkRGBA background = dark ? GdkRGBA{14 / 255.0f, 13 / 255.0f, 11 / 255.0f, 1.0f}
-                                  : GdkRGBA{250 / 255.0f, 249 / 255.0f, 247 / 255.0f, 1.0f};
+        const settings::Rgb canvas = settings::ThemeCanvas(theme_, false);
+        GdkRGBA background = {canvas.red / 255.0f, canvas.green / 255.0f, canvas.blue / 255.0f,
+                              1.0f};
         webkit_web_view_set_background_color(webView_, &background);
     }
 }
 
 std::string LinuxApp::ThemeName() const {
-    switch (theme_) {
-        case ThemeMode::Light:
-            return "light";
-        case ThemeMode::Dark:
-            return "dark";
-        default:
-            return "system";
-    }
+    return settings::ThemeName(theme_);
 }
 
 void LinuxApp::UpdateTitle() {

@@ -112,7 +112,11 @@ menu).
 | Linux | `$XDG_CONFIG_HOME/leandoc/settings.ini`, group `[Reader]` | `Theme`, `View`, `Recent` (up to 10) |
 | macOS | `NSUserDefaults` | `LeanDocTheme`, `LeanDocView`, `LeanDocRecent` (up to 10) |
 
-Zoom stays per session in the reader. The smoke test writes no settings.
+`Theme` is `system`, `light`, `dark`, `dim`, or `dusk`; anything else reads
+as `system`. The names, the theme order, and each theme's window background
+(LeanMark's `--canvas` colours) come from one header, `src/core/ReaderSettings.h`,
+which all three hosts include. Zoom stays per session in the reader. The smoke
+test writes no settings.
 
 ## Links and open in editor
 

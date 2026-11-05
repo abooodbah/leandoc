@@ -14,6 +14,7 @@
 #include "EditorChoice.h"
 #include "TestHooks.h"
 #include "core/DocCore.h"
+#include "core/ReaderSettings.h"
 
 namespace leandoc::linux_host {
 
@@ -42,7 +43,7 @@ public:
     void Present();
 
 private:
-    enum class ThemeMode { System, Light, Dark };
+    using ThemeMode = settings::Theme;
 
     // A tab keeps only its path and generation. The sanitized package of the
     // active tab is the only document data the host holds.
