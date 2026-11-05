@@ -877,13 +877,22 @@ describe("chrome interactions (VIEW-01)", () => {
       const file = path.join(repositoryRoot, "tests", "fixtures", "features", "long-300-pages.docx");
       const { bytes, report } = fixture(file, { outline });
       await host.openDocument({ bytes, report, fileName: "long-300-pages.docx" });
+      // The reader settles the position it opened at in the frame after it
+      // reports the render; a jump before that frame would be undone.
+      await host.page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       for (const share of [0.4, 0.75, 0.2]) {
         await host.page.evaluate((value) => {
           const scroller = document.getElementById("docScroller");
           scroller.scrollTop = scroller.scrollHeight * value;
         }, share);
-        await host.page.waitForTimeout(600);
-        const state = await host.page.evaluate(() => {
+        // Nothing scrolls after the jump. A slow runner may need longer than
+        // a fast one to lay out the pages it lands on, so the check waits up
+        // to 3 s for the mark to settle on the right section.
+        const settled = Date.now() + 3000;
+        let state;
+        do {
+          await host.page.waitForTimeout(150);
+          state = await host.page.evaluate(() => {
           const scroller = document.getElementById("docScroller");
           const top = scroller.getBoundingClientRect().top;
           const threshold = Math.max(48, scroller.clientHeight * 0.25);
@@ -893,16 +902,22 @@ describe("chrome interactions (VIEW-01)", () => {
               wanted = Math.max(wanted, Number(node.getAttribute("data-ld-target")));
             }
           });
-          const marked = document.querySelector("#outlineList [aria-current]");
+          const marks = document.querySelectorAll("#outlineList [aria-current]");
+          const marked = marks[0];
           return {
             wanted,
             wantedText: document.querySelector(`#outlineList a[data-index="${wanted}"]`).textContent,
             marked: marked ? Number(marked.dataset.index) : -1,
-            markedText: marked ? marked.textContent : ""
+            markedText: marked ? marked.textContent : "",
+            marks: marks.length,
+            scrollTop: document.getElementById("docScroller").scrollTop
           };
         });
+        } while (state.marked !== state.wanted && Date.now() < settled);
+        assert.equal(state.marks, 1, "one entry is marked");
         assert.equal(state.marked, state.wanted,
-          `at ${share * 100}%: marked ${state.markedText}, the section on screen is ${state.wantedText}`);
+          `at ${share * 100}%: marked ${state.markedText}, the section on screen is ${state.wantedText} ` +
+          `(scrollTop ${state.scrollTop})`);
       }
     });
   });
