@@ -573,7 +573,8 @@ def u09(ctx):
                 check(result["outline"] == outline, f"{path.name}: outline {result['outline']}")
                 word = next(w for w in " ".join(expected["text"]).split() if any("؀" <= c <= "ۿ" for c in w))
                 app.js("const i = document.getElementById('findInput'); i.value = " + json.dumps(word) +
-                       "; i.dispatchEvent(new Event('input')); return 1")
+                       "; i.dispatchEvent(new Event('input')); i.dispatchEvent(new KeyboardEvent('keydown', "
+                       "{key: 'Enter', bubbles: true, cancelable: true})); return 1")
                 count = app.eval("document.getElementById('findCount').textContent")
                 check(count and count != "0", f"{path.name}: find '{word}' gives {count!r}")
                 app.js("const i = document.getElementById('findInput'); i.value = ''; "

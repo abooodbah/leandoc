@@ -81,8 +81,11 @@ async function switchView(host, view) {
   await rendered;
 }
 
+// Enter searches at once, so the count is current however long the reader
+// waits for a pause in typing.
 async function findCount(host, query) {
   await host.page.fill("#findInput", query);
+  await host.page.locator("#findInput").press("Enter");
   return host.page.$eval("#findCount", (node) => node.textContent);
 }
 
@@ -914,7 +917,7 @@ describe("chrome interactions (VIEW-01)", () => {
       await host.page.keyboard.press("Control+f");
       assert.equal(await host.page.evaluate(() => document.activeElement.id), "findInput");
       await host.page.keyboard.type("Kingfisher");
-      assert.equal(await host.page.textContent("#findCount"), "1/10");
+      await host.page.waitForFunction(() => document.getElementById("findCount").textContent === "1/10");
       await host.page.keyboard.press("Enter");
       assert.equal(await host.page.textContent("#findCount"), "2/10");
       await host.page.keyboard.press("Shift+Enter");
@@ -929,6 +932,49 @@ describe("chrome interactions (VIEW-01)", () => {
       assert.equal(await host.page.inputValue("#findInput"), "");
       assert.equal(await host.page.textContent("#findCount"), "");
       assert.equal(await findCount(host, "no such words"), "0");
+    });
+  });
+
+  // Each search walks the whole document and repaints every match. Typing a
+  // word in a 300-page report searched once per key and held the page for up
+  // to 0.8 s after a key in WebKitGTK.
+  test("find searches after a pause in typing, and at once on Enter, F3, or Escape", async () => {
+    const initScript = "(() => { window.__searches = 0; const set = CSS.highlights.set.bind(CSS.highlights); " +
+      "CSS.highlights.set = (name, value) => { if (name === 'leandoc-find') { window.__searches += 1; } return set(name, value); }; })();";
+    await withHost({ initScript }, async (host) => {
+      await openFixture(host, "headings.docx");
+      await host.page.focus("#findInput");
+      await host.page.keyboard.type("Kingfisher", { delay: 15 });
+      await host.page.waitForFunction(() => document.getElementById("findCount").textContent === "1/10");
+      await host.page.waitForTimeout(300);
+      const searches = await host.page.evaluate(() => window.__searches);
+      assert.ok(searches >= 1 && searches <= 3, `typing 10 letters searched ${searches} times`);
+
+      // An emptied box clears the matches at once; there is nothing to wait for.
+      await host.page.fill("#findInput", "");
+      assert.equal(await host.page.textContent("#findCount"), "");
+      assert.equal(await host.page.evaluate(() => CSS.highlights.has("leandoc-find")), false);
+
+      // Enter right after typing runs the waiting search and selects its first match.
+      await host.page.fill("#findInput", "Kingfisher");
+      await host.page.locator("#findInput").press("Enter");
+      assert.equal(await host.page.textContent("#findCount"), "1/10");
+
+      // Shift+F3 right after typing runs it too and goes to the last match.
+      await host.page.fill("#findInput", "checklist");
+      await host.page.keyboard.press("Shift+F3");
+      assert.equal(await host.page.textContent("#findCount"), "1/1");
+      await host.page.fill("#findInput", "Kingfisher");
+      await host.page.keyboard.press("Shift+F3");
+      assert.equal(await host.page.textContent("#findCount"), "10/10");
+
+      // Escape before the pause ends cancels the waiting search.
+      await host.page.fill("#findInput", "");
+      await host.page.fill("#findInput", "Kingfisher");
+      await host.page.locator("#findInput").press("Escape");
+      await host.page.waitForTimeout(300);
+      assert.equal(await host.page.textContent("#findCount"), "");
+      assert.equal(await host.page.evaluate(() => CSS.highlights.has("leandoc-find")), false);
     });
   });
 
