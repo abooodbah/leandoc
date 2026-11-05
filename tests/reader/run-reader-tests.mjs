@@ -1234,6 +1234,64 @@ describe("chrome interactions (VIEW-01)", () => {
     }
   });
 
+  // LeanMark 0.6.0's current-section look in "On this page" (its reader.css,
+  // .outline a[aria-current="location"]): the muted surface, a 2 px bar in
+  // the link colour, the text colour, and no change of weight, so marking an
+  // entry repaints it without laying the outline out again.
+  test("the current outline entry looks like LeanMark's in every theme", async () => {
+    for (const colorScheme of ["light", "dark"]) {
+      await withHost({ theme: "system", colorScheme, viewport: { width: 1280, height: 700 } }, async (host) => {
+        await openFixture(host, "headings.docx");
+        // A second-level entry, whose weight is the plain one.
+        await host.page.locator("#outlineList a", { hasText: "Sampling" }).click();
+        const look = () => host.page.evaluate(() => {
+          const current = document.querySelector('#outlineList a[aria-current="location"]');
+          const level = current.dataset.level;
+          const other = Array.from(document.querySelectorAll(`#outlineList a[data-level="${level}"]`))
+            .find((node) => node !== current);
+          const style = getComputedStyle(current);
+          const nested = document.querySelector('#outlineList a[data-level="2"]');
+          const label = document.getElementById("outlineLabel").getBoundingClientRect().left;
+          const text = (node) => {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            return range.getClientRects()[0].left;
+          };
+          return {
+            background: style.backgroundColor,
+            bar: style.boxShadow,
+            color: style.color,
+            weightSame: !other || getComputedStyle(other).fontWeight === style.fontWeight,
+            padding: [style.paddingTop, style.paddingRight, style.paddingBottom],
+            radius: style.borderTopLeftRadius,
+            nested: nested ? getComputedStyle(nested).paddingLeft : null,
+            first: getComputedStyle(document.querySelector('#outlineList a[data-level="1"]')).paddingLeft,
+            current: current.textContent,
+            labelAligned: Math.abs(label - text(document.querySelector('#outlineList a[data-level="1"]'))) <= 1
+          };
+        });
+        const rgb = (hex) => `rgb(${[1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16)).join(", ")})`;
+        for (const theme of ["system", "light", "dark", "dim", "dusk"]) {
+          await host.send({ type: "theme", theme, view: "page" });
+          const tokens = LEANMARK_TOKENS[theme === "system" ? colorScheme : theme];
+          const seen = await look();
+          assert.deepEqual(seen, {
+            background: rgb(tokens["--surface-muted"]),
+            bar: `${rgb(tokens["--link"])} 2px 0px 0px 0px inset`,
+            color: rgb(tokens["--text-primary"]),
+            weightSame: true,
+            padding: ["5px", "8px", "5px"],
+            first: "12px",
+            radius: "4px",
+            nested: "28px",
+            current: "Sampling",
+            labelAligned: true
+          }, `${theme} on a ${colorScheme} platform`);
+        }
+      });
+    }
+  });
+
   test("view switch re-renders from the cached package and posts setView", async () => {
     await withHost({}, async (host) => {
       await openFixture(host, "tables.docx");
