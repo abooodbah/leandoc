@@ -2,6 +2,7 @@
 // open-in-editor order on Windows and Linux, Windows command-line quoting, and
 // the reader message parser. CTest runs this on every operating system.
 
+#include "core/ReaderSettings.h"
 #include "linux/EditorChoice.h"
 #include "linux/TestHooks.h"
 #include "windows/ContextMenu.h"
@@ -294,7 +295,46 @@ void TestContextMenu() {
     }
 }
 
+// The five themes, saved and sent under the same names by every host, with
+// LeanMark's canvas colours for the window background.
+void TestReaderSettings() {
+    namespace rs = leandoc::settings;
+    using rs::Theme;
+    const Theme all[] = {Theme::System, Theme::Light, Theme::Dark, Theme::Dim, Theme::Dusk};
+    const char* names[] = {"system", "light", "dark", "dim", "dusk"};
+    for (int index = 0; index < 5; ++index) {
+        Check(std::string(rs::ThemeName(all[index])) == names[index], "each theme saves under its name");
+        Check(rs::ParseTheme(names[index]) == all[index], "each saved name reads back");
+        Check(rs::IsThemeName(names[index]), "the five names are themes");
+    }
+    Check(rs::ParseTheme("DIM") == Theme::Dim && rs::ParseTheme("Dusk") == Theme::Dusk,
+          "theme names ignore ASCII case");
+    Check(rs::ParseTheme("sepia") == Theme::System && rs::ParseTheme("") == Theme::System,
+          "an unknown or empty name reads as System");
+    Check(!rs::IsThemeName("sepia") && !rs::IsThemeName(""), "unknown names are refused");
+    Check(rs::NextTheme(Theme::System) == Theme::Light && rs::NextTheme(Theme::Light) == Theme::Dark &&
+              rs::NextTheme(Theme::Dark) == Theme::Dim && rs::NextTheme(Theme::Dim) == Theme::Dusk &&
+              rs::NextTheme(Theme::Dusk) == Theme::System,
+          "the theme cycle is System, Light, Dark, Dim, Dusk");
+    Check(!rs::IsDarkTheme(Theme::Light, true) && rs::IsDarkTheme(Theme::Dark, false) &&
+              rs::IsDarkTheme(Theme::Dim, false) && rs::IsDarkTheme(Theme::Dusk, false),
+          "Dark, Dim and Dusk have a dark window frame");
+    Check(rs::IsDarkTheme(Theme::System, true) && !rs::IsDarkTheme(Theme::System, false),
+          "System follows the platform");
+    const auto same = [](rs::Rgb color, int red, int green, int blue) {
+        return color.red == red && color.green == green && color.blue == blue;
+    };
+    Check(same(rs::ThemeCanvas(Theme::Light, true), 0xfa, 0xf9, 0xf7), "the light canvas is #faf9f7");
+    Check(same(rs::ThemeCanvas(Theme::Dark, false), 0x0e, 0x0d, 0x0b), "the dark canvas is #0e0d0b");
+    Check(same(rs::ThemeCanvas(Theme::Dim, false), 0x1e, 0x20, 0x23), "the dim canvas is #1e2023");
+    Check(same(rs::ThemeCanvas(Theme::Dusk, false), 0x22, 0x1e, 0x19), "the dusk canvas is #221e19");
+    Check(same(rs::ThemeCanvas(Theme::System, true), 0x0e, 0x0d, 0x0b) &&
+              same(rs::ThemeCanvas(Theme::System, false), 0xfa, 0xf9, 0xf7),
+          "System paints Dark or Light");
+}
+
 int main() {
+    TestReaderSettings();
     TestHooks();
     TestContextMenu();
     TestScriptCommands();

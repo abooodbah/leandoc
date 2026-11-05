@@ -156,11 +156,12 @@ async function axe(host) {
 }
 
 describe("chrome states: accessibility and pixel baselines (UI-03, UI-07)", () => {
-  for (const theme of ["light", "dark"]) {
+  for (const theme of ["light", "dark", "dim", "dusk"]) {
     for (const state of STATES) {
       test(`${state.name}, ${theme}`, async () => {
         const host = await FakeHost.open(browser, assets, {
-          theme, colorScheme: theme, viewport: { width: 1280, height: 800 }, ...(state.options || {})
+          theme, colorScheme: theme === "light" ? "light" : "dark", viewport: { width: 1280, height: 800 },
+          ...(state.options || {})
         });
         try {
           await state.setup(host);

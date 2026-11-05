@@ -685,12 +685,12 @@ describe("chrome interactions (VIEW-01)", () => {
     });
   });
 
-  test("theme cycles System, Light, Dark and posts setTheme; pages stay white", async () => {
+  test("theme cycles System, Light, Dark, Dim, Dusk and posts setTheme; pages stay white", async () => {
     await withHost({ theme: "system", colorScheme: "dark" }, async (host) => {
       await openFixture(host, "headings.docx");
       assert.equal(await host.page.textContent("#themeButton"), "System");
       const seen = [];
-      for (const expected of ["light", "dark", "system"]) {
+      for (const expected of ["light", "dark", "dim", "dusk", "system"]) {
         const posted = host.waitFor((message) => message.type === "setTheme");
         await host.page.click("#themeButton");
         seen.push((await posted).theme);
@@ -705,17 +705,67 @@ describe("chrome interactions (VIEW-01)", () => {
         });
         assert.equal(colors[0], "rgb(255, 255, 255)", "page stays white");
         assert.equal(colors[1], "rgb(0, 0, 0)", "body text stays ink");
-        if (expected === "dark") {
-          assert.notEqual(colors[2], "rgb(244, 242, 238)", "canvas darkens");
+        if (expected === "dark" || expected === "dim" || expected === "dusk") {
+          assert.notEqual(colors[2], "rgb(244, 242, 238)", `${expected}: canvas darkens`);
         }
       }
-      assert.deepEqual(seen, ["light", "dark", "system"]);
+      assert.deepEqual(seen, ["light", "dark", "dim", "dusk", "system"]);
       const keyed = host.waitFor((message) => message.type === "setTheme");
       await host.page.keyboard.press("Control+Shift+T");
       assert.equal((await keyed).theme, "light");
       await host.send({ type: "theme", theme: "dark", view: "page" });
       assert.equal(await host.page.textContent("#themeButton"), "Dark");
+      await host.send({ type: "theme", theme: "dusk", view: "page" });
+      assert.equal(await host.page.textContent("#themeButton"), "Dusk");
+      assert.equal(await host.page.getAttribute("html", "data-theme"), "dusk");
+      await host.send({ type: "theme", theme: "sepia", view: "page" });
+      assert.equal(await host.page.getAttribute("html", "data-theme"), null, "an unknown theme reads as System");
     });
+  });
+
+  // LeanMark 0.6.0's theme tokens (assets/reader.css in the leanmark
+  // repository), which every Lean app uses.
+  const LEANMARK_TOKENS = {
+    light: { "--canvas": "#faf9f7", "--surface": "#ffffff", "--surface-muted": "#f4f2ee", "--border": "#e8e4dc",
+      "--text-primary": "#1a1917", "--text-secondary": "#5a554c", "--text-disabled": "#a7a195",
+      "--ring": "#3b82f6", "--link": "#1d4ed8", "--link-hover": "#1e40af", "--selection": "#cbdcff" },
+    dark: { "--canvas": "#0e0d0b", "--surface": "#1a1917", "--surface-muted": "#2b2924", "--border": "#2b2924",
+      "--text-primary": "#faf9f7", "--text-secondary": "#d5cfc3", "--text-disabled": "#716b5f",
+      "--ring": "#3b82f6", "--link": "#60a5fa", "--link-hover": "#93c5fd", "--selection": "#23468c" },
+    dim: { "--canvas": "#1e2023", "--surface": "#25282c", "--surface-muted": "#2d3035", "--border": "#393d43",
+      "--text-primary": "#c8ccd2", "--text-secondary": "#9ea4ac", "--text-disabled": "#6c727a",
+      "--ring": "#6c9be0", "--link": "#86aee6", "--link-hover": "#a6c4ee", "--selection": "#34486a" },
+    dusk: { "--canvas": "#221e19", "--surface": "#29241e", "--surface-muted": "#322c25", "--border": "#3f3830",
+      "--text-primary": "#d4c8b4", "--text-secondary": "#a99c87", "--text-disabled": "#776c5c",
+      "--ring": "#c99a62", "--link": "#e0a86e", "--link-hover": "#ebc08f", "--selection": "#4d3f2c" }
+  };
+
+  test("the five themes use LeanMark's colours, and System follows the platform", async () => {
+    for (const colorScheme of ["light", "dark"]) {
+      await withHost({ theme: "system", colorScheme }, async (host) => {
+        await openFixture(host, "headings.docx");
+        const resolve = (names) => host.page.evaluate((list) => {
+          const probe = document.createElement("span");
+          document.body.appendChild(probe);
+          const values = {};
+          for (const name of list) {
+            probe.style.color = `var(${name})`;
+            const [r, g, b] = getComputedStyle(probe).color.match(/\d+/g).map(Number);
+            values[name] = "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
+          }
+          probe.remove();
+          return values;
+        }, names);
+        const names = Object.keys(LEANMARK_TOKENS.light);
+        assert.deepEqual(await resolve(names), LEANMARK_TOKENS[colorScheme], `System on a ${colorScheme} platform`);
+        for (const theme of ["light", "dark", "dim", "dusk"]) {
+          await host.send({ type: "theme", theme, view: "page" });
+          assert.deepEqual(await resolve(names), LEANMARK_TOKENS[theme], `${theme} on a ${colorScheme} platform`);
+          const paper = await host.page.$eval("#docBody section.docx", (node) => getComputedStyle(node).backgroundColor);
+          assert.equal(paper, "rgb(255, 255, 255)", `${theme}: the page stays paper`);
+        }
+      });
+    }
   });
 
   test("view switch re-renders from the cached package and posts setView", async () => {

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import http.server
 import json
+import re
 import os
 import shutil
 import signal
@@ -174,6 +175,32 @@ def non_utf8_names(build):
         shutil.rmtree(work, ignore_errors=True)
 
 
+def themes(build):
+    """The five themes are saved under their names and come back on the next launch."""
+    config = Path(tempfile.mkdtemp(prefix="leandoc-themes-"))
+    try:
+        seen = []
+        for theme in ("dim", "dusk", "sepia"):
+            with Session(build, [], config_dir=config) as app:
+                app.wait("document.documentElement.dataset.renderState === 'empty'")
+                seen.append(app.eval("document.documentElement.getAttribute('data-theme') || 'system'"))
+                app.js("webkit.messageHandlers.leandoc.postMessage(JSON.stringify({type: 'setTheme', theme: "
+                       + json.dumps(theme) + "})); return 1")
+                app.wait("document.documentElement.getAttribute('data-theme') === " + json.dumps(theme)
+                         if theme != "sepia" else "true")
+                time.sleep(0.3)
+            stored = (config / "leandoc" / "settings.ini").read_text()
+            seen.append(re.search(r"^Theme=(.*)$", stored, re.M).group(1))
+        with Session(build, [], config_dir=config) as app:
+            app.wait("document.documentElement.dataset.renderState === 'empty'")
+            seen.append(app.eval("document.documentElement.getAttribute('data-theme') || 'system'"))
+    finally:
+        shutil.rmtree(config, ignore_errors=True)
+    check(seen == ["system", "dim", "dim", "dusk", "dusk", "dusk", "dusk"],
+          f"Dim and Dusk are saved and restored, an unknown theme is refused: {seen}")
+    print(f"themes: {seen}", flush=True)
+
+
 def images(build):
     fixture = ROOT / "tests" / "fixtures" / "features" / "images.docx"
     with Session(build, [fixture]) as app:
@@ -223,7 +250,7 @@ def keyboard_focus(build):
 def main():
     build = Build.find(sys.argv[1] if len(sys.argv) > 1 else None)
     os.environ.setdefault("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
-    for step in (fallbacks, context_menu, crash_cap, non_utf8_names, images, keyboard_focus):
+    for step in (fallbacks, context_menu, crash_cap, non_utf8_names, themes, images, keyboard_focus):
         wait_for_no_leftovers()
         try:
             step(build)
