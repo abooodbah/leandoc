@@ -59,7 +59,10 @@ Each pull request updates its own item below when it merges.
   grey ring; the tooltip and accessible name say "System (Dark)" or the
   theme's name.
 
-- The settings button and panel with the shortcut list: planned.
+- The settings button and panel with the shortcut list: #29, merged. The
+  panel holds the theme, the view, the zoom (in, out, fit width, reset) and
+  every keyboard shortcut, built from the tables the key handlers use.
+  Ctrl+/ or F1 opens it, Escape closes it.
 
 - The toolbar and tabs restyle: planned.
 
