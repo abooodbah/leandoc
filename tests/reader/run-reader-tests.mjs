@@ -751,6 +751,65 @@ describe("chrome interactions (VIEW-01)", () => {
     });
   });
 
+  // Each switch unzipped and parsed the whole package again: 186 to 383 ms of
+  // a 900 to 1,150 ms switch for a 300-page report in WebKitGTK.
+  test("a switch back to a view renders without parsing the package again", async () => {
+    await withHost({}, async (host) => {
+      await openFixture(host, "tables.docx");
+      await host.page.evaluate(() => {
+        window.__parses = 0;
+        const parse = window.docx.parseAsync;
+        window.docx.parseAsync = function () {
+          window.__parses += 1;
+          return parse.apply(this, arguments);
+        };
+      });
+      // The first switch to each view parses; a document only opened keeps
+      // nothing extra, so its memory is unchanged.
+      await switchView(host, "reading");
+      await switchView(host, "page");
+      await switchView(host, "reading");
+      await switchView(host, "page");
+      await switchView(host, "reading");
+      assert.equal(await host.page.evaluate(() => window.__parses), 2,
+        "only the first switch to each view parses the package");
+      assert.equal(await host.page.getAttribute("html", "data-view"), "reading");
+    });
+  });
+
+  // The render changes the model it is given, so a view rendered again must
+  // start from the model as it was before its first render.
+  test("a view rendered again matches its first render", async () => {
+    const files = ["headings.docx", "tables.docx", "bullets.docx", "arabic.docx", "images.docx"]
+      .concat(["numbering.docx", "notes.docx", "headers-footers.docx", "styles.docx", "breaks.docx",
+        "theme.docx", "arabic-table.docx", "tracked-changes.docx", "long-300-pages.docx"]
+        .map((name) => path.join(repositoryRoot, "tests", "fixtures", "features", name)));
+    await withHost({ viewport: { width: 1280, height: 860 } }, async (host) => {
+      const snapshot = () => host.page.evaluate(() => {
+        const clean = (text) => text.replace(/blob:[^"')\s]+/g, "blob:");
+        return clean(document.getElementById("docStyles").innerHTML) + "\n" +
+          clean(document.getElementById("docBody").innerHTML);
+      });
+      let generation = 1;
+      for (const file of files) {
+        const { bytes, report } = fixture(file);
+        await host.openDocument({ bytes, report, generation, fileName: path.basename(file) });
+        generation += 1;
+        const page = await snapshot();
+        await switchView(host, "reading");
+        const reading = await snapshot();
+        // Three times, so a copy reused by one render cannot pass for a fresh one.
+        for (const round of [2, 3, 4]) {
+          await switchView(host, "page");
+          assert.ok(await snapshot() === page, `${path.basename(file)}: page view render ${round} differs`);
+          await switchView(host, "reading");
+          assert.ok(await snapshot() === reading, `${path.basename(file)}: reading view render ${round} differs`);
+        }
+        await switchView(host, "page");
+      }
+    });
+  });
+
   test("reading position is kept by ratio across a view switch", async () => {
     await withHost({}, async (host) => {
       await openFixture(host, "headings.docx");
