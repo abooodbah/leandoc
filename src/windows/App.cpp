@@ -1185,6 +1185,8 @@ void LeanDocApp::SendTheme() {
     json += ThemeName();
     json += "\",\"view\":\"";
     json += view_;
+    json += "\",\"pageColor\":\"";
+    json += settings::PageColorName(pageColor_);
     json += "\"}";
     PostJson(json);
 }
@@ -1299,6 +1301,13 @@ void LeanDocApp::HandleWebMessage(ICoreWebView2WebMessageReceivedEventArgs* argu
             theme_ = settings::ParseTheme(*theme);
             SaveSettings();
             ApplyWindowTheme();
+            SendTheme();
+        }
+    } else if (*type == "setPageColor") {
+        const auto pageColor = host_json::GetString(*message, "pageColor");
+        if (pageColor && settings::IsPageColorName(*pageColor)) {
+            pageColor_ = settings::ParsePageColor(*pageColor);
+            SaveSettings();
             SendTheme();
         }
     } else if (*type == "setView") {
@@ -1483,6 +1492,11 @@ void LeanDocApp::LoadSettings() {
                      &bytes) == ERROR_SUCCESS) {
         view_ = std::wstring(value) == L"reading" ? "reading" : "page";
     }
+    bytes = sizeof(value);
+    if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"PageColor", RRF_RT_REG_SZ, nullptr, value,
+                     &bytes) == ERROR_SUCCESS) {
+        pageColor_ = settings::ParsePageColor(WideToUtf8(value));
+    }
     DWORD recentBytes = 0;
     if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"Recent", RRF_RT_REG_MULTI_SZ, nullptr,
                      nullptr, &recentBytes) == ERROR_SUCCESS &&
@@ -1516,6 +1530,9 @@ void LeanDocApp::SaveSettings() const {
     const std::wstring view = Utf8ToWide(view_);
     RegSetValueExW(key, L"View", 0, REG_SZ, reinterpret_cast<const BYTE*>(view.c_str()),
                    static_cast<DWORD>((view.size() + 1) * sizeof(wchar_t)));
+    const std::wstring pageColor = Utf8ToWide(settings::PageColorName(pageColor_));
+    RegSetValueExW(key, L"PageColor", 0, REG_SZ, reinterpret_cast<const BYTE*>(pageColor.c_str()),
+                   static_cast<DWORD>((pageColor.size() + 1) * sizeof(wchar_t)));
     std::wstring multi;
     for (const std::wstring& path : recent_) {
         multi += path;

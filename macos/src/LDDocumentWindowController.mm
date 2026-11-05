@@ -18,6 +18,7 @@ namespace {
 
 NSString *const LDThemeKey = @"LeanDocTheme";
 NSString *const LDViewKey = @"LeanDocView";
+NSString *const LDPageColorKey = @"LeanDocPageColor";
 NSString *const LDReaderURLString = @"leandoc://app/reader.html";
 constexpr NSUInteger kMaximumMessageLength = 65536;
 
@@ -33,6 +34,13 @@ leandoc::settings::Theme ThemeFromString(NSString *name) {
 NSString *CurrentTheme(void) {
     NSString *theme = [NSUserDefaults.standardUserDefaults stringForKey:LDThemeKey];
     return ThemeString(ThemeFromString(theme));
+}
+
+// paper or theme; anything else saved reads as paper.
+NSString *CurrentPageColor(void) {
+    NSString *saved = [NSUserDefaults.standardUserDefaults stringForKey:LDPageColorKey];
+    return @(leandoc::settings::PageColorName(
+        leandoc::settings::ParsePageColor(saved.UTF8String != nullptr ? saved.UTF8String : "")));
 }
 
 NSString *CurrentView(void) {
@@ -337,7 +345,12 @@ static BOOL LDIsAllowedMenuItem(NSMenuItem *item) {
 }
 
 - (void)sendTheme {
-    [self deliver:@{@"type" : @"theme", @"theme" : CurrentTheme(), @"view" : CurrentView()}];
+    [self deliver:@{
+        @"type" : @"theme",
+        @"theme" : CurrentTheme(),
+        @"view" : CurrentView(),
+        @"pageColor" : CurrentPageColor()
+    }];
 }
 
 - (void)sendCurrentDocument {
@@ -435,6 +448,22 @@ static BOOL LDIsAllowedMenuItem(NSMenuItem *item) {
         if (theme != nil && theme.UTF8String != nullptr &&
             leandoc::settings::IsThemeName(theme.UTF8String)) {
             [self storeTheme:ThemeString(ThemeFromString(theme))];
+        }
+    } else if ([type isEqualToString:@"setPageColor"]) {
+        NSString *pageColor = StringValue(body, @"pageColor");
+        if (pageColor != nil && pageColor.UTF8String != nullptr &&
+            leandoc::settings::IsPageColorName(pageColor.UTF8String)) {
+            [NSUserDefaults.standardUserDefaults
+                setObject:@(leandoc::settings::PageColorName(
+                              leandoc::settings::ParsePageColor(pageColor.UTF8String)))
+                   forKey:LDPageColorKey];
+            // Every window follows the same page colour, as with the theme.
+            for (NSWindow *window in NSApp.windows) {
+                id controller = window.windowController;
+                if ([controller isKindOfClass:LDDocumentWindowController.class]) {
+                    [controller sendTheme];
+                }
+            }
         }
     } else if ([type isEqualToString:@"setView"]) {
         NSString *view = StringValue(body, @"view");

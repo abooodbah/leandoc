@@ -990,6 +990,13 @@ void LinuxApp::HandleMessage(JSCValue* message) {
             ApplyWindowTheme();
             SendTheme();
         }
+    } else if (*type == "setPageColor") {
+        const auto pageColor = StringProperty(message, "pageColor");
+        if (pageColor && settings::IsPageColorName(*pageColor)) {
+            pageColor_ = settings::ParsePageColor(*pageColor);
+            SaveSettings();
+            SendTheme();
+        }
     } else if (*type == "setView") {
         const auto view = StringProperty(message, "view");
         if (view && (*view == "page" || *view == "reading")) {
@@ -1115,8 +1122,8 @@ void LinuxApp::SendHost() {
 }
 
 void LinuxApp::SendTheme() {
-    SendJson(
-        "{\"type\":\"theme\",\"theme\":\"" + ThemeName() + "\",\"view\":\"" + view_ + "\"}");
+    SendJson("{\"type\":\"theme\",\"theme\":\"" + ThemeName() + "\",\"view\":\"" + view_ +
+             "\",\"pageColor\":\"" + settings::PageColorName(pageColor_) + "\"}");
 }
 
 void LinuxApp::SendTabs() {
@@ -1177,6 +1184,10 @@ void LinuxApp::LoadSettings() {
         view_ = g_strcmp0(view, "reading") == 0 ? "reading" : "page";
         g_free(view);
     }
+    if (char* pageColor = g_key_file_get_string(settings, "Reader", "PageColor", nullptr)) {
+        pageColor_ = settings::ParsePageColor(pageColor);
+        g_free(pageColor);
+    }
     // Recent paths are stored as file URIs, which are ASCII whatever the
     // file name bytes. Older settings stored plain paths; both are read.
     // The raw value is split here because GKeyFile refuses a whole list
@@ -1213,6 +1224,7 @@ void LinuxApp::SaveSettings() const {
     GKeyFile* settings = g_key_file_new();
     g_key_file_set_string(settings, "Reader", "Theme", ThemeName().c_str());
     g_key_file_set_string(settings, "Reader", "View", view_.c_str());
+    g_key_file_set_string(settings, "Reader", "PageColor", settings::PageColorName(pageColor_));
     std::vector<std::string> uris;
     for (const auto& path : recent_) {
         if (char* uri = g_filename_to_uri(path.c_str(), nullptr, nullptr)) {

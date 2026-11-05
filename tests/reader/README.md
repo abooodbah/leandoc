@@ -140,14 +140,15 @@ for `--smoke-test` probes.
 
 Host to reader: `host` (`platform`: `windows`, `linux`, or `macos`, which
 selects Command shortcuts; `editor.label` labels the "Open in ..." buttons,
-which stay hidden until it is known; `tabs`), `theme` (`theme`, and `view`,
-which switches the view without posting `setView`), `tabs`, `document`
+which stay hidden until it is known; `tabs`), `theme` (`theme`: `system`,
+`light`, `dark`, `dim`, or `dusk`; `view`, which switches the view without
+posting `setView`; and `pageColor`: `paper` or `theme`), `tabs`, `document`
 (`report.outline[].paragraph`, also read as `paragraphIndex`), `fallback`,
 `empty` (`recent`), `status`.
 
 Reader to host: `ready`, `open`, `openRecent` {`path`, `id` when the host gave one}, `clearRecent`,
 `openInEditor` {`tab`}, `link` {`href`} (only `http:`, `https:`, `mailto:`),
-`setTheme` {`theme`}, `setView` {`view`}, `selectTab` {`id`}, `closeTab`
+`setTheme` {`theme`}, `setView` {`view`}, `setPageColor` {`pageColor`}, `selectTab` {`id`}, `closeTab`
 {`id`}, `reload` (F5, Ctrl+R), `rendered` {`tab`, `generation`, `pages`,
 `ms`}, `renderFailed` {`tab`, `generation`, `message`}. Tab ids are posted back
 with the type the host sent.
