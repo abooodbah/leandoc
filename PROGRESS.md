@@ -69,7 +69,11 @@ Each pull request updates its own item below when it merges.
   and LeanMark's tab hover. Below 760 px the wordmark, file details and
   theme button hide, as in LeanMark.
 
-- The page colour setting (reader and the three hosts): planned.
+- The page colour setting (reader and the three hosts): #31, merged. Paper
+  pages draw every colour exactly as 0.1.4 did (recorded per fixture in
+  tests/reader/paper-colors.json). A page that follows a dark theme takes
+  the theme's canvas and text colours, and every text the test documents
+  draw stays at 4.5:1 or more.
 
 - The outline highlight look, after LeanMark's highlight is merged:
   planned.
@@ -138,6 +142,18 @@ themes, the page colour setting and the highlight look touch.
   `src/core/ReaderSettings.h`: theme names, order, dark frame, and window
   canvas colours. Settings key: `Theme` takes `system`, `light`, `dark`,
   `dim`, or `dusk`; anything else reads as `system`.
+
+- Page colour (#31). Settings key `PageColor` (`LeanDocPageColor` on
+  macOS): `paper` (default) or `theme`; anything else reads as `paper`.
+  Host to reader: the `theme` message carries `pageColor`; reader to
+  host: `setPageColor` {`pageColor`}. `assets/fixups.js`: `colorPalette`
+  routes every document colour through `var(--ldc-N, colour)`, and
+  `darkPageColor` maps a colour onto a dark page (OKLab, 4.5:1 for text).
+  `assets/reader.js`: `applyPageColor`, `updatePageColorStyle` (sets
+  `--ld-paper`, `--ld-ink` and the `--ldc-N` values on `#docBody`).
+  `assets/reader.css`: the page uses `var(--ld-paper, #ffffff)` and
+  `var(--ld-ink, #000000)`, and LeanMark's `--find`, `--find-current` and
+  `--find-text` tokens on such a page.
 
 ## Done before 0.2.0
 
