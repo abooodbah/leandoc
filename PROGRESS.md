@@ -21,21 +21,36 @@ scope for LeanDoc desktop 0.2.0:
   0.1), or follow the theme. Remembered between runs.
 - The efficiency review below, and its clear wins as their own pull requests.
 
-Order of work, one pull request each, tests committed before the change:
+Order of work, one pull request each, tests committed before the change.
+Each pull request updates its own item below when it merges.
 
-1. This plan, the efficiency review, and the peak working set and payload
-   sizes in the Windows perf job, so every later pull request reports them.
-2. Efficiency: find after a pause in typing.
-3. Efficiency: one zoom layout per frame.
-4. Efficiency: a view switch reuses the parsed document.
-5. The Dim and Dusk themes (reader and the three hosts).
-6. The theme button's dot and tooltip.
-7. The settings button and panel with the shortcut list.
-8. The toolbar and tabs restyle.
-9. The page colour setting (reader and the three hosts).
-10. The outline highlight look, after LeanMark's highlight is merged.
-11. The 0.2.0 version bump, the annotated tag v0.2.0, the Store package
-    workflow for the tag, and the post-release pull request.
+- Plan, efficiency review, and the peak working set and payload sizes in
+  the Windows perf job: #22, merged.
+
+- Efficiency: find after a pause in typing: #23, in progress.
+
+- Efficiency: one zoom layout per frame: #24, in progress.
+
+- Bug: the outline's current section after a long jump (found by the
+  LeanDoc Android port): #25, in progress.
+
+- Efficiency: a view switch reuses the parsed document: in progress.
+
+- The Dim and Dusk themes (reader and the three hosts): planned.
+
+- The theme button's dot and tooltip: planned.
+
+- The settings button and panel with the shortcut list: planned.
+
+- The toolbar and tabs restyle: planned.
+
+- The page colour setting (reader and the three hosts): planned.
+
+- The outline highlight look, after LeanMark's highlight is merged:
+  planned.
+
+- The 0.2.0 version bump, the annotated tag v0.2.0, the Store package
+  workflow for the tag, and the post-release pull request: planned.
 
 Decisions taken here (the owner can change them):
 
@@ -58,8 +73,10 @@ host in this session (Intel Xeon at 2.10 GHz, 4 logical processors,
 median of 5 to 10 runs. Chromium figures are the reader in headless
 Chromium 153 with the fake host. The document is the generated 300-page
 report (`tests/perf/make_report.py`, report-300.docx) unless named.
-Windows figures come from the perf-memory (Windows) CI job; they are added
-when that job has run on this plan's pull request. Every figure is a test
+Windows figures come from the perf-memory (Windows) CI job on this plan's
+pull request, which changed no product code (GitHub windows-latest, AMD EPYC
+7763, 4 logical processors, 16 GiB, WebView2 156.0.4314.58, median of 10
+launches, private bytes of the whole process tree). Every figure is a test
 figure, not a product claim.
 
 | Place | What it costs | Measured | Proposed fix | Decision |
@@ -72,11 +89,11 @@ figure, not a product claim.
 | Theme switch, `applyTheme` | Changing `data-theme` on the root restyles every element of the document, though the page keeps paper colours | 264 ms median, 16 to 479 ms (WebKitGTK, 9 switches) | None now: with the page colour set to follow the theme the page must restyle | Keep |
 | Tab switch | A background tab keeps no package or DOM, so selecting it reads and lays out the file again | P-07 875 ms (WebKitGTK) | Keep: it is what keeps five tabs within M-05 | Keep |
 | Scroll | Outline update once per frame; `matchPagesNearWindow` runs on every scroll event and copies its list of waiting pages each time | P-10 p95 frame 70 ms (WebKitGTK under Xvfb, software rendering); 0.1.0 recorded 16.7 ms p95 in Chromium | Run it once per frame | For the owner: small; no frame budget is missed in Chromium |
-| Open | Five scripts and seven fonts load on every launch | P-01 265 ms, P-02 659 ms, P-03 1,438 ms, P-04 3,363 ms (WebKitGTK, 5 launches). Scripts: reader.js 128,543 bytes, fixups.js 72,007, jszip 97,781, docx-preview 75,527; fonts 195 KiB | None: every file is used | Keep |
-| Memory | Private dirty memory of the whole process tree | M-01 148.7 MiB, M-02 +12.5, M-03 +89.0, M-04 +208.0 MiB (WebKitGTK, 5 launches) | None found beyond the rows above | Keep |
+| Open | Five scripts and seven fonts load on every launch | P-01 265 ms, P-02 659 ms, P-03 1,438 ms, P-04 3,363 ms (WebKitGTK, 5 launches). Windows: P-01 52 ms, P-02 598 ms, P-03 1,114.5 ms, P-04 2,418.5 ms, P-06 44.4 ms. Scripts: reader.js 128,543 bytes, fixups.js 72,007, jszip 97,781, docx-preview 75,527; fonts 195 KiB | None: every file is used | Keep |
+| Memory | Private memory of the whole process tree | Linux private dirty: M-01 148.7 MiB, M-02 +12.5, M-03 +89.0, M-04 +208.0 MiB (5 launches). Windows private bytes: M-01 90.6 MiB, M-02 +16.1, M-03 +98.4, M-04 +294.7 (budget +300), M-05 107.7. Windows peak working set of the tree: empty 283 MiB, 3 pages 322.5, 300 pages 419.7, 1,000 pages 630.8 | None found beyond the rows above. M-04 on Windows has 5.3 MiB to spare, so no change may keep more per document | Keep |
 | Dead code | No unused function in reader.js, fixups.js or fidelity.js. `host.editorKind` is stored and never read; the `--warning-50` token is unused | A few bytes | Remove when the code around them changes | Keep |
 | Dependencies | Runtime: four IBM Plex font packages, docx-preview 0.4.1, JSZip 3.10.2; development: axe-core and playwright-core for tests | All used | None | Keep |
-| Package size | v0.1.4 release assets | Windows ZIP 960,398 bytes, Linux .deb 613,946, macOS ZIP 798,194. LeanDoc.exe: from CI, added by this plan's pull request | None | Keep |
+| Package size | v0.1.4 release assets, and the Windows payload of this plan's CI build | Windows ZIP 960,398 bytes, Linux .deb 613,946, macOS ZIP 798,194. LeanDoc.exe 581,120 bytes, WebView2Loader.dll 164,192, leandoc-inspect.exe 517,120, reader assets 612,793 | None | Keep |
 
 Not measured here: Windows and macOS timings and memory in this session
 (no Windows or macOS machine; they come from CI), and the owner's laptop
