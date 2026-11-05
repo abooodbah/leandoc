@@ -75,8 +75,10 @@ Each pull request updates its own item below when it merges.
   the theme's canvas and text colours, and every text the test documents
   draw stays at 4.5:1 or more.
 
-- The outline highlight look, after LeanMark's highlight is merged:
-  planned.
+- The outline highlight look, after LeanMark's highlight is merged: #32,
+  merged. The current entry takes LeanMark's look in all five themes (checked
+  against LeanMark's merged reader.css). The weight no longer changes, so a
+  new current section repaints one entry without a layout.
 
 - The 0.2.0 version bump, the annotated tag v0.2.0, the Store package
   workflow for the tag, and the post-release pull request: planned.
@@ -154,6 +156,17 @@ themes, the page colour setting and the highlight look touch.
   `assets/reader.css`: the page uses `var(--ld-paper, #ffffff)` and
   `var(--ld-ink, #000000)`, and LeanMark's `--find`, `--find-current` and
   `--find-text` tokens on such a page.
+
+- Highlight look (#32). `assets/reader.css` only:
+  `.outline-list a[aria-current="location"]` takes
+  `background: var(--surface-muted)`,
+  `box-shadow: inset 2px 0 0 var(--link)` and
+  `color: var(--text-primary)`, with no font weight change; entries have
+  `padding: 5px 8px 5px 12px` and 4 px corners; levels 2, 3 and 4 or
+  deeper have 28, 44 and 60 px on the left; the outline label lines up with
+  the entries' text. Forced colours underline the current entry. The
+  behaviour (aria-current, kept in view, the settle pass of #25) does not
+  change.
 
 ## Done before 0.2.0
 
