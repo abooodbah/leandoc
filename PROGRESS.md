@@ -32,7 +32,10 @@ Each pull request updates its own item below when it merges.
 - Efficiency: one zoom layout per frame: #24, in progress.
 
 - Bug: the outline's current section after a long jump (found by the
-  LeanDoc Android port): #25, in progress.
+  LeanDoc Android port): #25, merged. The current section is found again
+  120 ms after the last scroll event. Scroll frames unchanged: p95 16.7 ms on
+  this branch, 16.7 to 16.8 ms on main (Chromium). The Android port can take
+  `scheduleOutlineSettle` in assets/reader.js.
 
 - Efficiency: a view switch reuses the parsed document: in progress.
 
