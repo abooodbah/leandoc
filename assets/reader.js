@@ -168,8 +168,12 @@
 
   // Theme
 
+  // The theme button's order, as in LeanMark. Dim and Dusk are the softer
+  // dark themes.
+  var THEMES = ["system", "light", "dark", "dim", "dusk"];
+
   function applyTheme(theme) {
-    currentTheme = theme === "light" || theme === "dark" ? theme : "system";
+    currentTheme = THEMES.indexOf(theme) > 0 ? theme : "system";
     if (currentTheme === "system") {
       root.removeAttribute("data-theme");
     } else {
@@ -183,8 +187,7 @@
   }
 
   function cycleTheme() {
-    var next = currentTheme === "system" ? "light"
-      : currentTheme === "light" ? "dark" : "system";
+    var next = THEMES[(THEMES.indexOf(currentTheme) + 1) % THEMES.length];
     applyTheme(next);
     post({ type: "setTheme", theme: next });
   }

@@ -10,6 +10,7 @@
 
 #include "leandoc-version.h"
 #include "core/Links.h"
+#include "core/ReaderSettings.h"
 
 #include <optional>
 
@@ -20,12 +21,18 @@ NSString *const LDViewKey = @"LeanDocView";
 NSString *const LDReaderURLString = @"leandoc://app/reader.html";
 constexpr NSUInteger kMaximumMessageLength = 65536;
 
+NSString *ThemeString(leandoc::settings::Theme theme) {
+    return @(leandoc::settings::ThemeName(theme));
+}
+
+leandoc::settings::Theme ThemeFromString(NSString *name) {
+    return leandoc::settings::ParseTheme(name.UTF8String != nullptr ? name.UTF8String : "");
+}
+
+// One of system, light, dark, dim, or dusk; anything else saved reads as System.
 NSString *CurrentTheme(void) {
     NSString *theme = [NSUserDefaults.standardUserDefaults stringForKey:LDThemeKey];
-    if ([theme isEqualToString:@"light"] || [theme isEqualToString:@"dark"]) {
-        return theme;
-    }
-    return @"system";
+    return ThemeString(ThemeFromString(theme));
 }
 
 NSString *CurrentView(void) {
@@ -425,9 +432,9 @@ static BOOL LDIsAllowedMenuItem(NSMenuItem *item) {
         [self handleLink:StringValue(body, @"href")];
     } else if ([type isEqualToString:@"setTheme"]) {
         NSString *theme = StringValue(body, @"theme");
-        if ([theme isEqualToString:@"system"] || [theme isEqualToString:@"light"] ||
-            [theme isEqualToString:@"dark"]) {
-            [self storeTheme:theme];
+        if (theme != nil && theme.UTF8String != nullptr &&
+            leandoc::settings::IsThemeName(theme.UTF8String)) {
+            [self storeTheme:ThemeString(ThemeFromString(theme))];
         }
     } else if ([type isEqualToString:@"setView"]) {
         NSString *view = StringValue(body, @"view");
@@ -521,17 +528,16 @@ static BOOL LDIsAllowedMenuItem(NSMenuItem *item) {
 }
 
 - (void)cycleTheme {
-    NSString *theme = CurrentTheme();
-    NSString *next = [theme isEqualToString:@"system"]
-                         ? @"light"
-                         : ([theme isEqualToString:@"light"] ? @"dark" : @"system");
-    [self storeTheme:next];
+    [self storeTheme:ThemeString(leandoc::settings::NextTheme(ThemeFromString(CurrentTheme())))];
 }
 
+// Dark, Dim, and Dusk give the window a dark frame; System follows macOS.
 - (void)applyWindowTheme:(NSString *)theme {
-    if ([theme isEqualToString:@"dark"]) {
+    const leandoc::settings::Theme parsed = ThemeFromString(theme);
+    if (parsed == leandoc::settings::Theme::Dark || parsed == leandoc::settings::Theme::Dim ||
+        parsed == leandoc::settings::Theme::Dusk) {
         self.window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
-    } else if ([theme isEqualToString:@"light"]) {
+    } else if (parsed == leandoc::settings::Theme::Light) {
         self.window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
     } else {
         self.window.appearance = nil;
