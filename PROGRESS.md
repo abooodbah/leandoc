@@ -27,7 +27,10 @@ Each pull request updates its own item below when it merges.
 - Plan, efficiency review, and the peak working set and payload sizes in
   the Windows perf job: #22, merged.
 
-- Efficiency: find after a pause in typing: #23, in progress.
+- Efficiency: find after a pause in typing: #23, merged. Typing "survey"
+  at 100 ms a key in the 300-page report (WebKitGTK): the page was held up to
+  103 ms after a key (441 ms on main), the six keys took 604 ms (1,510), and
+  the search work inside the key handlers fell from 176 to 6 ms.
 
 - Efficiency: one zoom layout per frame: #24, in progress.
 

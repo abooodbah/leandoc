@@ -296,6 +296,7 @@ await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 const t0 = performance.now();
 input.value = QUERY;
 input.dispatchEvent(new Event('input'));
+input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, cancelable: true}));
 const counted = performance.now() - t0;
 const text = document.getElementById('findCount').textContent;
 await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));

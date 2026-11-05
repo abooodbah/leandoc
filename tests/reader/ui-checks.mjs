@@ -81,6 +81,8 @@ const STATES = [
       const { bytes, report } = prepareFixture(fixtures, "headings.docx");
       await host.openDocument({ bytes, report, fileName: "headings.docx" });
       await host.page.fill("#findInput", "kingfisher");
+      // Find runs after a pause in typing; the second match is the state captured.
+      await host.page.waitForFunction(() => /^1\//.test(document.getElementById("findCount").textContent));
       await host.page.keyboard.press("Enter");
     }
   },
