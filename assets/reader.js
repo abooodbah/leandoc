@@ -2734,6 +2734,22 @@
     }
   }
 
+  // After a long jump (the scroll bar, Find, Home or End) the pages that come
+  // into view are still skipped by content-visibility in the first frame, so
+  // their headings report places they do not have yet, and the outline marked
+  // a section several entries off with no later scroll to correct it. Once
+  // scrolling stops, the current section is found again in the next frame.
+  var OUTLINE_SETTLE_MS = 120;
+  var outlineSettleTimer = 0;
+
+  function scheduleOutlineSettle() {
+    window.clearTimeout(outlineSettleTimer);
+    outlineSettleTimer = window.setTimeout(function () {
+      outlineSettleTimer = 0;
+      scheduleOutlineUpdate();
+    }, OUTLINE_SETTLE_MS);
+  }
+
   function goToOutlineEntry(index) {
     var entry = outlineEntries[index];
     if (!entry || !entry.target) {
@@ -3430,6 +3446,7 @@
     }
   });
   elements.docScroller.addEventListener("scroll", scheduleOutlineUpdate, { passive: true });
+  elements.docScroller.addEventListener("scroll", scheduleOutlineSettle, { passive: true });
   elements.docScroller.addEventListener("scroll", matchPagesNearWindow, { passive: true });
   elements.docScroller.addEventListener("blur", function () {
     elements.docScroller.classList.remove("quiet-focus");
