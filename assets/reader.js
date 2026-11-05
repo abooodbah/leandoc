@@ -42,6 +42,8 @@
     status: document.getElementById("statusToast"),
     tabStrip: document.getElementById("tabStrip"),
     themeButton: document.getElementById("themeButton"),
+    themeLabel: document.getElementById("themeLabel"),
+    themeSwatch: document.getElementById("themeSwatch"),
     viewPage: document.getElementById("viewPage"),
     viewReading: document.getElementById("viewReading"),
     zoomIn: document.getElementById("zoomIn"),
@@ -179,11 +181,24 @@
     } else {
       root.setAttribute("data-theme", currentTheme);
     }
-    var label = currentTheme.charAt(0).toUpperCase() + currentTheme.slice(1);
-    elements.themeButton.textContent = label;
+    // The dot has one fixed colour per theme (.theme-swatch in the CSS).
+    elements.themeLabel.textContent = titleCase(currentTheme);
+    elements.themeSwatch.dataset.swatch = currentTheme;
+    var name = themeDisplayName(currentTheme);
     elements.themeButton.setAttribute("aria-label",
-      "Theme: " + label + ". Activate to change theme.");
-    elements.themeButton.title = shortcut("Theme: " + label + " (Ctrl+Shift+T)");
+      "Theme: " + name + ". Activate to change theme.");
+    elements.themeButton.title = shortcut("Theme: " + name + " (Ctrl+Shift+T)");
+  }
+
+  function titleCase(name) {
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  }
+
+  // "Dusk", or "System (Dark)", so the name never depends on the dot's colour.
+  function themeDisplayName(theme) {
+    return theme === "system"
+      ? "System (" + (systemTheme.matches ? "Dark" : "Light") + ")"
+      : titleCase(theme);
   }
 
   function cycleTheme() {
