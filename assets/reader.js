@@ -66,7 +66,8 @@
   var current = null;
   var displayed = false;
   var renderSerial = 0;
-  // Only the active tab's package is kept, for view switches.
+  // Only the active tab's package is kept, for view switches, with the
+  // parsed model of each view it was shown in (see modelFor).
   var packageCache = null;
   var blobUrls = [];
   // Each title-page section's header and footer for its later pages (see
@@ -505,7 +506,7 @@
       if (serial !== renderSerial) {
         return null;
       }
-      packageCache = { tab: expected.tab, generation: expected.generation, buffer: buffer };
+      packageCache = { tab: expected.tab, generation: expected.generation, buffer: buffer, models: {} };
       return renderPackage(serial, ratio, started, true);
     }).catch(function (error) {
       if (serial === renderSerial) {
@@ -535,14 +536,64 @@
     });
   }
 
-  function renderPackage(serial, ratio, started, firstRender) {
-    var options = renderOptions();
-    var view = currentView;
-    var expected = current;
+  // A view switch renders from the document that view parsed before, while
+  // the document is open, instead of unzipping and parsing the package again:
+  // the parse was 186 to 383 ms of a 900 to 1,150 ms switch for a 300-page
+  // report in WebKitGTK. The parse depends on the view (reading view ignores
+  // cell widths), so each view keeps its own. A render changes the model it is
+  // given (docx-preview splits paragraphs at page breaks and merges styles
+  // into their children), so each view keeps a copy of every part's data as
+  // the model fixes left it, and each render starts from a fresh copy of it.
+  // The copy is one structured clone, so objects shared between parts stay
+  // shared. Between renders only the copy is kept. Only renders for a view
+  // switch keep one: a document that is only opened costs no extra memory.
+  var MODEL_SKIP = { _package: true, _documentParser: true, _xmlDocument: true, rels: true, path: true };
+
+  function saveModel(doc) {
+    var parts = (doc.parts || []).filter(Boolean);
+    try {
+      var data = parts.map(function (part) {
+        var values = {};
+        Object.keys(part).forEach(function (key) {
+          if (!MODEL_SKIP[key]) {
+            values[key] = part[key];
+          }
+        });
+        return values;
+      });
+      return { parts: parts, data: structuredClone(data) };
+    } catch (_error) {
+      // Something the browser cannot copy: this view parses again next time.
+      return null;
+    }
+  }
+
+  function restoreModel(saved) {
+    var copies = structuredClone(saved.data);
+    saved.parts.forEach(function (part, index) {
+      Object.assign(part, copies[index]);
+    });
+  }
+
+  // The rendered model is not needed once the pages exist; the copy is.
+  function releaseModel(saved) {
+    saved.parts.forEach(function (part, index) {
+      Object.keys(saved.data[index]).forEach(function (key) {
+        part[key] = null;
+      });
+    });
+  }
+
+  // The parsed and fixed model for the view, from this document's earlier
+  // parse when it has one.
+  function modelFor(cache, view, options, serial, keep) {
+    var known = cache.models[view];
+    if (known) {
+      restoreModel(known.saved);
+      return Promise.resolve(known);
+    }
     var parsed = null;
-    var hyphenate = false;
-    var titleSections = [];
-    return window.docx.parseAsync(packageCache.buffer, options).then(function (result) {
+    return window.docx.parseAsync(cache.buffer, options).then(function (result) {
       parsed = result;
       return yieldToPage();
     }).then(function () {
@@ -550,15 +601,37 @@
         return null;
       }
       var prepared = Fixups.prepareModel(parsed);
-      hyphenate = prepared.autoHyphenation;
-      titleSections = prepared.titleSections || [];
+      var entry = {
+        doc: parsed,
+        hyphenate: prepared.autoHyphenation,
+        titleSections: prepared.titleSections || [],
+        saved: keep ? saveModel(parsed) : null
+      };
+      if (entry.saved && packageCache === cache) {
+        cache.models[view] = entry;
+      }
+      return entry;
+    });
+  }
+
+  function renderPackage(serial, ratio, started, firstRender) {
+    var options = renderOptions();
+    var view = currentView;
+    var expected = current;
+    return modelFor(packageCache, view, options, serial, !firstRender).then(function (model) {
+      if (!model) {
+        return null;
+      }
       return yieldToPage().then(function () {
         if (serial !== renderSerial) {
           return null;
         }
-        return window.docx.renderDocument(parsed, options).then(function (nodes) {
-          return renderTitleChrome(parsed, titleSections, options).then(function (chrome) {
+        return window.docx.renderDocument(model.doc, options).then(function (nodes) {
+          return renderTitleChrome(model.doc, model.titleSections, options).then(function (chrome) {
             titleChrome = chrome;
+            if (model.saved) {
+              releaseModel(model.saved);
+            }
             return nodes;
           });
         });
@@ -570,7 +643,7 @@
           revokeBlobUrls(collectBlobUrls(nodes));
           return null;
         }
-        return attachDocument(nodes, view, serial, hyphenate).then(function (attached) {
+        return attachDocument(nodes, view, serial, model.hyphenate).then(function (attached) {
           if (attached) {
             finishRender(expected, ratio, started, firstRender, attached.movedWhileLoading);
           }
