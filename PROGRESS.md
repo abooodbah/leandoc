@@ -29,7 +29,10 @@ Each pull request updates its own item below when it merges.
 
 - Efficiency: find after a pause in typing: #23, in progress.
 
-- Efficiency: one zoom layout per frame: #24, in progress.
+- Efficiency: one zoom layout per frame: #24, merged. Three zoom steps in one
+  task in the 300-page report (WebKitGTK): 314 ms to the next painted frame
+  (820 ms on main); one step 330 ms (348), with 1 ms inside the handler
+  (268).
 
 - Bug: the outline's current section after a long jump (found by the
   LeanDoc Android port): #25, in progress.
