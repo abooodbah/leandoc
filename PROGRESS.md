@@ -36,7 +36,10 @@ Each pull request updates its own item below when it merges.
 
 - Efficiency: a view switch reuses the parsed document: in progress.
 
-- The Dim and Dusk themes (reader and the three hosts): planned.
+- The Dim and Dusk themes (reader and the three hosts): #27, merged. All
+  five themes resolve to LeanMark 0.6.0's colour tokens (checked token by
+  token in the reader tests); Dark's border moved to LeanMark's #2b2924.
+  The 16 chrome states in Dim and Dusk have no serious axe finding.
 
 - The theme button's dot and tooltip: planned.
 
@@ -103,6 +106,16 @@ figures (`tests/owner/`).
 
 Filled in as each pull request merges: the files and settings keys that the
 themes, the page colour setting and the highlight look touch.
+
+- Themes (#27). `assets/reader.css`: the `:root[data-theme="dim"]` and
+  `:root[data-theme="dusk"]` blocks (LeanMark's tokens plus LeanDoc's own:
+  `--surface-hover`, `--border-strong`, `--doc-canvas`, the notice tokens and
+  the wordmark), placed after the system-dark block so they win on a dark
+  system; Dark's `--border` is `var(--neutral-800)`. `assets/reader.js`:
+  `THEMES`, `applyTheme`, `cycleTheme` (System, Light, Dark, Dim, Dusk).
+  `src/core/ReaderSettings.h`: theme names, order, dark frame, and window
+  canvas colours. Settings key: `Theme` takes `system`, `light`, `dark`,
+  `dim`, or `dusk`; anything else reads as `system`.
 
 ## Done before 0.2.0
 
