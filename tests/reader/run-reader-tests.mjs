@@ -1527,7 +1527,10 @@ describe("chrome interactions (VIEW-01)", () => {
       assert.ok(position.offset >= 0 && position.offset < 40, `heading at ${position.offset}px`);
       assert.equal(await host.page.getAttribute(`#outlineList a[data-index="${last}"]`, "aria-current"), "location");
       await host.page.$eval("#docScroller", (node) => { node.scrollTop = 0; });
-      await host.page.waitForTimeout(60);
+      // The mark moves in the next frame; a busy runner may need more than one.
+      await host.page.waitForFunction(() =>
+        document.querySelector('#outlineList a[data-index="0"]').getAttribute("aria-current") === "location",
+      null, { timeout: 3000 }).catch(() => {});
       assert.equal(await host.page.getAttribute('#outlineList a[data-index="0"]', "aria-current"), "location");
       await host.page.click("#outlineToggle");
       assert.equal(await host.page.isVisible("#outlineList"), false);
