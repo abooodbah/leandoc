@@ -54,7 +54,10 @@ Each pull request updates its own item below when it merges.
   token in the reader tests); Dark's border moved to LeanMark's #2b2924.
   The 16 chrome states in Dim and Dusk have no serious axe finding.
 
-- The theme button's dot and tooltip: planned.
+- The theme button's dot and tooltip: #28, merged. LeanMark's dot colours
+  (white, black, #7f8a99, #c98f4f, half and half for System) with the same
+  grey ring; the tooltip and accessible name say "System (Dark)" or the
+  theme's name.
 
 - The settings button and panel with the shortcut list: planned.
 
