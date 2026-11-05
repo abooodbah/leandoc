@@ -80,8 +80,13 @@ Each pull request updates its own item below when it merges.
   against LeanMark's merged reader.css). The weight no longer changes, so a
   new current section repaints one entry without a layout.
 
-- The 0.2.0 version bump, the annotated tag v0.2.0, the Store package
-  workflow for the tag, and the post-release pull request: planned.
+- The 0.2.0 version bump: #33, merged. CITATION.cff does not exist in this
+  repository, so the bump does not touch one.
+
+- Remaining for the owner: the annotated tag v0.2.0 on the bump's merge
+  commit (this build session cannot create tags), the release build it
+  starts, the Store package workflow for the tag, and then the post-release
+  pull request (site/, store/listing.md, docs/VALIDATION_STATUS.md).
 
 Decisions taken here (the owner can change them):
 

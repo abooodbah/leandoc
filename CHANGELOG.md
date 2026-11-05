@@ -3,6 +3,43 @@
 All notable LeanDoc changes are recorded here. The project follows semantic
 versioning.
 
+## [0.2.0] - 2026-11-05
+
+### Added
+
+- Two softer dark themes, Dim and Dusk, with LeanMark's colours. The theme
+  button and Ctrl+Shift+T step through System, Light, Dark, Dim, and Dusk,
+  and every host remembers the choice.
+- A dot on the theme button, one colour per theme, and a tooltip that names
+  the theme; System says which theme it shows.
+- A settings button and panel beside the document with the theme, the view,
+  the page colour, the zoom, and every keyboard shortcut. Ctrl+/ or F1 opens
+  it, and Escape closes it.
+- A page colour setting: white like paper, as before, or the theme's colours.
+  On a dark theme the document's own colours are turned to the theme so its
+  text stays readable at 4.5:1 or more. Every host remembers the choice.
+
+### Changed
+
+- The toolbar, the tab strip, and the current section in the outline take
+  LeanMark 0.6.0's look. The current section no longer changes its weight,
+  so scrolling through the 300-page test report lays the page out 725 times
+  instead of 1,039.
+- Find searches after a short pause in typing; Enter and F3 search at once.
+  Typing a six-letter word in the 300-page report held the window for up to
+  103 ms after a key instead of 441 ms (Linux build).
+- Zoom steps that come together, from Ctrl+wheel or a held key, are laid out
+  once: three steps took 314 ms instead of 820 ms.
+- After the first switch to each view, a view switch does not parse the
+  document again: 551 ms instead of 921 ms to reading view and 837 ms instead
+  of 963 ms back, on the 300-page report.
+
+### Fixed
+
+- After a long jump, the outline could mark a section several entries away
+  from the one on screen. It now finds the current section again once
+  scrolling stops.
+
 ## [0.1.4] - 2026-10-28
 
 ### Fixed
