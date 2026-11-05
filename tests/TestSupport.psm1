@@ -275,7 +275,7 @@ function Stop-LeanDocTestProcessTree {
 function Get-LeanDocProcessSample {
     param([Parameter(Mandatory = $true)][int]$RootProcessId)
     $ids = @(Get-LeanDocProcessTreeIds -RootProcessId $RootProcessId)
-    $workingSet = [int64]0; $privateBytes = [int64]0
+    $workingSet = [int64]0; $peakWorkingSet = [int64]0; $privateBytes = [int64]0
     $handles = 0; $threads = 0; $cpuSeconds = 0.0; $liveIds = @()
     foreach ($processId in $ids) {
         $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
@@ -283,6 +283,7 @@ function Get-LeanDocProcessSample {
         try {
             $process.Refresh()
             $workingSet += [int64]$process.WorkingSet64
+            $peakWorkingSet += [int64]$process.PeakWorkingSet64
             $privateBytes += [int64]$process.PrivateMemorySize64
             $handles += [int]$process.HandleCount
             $threads += [int]$process.Threads.Count
@@ -295,6 +296,7 @@ function Get-LeanDocProcessSample {
         ProcessIds = @($liveIds)
         ProcessCount = @($liveIds).Count
         WorkingSetBytes = $workingSet
+        PeakWorkingSetBytes = $peakWorkingSet
         PrivateBytes = $privateBytes
         HandleCount = $handles
         ThreadCount = $threads
