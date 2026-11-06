@@ -1,0 +1,40 @@
+name: Compare open time
+
+# One Windows runner times v0.1.4 and this branch alternately, with an A/A
+# pair, so the difference can be told from the runner's own noise.
+
+on:
+  push:
+    branches:
+      - 'bench/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Build and stage Windows files
+        shell: pwsh
+        run: ./scripts/build.ps1 -Configuration Release -Platform x64
+      - name: Download v0.1.4
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $folder = Join-Path $env:RUNNER_TEMP 'old'
+          gh release download v0.1.4 --repo $env:GITHUB_REPOSITORY --pattern '*windows-x64.zip' --dir $folder
+          Expand-Archive -LiteralPath (Get-Item (Join-Path $folder '*.zip')).FullName -DestinationPath (Join-Path $folder 'app')
+          $exe = Get-ChildItem (Join-Path $folder 'app') -Recurse -Filter LeanDoc.exe | Select-Object -First 1
+          ('OLD_EXE={0}' -f $exe.FullName) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Compare
+        shell: pwsh
+        run: ./tests/perf/Compare-OpenTime.ps1 -NewExe ./dist/LeanDoc.exe -OldExe $env:OLD_EXE -Rounds 6 -Runs 5
