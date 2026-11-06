@@ -39,6 +39,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.2.0" date="2026-11-05">
+      <description>
+        <p>LeanMark's look and its Dim and Dusk themes, a settings panel with every keyboard shortcut, and a page colour setting: white like paper or the theme's colours. Find, zoom, and the view switch do less work.</p>
+      </description>
+    </release>
     <release version="0.1.4" date="2026-10-28">
       <description>
         <p>Page view breaks pages where Word does in many more documents: long tables, title pages, missing fonts, and Aptos.</p>

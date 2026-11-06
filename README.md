@@ -105,14 +105,14 @@ for 14 days. The APK is also attached to each
 
 ## Platform releases
 
-| Operating system | Architecture | v0.1.4 artifact | Runtime |
+| Operating system | Architecture | v0.2.0 artifact | Runtime |
 | --- | --- | --- | --- |
-| Windows 10 / 11 | x64 | [LeanDoc-v0.1.4-windows-x64.zip](https://github.com/abooodbah/leandoc/releases/download/v0.1.4/LeanDoc-v0.1.4-windows-x64.zip) | Microsoft Edge WebView2 Runtime |
-| Ubuntu 24.04 and compatible | x86-64 | [LeanDoc-v0.1.4-linux-x86_64.deb](https://github.com/abooodbah/leandoc/releases/download/v0.1.4/LeanDoc-v0.1.4-linux-x86_64.deb) | GTK 4 and WebKitGTK 6.0 |
-| macOS 12 or later | Intel and Apple silicon | [LeanDoc-v0.1.4-macos-universal-preview.zip](https://github.com/abooodbah/leandoc/releases/download/v0.1.4/LeanDoc-v0.1.4-macos-universal-preview.zip) | Preview, system WKWebView |
+| Windows 10 / 11 | x64 | [LeanDoc-v0.2.0-windows-x64.zip](https://github.com/abooodbah/leandoc/releases/download/v0.2.0/LeanDoc-v0.2.0-windows-x64.zip) | Microsoft Edge WebView2 Runtime |
+| Ubuntu 24.04 and compatible | x86-64 | [LeanDoc-v0.2.0-linux-x86_64.deb](https://github.com/abooodbah/leandoc/releases/download/v0.2.0/LeanDoc-v0.2.0-linux-x86_64.deb) | GTK 4 and WebKitGTK 6.0 |
+| macOS 12 or later | Intel and Apple silicon | [LeanDoc-v0.2.0-macos-universal-preview.zip](https://github.com/abooodbah/leandoc/releases/download/v0.2.0/LeanDoc-v0.2.0-macos-universal-preview.zip) | Preview, system WKWebView |
 
 Each artifact has an adjacent `.sha256` sidecar on the
-[v0.1.4 release](https://github.com/abooodbah/leandoc/releases/tag/v0.1.4).
+[v0.2.0 release](https://github.com/abooodbah/leandoc/releases/tag/v0.2.0).
 The macOS preview also has a `.metadata.json` file that records how it was
 signed. Windows ARM64 and Linux ARM64 are not part of this release.
 
@@ -128,11 +128,11 @@ signed. Windows ARM64 and Linux ARM64 are not part of this release.
 Check a download against its sidecar before you run it:
 
 ```powershell
-Get-FileHash .\LeanDoc-v0.1.4-windows-x64.zip -Algorithm SHA256
+Get-FileHash .\LeanDoc-v0.2.0-windows-x64.zip -Algorithm SHA256
 ```
 
 ```sh
-sha256sum -c LeanDoc-v0.1.4-linux-x86_64.deb.sha256
+sha256sum -c LeanDoc-v0.2.0-linux-x86_64.deb.sha256
 ```
 
 ## Package use
@@ -173,7 +173,7 @@ The Debian package declares its GTK 4 and WebKitGTK 6.0 dependencies, so APT
 resolves them:
 
 ```sh
-sudo apt install ./LeanDoc-v0.1.4-linux-x86_64.deb
+sudo apt install ./LeanDoc-v0.2.0-linux-x86_64.deb
 ```
 
 It installs `/usr/bin/leandoc`, a desktop entry, AppStream metadata, the icon,
@@ -209,8 +209,12 @@ this release.
 Page view is the default. Reading view reflows the text to the window and is
 one click (or Ctrl+Shift+V) away. Zoom runs from 50 to 300 percent, with fit
 width. A navigation pane lists the headings, find searches the whole
-document, and the System, Light, and Dark theme cycle changes LeanDoc's
-chrome while the page itself stays on paper colours.
+document, and five themes (System, Light, Dark, Dim, and Dusk, as in
+LeanMark) colour LeanDoc's window. The page stays white like paper, or, with
+the page colour setting, takes the theme's colours; on a dark theme the
+document's own colours are turned to the theme so its text stays readable.
+The settings button (Ctrl+/ or F1) holds the theme, the view, the page
+colour, the zoom, and the list of every keyboard shortcut.
 
 `.doc`, password-protected documents, `.rtf`, `.odt`, and files that are not
 Word documents get a plain page that says what the file is, with the
@@ -267,6 +271,8 @@ The full list is in the [0.1.0 release notes](docs/releases/v0.1.0.md).
 | Zoom in / out / reset | Ctrl++ / Ctrl+- / Ctrl+0 | Command++ / Command+- / Command+0 |
 | Switch page and reading view | Ctrl+Shift+V | Command+Shift+V |
 | Cycle the theme | Ctrl+Shift+T | Command+Shift+T |
+| Settings and shortcuts | Ctrl+/ or F1 | Command+/ or F1 |
+| Close the settings panel | Escape | Escape |
 | Open in the editor | Ctrl+Shift+E | Command+Shift+E |
 | Copy all text | Ctrl+Shift+C | Command+Shift+C |
 | Reload from disk | F5 or Ctrl+R | F5 or Command+R |
@@ -322,7 +328,7 @@ Vulnerability reports follow [SECURITY.md](SECURITY.md).
 
 LeanDoc's own code makes no network requests. It has no telemetry, no
 update check, and no account. Outside the documents you open, it writes only
-its settings: theme, view, and up to 10 recent files, in
+its settings: theme, view, page colour, and up to 10 recent files, in
 `HKCU\Software\LeanDoc` on Windows, `$XDG_CONFIG_HOME/leandoc/settings.ini`
 on Linux, and the app's defaults on macOS. Windows also keeps a WebView2
 profile folder under `%LOCALAPPDATA%\LeanDoc`.
@@ -373,7 +379,9 @@ disk.
 
 Sizes are from the v0.1.0 release files, read on 2026-10-20. In 0.1.4 the
 reader's two scripts and its style sheet are 106,112 bytes larger than in
-0.1.0, and the core changed; the packages have not been measured again.
+0.1.0, and the core changed; in 0.2.0 the reader's page, scripts, and style
+sheet are 39,855 bytes larger than in 0.1.4. The packages have not been
+measured again.
 
 Measured figures will be added after a run on a reference Windows machine; the method is in [tests/owner/README.md](tests/owner/README.md).
 
@@ -396,7 +404,7 @@ WebView2 SDK and checks its SHA-256.
 ```powershell
 .\scripts\build.ps1 -Configuration Release -Platform x64
 .\tests\Test-LeanDoc.ps1 -DistPath .\dist -Smoke -Runtime
-.\scripts\package-release.ps1 -Version 0.1.4 -Platform x64
+.\scripts\package-release.ps1 -Version 0.2.0 -Platform x64
 ```
 
 ### Linux
@@ -410,7 +418,7 @@ cmake -S . -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTING=ON -DLEANDOC_ENABLE_GUI_TESTS=ON
 cmake --build build/linux
 dbus-run-session -- ctest --test-dir build/linux --output-on-failure
-bash scripts/package-linux.sh --version 0.1.4
+bash scripts/package-linux.sh --version 0.2.0
 ```
 
 ### macOS
