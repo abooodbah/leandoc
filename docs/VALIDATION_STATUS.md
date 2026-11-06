@@ -5,7 +5,7 @@
 [execution plan](EXECUTION_PLAN.md)) and published from `main`; the Linux
 session, GitHub Actions runners for Windows, macOS, and Linux, and the reader
 in headless Chromium<br>
-**Current public release:** LeanDoc 0.1.0
+**Current public release:** LeanDoc 0.2.0
 
 This page records the result of every ID in the [test plan](TEST_PLAN.md),
 with the evidence rules of [ACCEPTANCE.md](ACCEPTANCE.md). The defects found
@@ -13,6 +13,37 @@ and how each was fixed are in the [test report](TEST_REPORT.md). Every
 figure below is a test-gate figure from a cloud session or a CI runner. None
 of them is a product claim: published figures come only from the owner's
 laptop run of `tests/owner/`.
+
+## v0.2.0 publication
+
+LeanDoc 0.2.0 is published on
+[GitHub Releases](https://github.com/abooodbah/leandoc/releases/tag/v0.2.0).
+The annotated tag `v0.2.0` is on `fb053ba90870fa53e13592264f6b8f9fb6ec46e1`,
+the merge commit of #33. Tag build
+[run 42229627641](https://github.com/abooodbah/leandoc/actions/runs/42229627641)
+passed and published the release; the Store package workflow
+([run 42229627670](https://github.com/abooodbah/leandoc/actions/runs/42229627670))
+built `LeanDoc-v0.2.0-x64.msix` from it.
+
+| Asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `LeanDoc-v0.2.0-windows-x64.zip` | 972,464 | `8f81c356b247b687cb60ed99d9adb94274053cb5974566aa8c4d282668cfe21b` |
+| `LeanDoc-v0.2.0-linux-x86_64.deb` | 625,478 | `b741ca648152c89226f7e04186a22f7ba212255d395bca56a291bec3d4e5143c` |
+| `LeanDoc-v0.2.0-macos-universal-preview.zip` | 811,831 | `6d3441d605a78843f7ff3285204e48eb4d1552e7c87f8bcd97efa648f7ae69c7` |
+
+Each has a `.sha256` sidecar, and the macOS preview a `.metadata.json`. The
+downloaded Windows ZIP matched its sidecar; its `LeanDoc.exe` is 582,656
+bytes.
+
+| Check | Result |
+| --- | --- |
+| Version bump | [#33](https://github.com/abooodbah/leandoc/pull/33) |
+| Pull requests in 0.2.0 | #22 to #32 |
+| Reader suite on the final code | 164 tests: 163 pass, 1 todo (Word's justified line breaking), in Chromium 153 and Chromium 141 in CI |
+| Host logic checks | Pass on Windows, Linux, and macOS in CI |
+| Open time on one Windows runner | v0.1.4 against 0.2.0, six alternating rounds of five launches (AMD EPYC 9V45, WebView2 156): 3 pages 368 against 377 ms, 300 pages 757 against 776 ms; 0.2.0 against itself 377 and 389 ms, 776 and 769 ms (#34) |
+| Windows perf (CI, AMD EPYC 7763) | P-01 51.5 ms, P-03 1,282.5 ms, P-04 2,312.5 ms, M-04 386.3 MiB, peak working set 632.7 MiB with 1,000 pages; LeanDoc.exe 582,656 bytes |
+| Distribution | Scoop and Homebrew moved to 0.2.0, winget pull request microsoft/winget-pkgs#472383 opened, Chocolatey package pushed (in moderation), Store update submitted for certification, all on 2026-11-06. The release ZIP's installer was run on the maintainer's PC. |
 
 ## v0.1.0 publication
 

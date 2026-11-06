@@ -7,7 +7,7 @@ Paste each field into Partner Center > your app > Submission > Store listings > 
 - Product name (reserve this exact name): LeanDoc
 - Publisher display name: Lean Apps Studio
 - Short title (50 characters or fewer): LeanDoc: Word document viewer
-- Version in this pack: 0.1.4 (package version 0.1.4.0)
+- Version in this pack: 0.2.0 (package version 0.2.0.0)
 - File types it opens: Word documents (.docx, .docm, .dotx, .dotm, plus .doc, .rtf, and .odt, which get a page that offers your editor)
 
 ## Short description
@@ -64,7 +64,7 @@ LeanDoc is free and open source under the MIT License.
 
 ## What's new in this version
 
-Long documents open much faster in page view, two-column pages fill like Word, and headings and spacing follow Word's styles more closely.
+Two softer dark themes, Dim and Dusk, a settings panel with every keyboard shortcut, and a page colour setting: keep the page white like paper or give it the theme's colours. Find, zoom, and the switch between page and reading view do less work.
 
 ## Copyright and trademark info
 
