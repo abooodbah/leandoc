@@ -83,6 +83,15 @@ Each pull request updates its own item below when it merges.
 - The 0.2.0 version bump: #33, merged. CITATION.cff does not exist in this
   repository, so the bump does not touch one.
 
+- Open time on one Windows runner (branch bench/open-time, workflow
+  "Compare open time", AMD EPYC 9V45, WebView2 156, six alternating rounds
+  of five launches, median of round medians, lowest to highest): 3 pages,
+  0.1.4 368 ms (361 to 383), 0.2.0 377 ms (366 to 389) and again 389 ms
+  (358 to 404); 300 pages, 0.1.4 757 ms (740 to 775), 0.2.0 776 ms (748 to
+  799) and again 769 ms (752 to 807). 0.2.0 is 2 to 3 percent slower, about
+  the A/A difference. The 15 percent in the #22 and #32 runs was runner
+  variation between two machines.
+
 - Remaining for the owner: the annotated tag v0.2.0 on the bump's merge
   commit (this build session cannot create tags), the release build it
   starts, the Store package workflow for the tag, and then the post-release
