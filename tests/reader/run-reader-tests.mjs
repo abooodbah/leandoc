@@ -731,6 +731,61 @@ describe("chrome interactions (VIEW-01)", () => {
     });
   });
 
+  // As in LeanMark 0.6.0: one fixed dot colour per theme with the same grey
+  // ring, so the five dots look different on any toolbar; System is half white,
+  // half black. The name never depends on colour alone.
+  test("the theme button shows a dot for the theme and a tooltip that names it", async () => {
+    for (const [platform, colorScheme] of [["windows", "dark"], ["macos", "light"]]) {
+      await withHost({ theme: "system", colorScheme, platform }, async (host) => {
+        await openFixture(host, "headings.docx");
+        const state = () => host.page.evaluate(() => {
+          const button = document.getElementById("themeButton");
+          const dot = button.querySelector(".theme-swatch");
+          const style = dot ? getComputedStyle(dot) : null;
+          return {
+            label: button.textContent.trim(),
+            title: button.title,
+            name: button.getAttribute("aria-label"),
+            swatch: dot ? dot.dataset.swatch : null,
+            hidden: dot ? dot.getAttribute("aria-hidden") : null,
+            color: style ? style.backgroundColor : null,
+            image: style ? style.backgroundImage : null,
+            size: style ? [style.width, style.height, style.borderTopWidth, style.borderTopColor, style.borderRadius] : null
+          };
+        });
+        const shown = colorScheme === "dark" ? "Dark" : "Light";
+        const keys = platform === "macos" ? "Cmd+Shift+T" : "Ctrl+Shift+T";
+        let current = await state();
+        assert.equal(current.label, "System");
+        assert.equal(current.swatch, "system");
+        assert.equal(current.hidden, "true", "the dot is decoration only");
+        assert.match(current.image, /linear-gradient\(90deg, rgb\(255, 255, 255\) 50%, rgb\(0, 0, 0\) 50%\)/);
+        assert.deepEqual(current.size, ["10px", "10px", "1px", "rgb(140, 140, 140)", "50%"]);
+        assert.equal(current.title, `Theme: System (${shown}) (${keys})`);
+        assert.equal(current.name, `Theme: System (${shown}). Activate to change theme.`);
+        const dots = { light: "rgb(255, 255, 255)", dark: "rgb(0, 0, 0)", dim: "rgb(127, 138, 153)", dusk: "rgb(201, 143, 79)" };
+        for (const [theme, color] of Object.entries(dots)) {
+          await host.page.click("#themeButton");
+          current = await state();
+          const label = theme.charAt(0).toUpperCase() + theme.slice(1);
+          assert.equal(current.swatch, theme);
+          assert.equal(current.color, color, `${theme}: dot colour`);
+          assert.equal(current.label, label);
+          assert.equal(current.title, `Theme: ${label} (${keys})`);
+          assert.equal(current.name, `Theme: ${label}. Activate to change theme.`);
+        }
+        // Back to System; the name follows the platform when it switches.
+        await host.page.click("#themeButton");
+        const other = colorScheme === "dark" ? "light" : "dark";
+        await host.page.emulateMedia({ colorScheme: other });
+        await host.page.waitForTimeout(50);
+        current = await state();
+        const switched = other === "dark" ? "Dark" : "Light";
+        assert.equal(current.title, `Theme: System (${switched}) (${keys})`);
+      });
+    }
+  });
+
   // LeanMark 0.6.0's theme tokens (assets/reader.css in the leanmark
   // repository), which every Lean app uses.
   const LEANMARK_TOKENS = {
