@@ -27,6 +27,7 @@ values, the Store package run, and the site deployment.
 | Pull requests in 0.2.0 | #22 to #32 |
 | Reader suite on the final code | 164 tests: 163 pass, 1 todo (Word's justified line breaking), in Chromium 153 here and Chromium 141 in CI |
 | Host logic checks | Pass on Windows, Linux, and macOS in CI |
+| Open time on one Windows runner | v0.1.4 against 0.2.0, six alternating rounds of five launches (AMD EPYC 9V45, WebView2 156): 3 pages 368 against 377 ms, 300 pages 757 against 776 ms; 0.2.0 against itself 377 and 389 ms, 776 and 769 ms (#34) |
 | Windows perf (CI, AMD EPYC 7763) | P-01 51.5 ms, P-03 1,282.5 ms, P-04 2,312.5 ms, M-04 386.3 MiB, peak working set 632.7 MiB with 1,000 pages; LeanDoc.exe 582,656 bytes |
 
 ## v0.1.0 publication
