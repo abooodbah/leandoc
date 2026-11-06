@@ -1,8 +1,7 @@
 // Reader tests: the staged reader in Chromium with a fake host.
 // Run: npm run test:reader (or node --test tests/reader/run-reader-tests.mjs)
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import {
@@ -646,7 +645,6 @@ describe("page colour", () => {
     .concat(["styles.docx", "theme.docx", "tables.docx", "numbering.docx", "headers-footers.docx",
       "notes.docx", "arabic-table.docx", "tracked-changes.docx"]
       .map((name) => path.join(repositoryRoot, "tests", "fixtures", "features", name)));
-  const PAPER_COLORS = path.join(repositoryRoot, "tests", "reader", "paper-colors.json");
 
   // Every colour LeanDoc draws inside the document, element by element.
   function drawnColors(host) {
@@ -661,32 +659,37 @@ describe("page colour", () => {
     });
   }
 
-  // The page as 0.1.4 drew it: recorded from main before the page colour
-  // setting existed (UPDATE_PAPER_COLORS=1 rewrites the record).
-  test("paper pages draw every colour exactly as before", async () => {
-    const recorded = existsSync(PAPER_COLORS) ? JSON.parse(readFileSync(PAPER_COLORS, "utf8")) : {};
-    const seen = {};
+  // A paper page draws every colour the document names, as 0.1.4 did: each
+  // colour goes through var(--ldc-N, colour), and with no variable set that
+  // must compute to the colour itself. The check renders each fixture, then
+  // writes every routed colour back as the plain colour (in the elements'
+  // styles and the document's style sheets) and compares every element's
+  // computed colours, in the same browser.
+  test("paper pages draw every colour exactly as the document names it", async () => {
     await withHost({ theme: "dusk", colorScheme: "dark" }, async (host) => {
       let generation = 1;
+      let routed = 0;
       for (const file of COLOR_FIXTURES) {
         const { bytes, report } = fixture(file);
         await host.openDocument({ bytes, report, generation, fileName: path.basename(file) });
         generation += 1;
-        const rows = await drawnColors(host);
-        // The core's sanitized package draws a few elements differently, so
-        // each mode has its own record.
-        const mode = process.env.LEANDOC_INSPECT ? "core" : "static";
-        const key = `${mode}:${path.relative(repositoryRoot, path.resolve(fixtures.fixtureDirectory, file))}`;
-        seen[key] = { elements: rows.length, sha256: createHash("sha256").update(rows.join("\n")).digest("hex") };
+        const before = await drawnColors(host);
+        routed += await host.page.evaluate(() => {
+          const pattern = /var\(--ldc-\d+, ([^)]+)\)/g;
+          let count = 0;
+          const plain = (text) => text.replace(pattern, (_all, color) => { count += 1; return color; });
+          document.querySelectorAll("#docBody [style]").forEach((node) => {
+            node.setAttribute("style", plain(node.getAttribute("style")));
+          });
+          document.querySelectorAll("#docStyles style").forEach((node) => {
+            node.textContent = plain(node.textContent);
+          });
+          return count;
+        });
+        assert.deepEqual(await drawnColors(host), before, path.basename(file));
       }
+      assert.ok(routed > 50, `the fixtures route colours (${routed})`);
     });
-    if (process.env.UPDATE_PAPER_COLORS === "1") {
-      writeFileSync(PAPER_COLORS, JSON.stringify({ ...recorded, ...seen }, null, 2) + "\n");
-      return;
-    }
-    for (const [key, value] of Object.entries(seen)) {
-      assert.deepEqual(value, recorded[key], key);
-    }
   });
 
   function contrast(a, b) {
