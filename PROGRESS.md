@@ -64,7 +64,10 @@ Each pull request updates its own item below when it merges.
   every keyboard shortcut, built from the tables the key handlers use.
   Ctrl+/ or F1 opens it, Escape closes it.
 
-- The toolbar and tabs restyle: planned.
+- The toolbar and tabs restyle: #30, merged. LeanMark's 56 px bar, 40 px
+  controls with 16 px sides, the find box without an icon, 1.6 px icons,
+  and LeanMark's tab hover. Below 760 px the wordmark, file details and
+  theme button hide, as in LeanMark.
 
 - The page colour setting (reader and the three hosts): planned.
 
