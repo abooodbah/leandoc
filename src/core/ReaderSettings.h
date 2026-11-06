@@ -119,4 +119,22 @@ inline Rgb ThemeCanvas(Theme theme, bool systemDark) {
     }
 }
 
+// The page colour: white like paper (the default, as in 0.1), or the theme's
+// colours. Saved as PageColor (LeanDocPageColor on macOS).
+enum class PageColor { Paper, Theme };
+
+inline const char* PageColorName(PageColor color) {
+    return color == PageColor::Theme ? "theme" : "paper";
+}
+
+// A saved or page-requested name, ignoring ASCII case. Anything else,
+// including a missing value from 0.1, gives Paper.
+inline PageColor ParsePageColor(std::string_view name) {
+    return EqualsIgnoringAsciiCase(name, "theme") ? PageColor::Theme : PageColor::Paper;
+}
+
+inline bool IsPageColorName(std::string_view name) {
+    return EqualsIgnoringAsciiCase(name, "paper") || EqualsIgnoringAsciiCase(name, "theme");
+}
+
 }  // namespace leandoc::settings

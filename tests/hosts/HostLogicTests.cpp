@@ -331,6 +331,20 @@ void TestReaderSettings() {
     Check(same(rs::ThemeCanvas(Theme::System, true), 0x0e, 0x0d, 0x0b) &&
               same(rs::ThemeCanvas(Theme::System, false), 0xfa, 0xf9, 0xf7),
           "System paints Dark or Light");
+
+    // The page colour: white like paper (the default) or the theme's colours.
+    using rs::PageColor;
+    Check(std::string(rs::PageColorName(PageColor::Paper)) == "paper" &&
+              std::string(rs::PageColorName(PageColor::Theme)) == "theme",
+          "the page colour saves as paper or theme");
+    Check(rs::ParsePageColor("theme") == PageColor::Theme && rs::ParsePageColor("Theme") == PageColor::Theme &&
+              rs::ParsePageColor("paper") == PageColor::Paper,
+          "saved page colours read back, ignoring ASCII case");
+    Check(rs::ParsePageColor("sepia") == PageColor::Paper && rs::ParsePageColor("") == PageColor::Paper,
+          "an unknown or missing page colour reads as paper");
+    Check(rs::IsPageColorName("paper") && rs::IsPageColorName("theme") && !rs::IsPageColorName("sepia") &&
+              !rs::IsPageColorName(""),
+          "only paper and theme are page colours");
 }
 
 int main() {

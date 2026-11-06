@@ -116,6 +116,9 @@
   --link: var(--accent-500);
   --link-hover: var(--accent-600);
   --selection: #cbdcff;
+  --find: #f8d66d;
+  --find-current: #ef9f27;
+  --find-text: var(--neutral-950);
   --doc-canvas: var(--neutral-100);
   --page-shadow: 0 1px 2px rgb(26 25 23 / 8%), 0 4px 18px rgb(26 25 23 / 9%);
   --notice-surface: #fdf8ef;
@@ -161,6 +164,8 @@
     --link: #60a5fa;
     --link-hover: #93c5fd;
     --selection: #23468c;
+    --find: #735d1e;
+    --find-current: #b45309;
     --doc-canvas: #23211d;
     --page-shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 22px rgb(0 0 0 / 35%);
     --notice-surface: #221d14;
@@ -186,6 +191,8 @@
   --link: #60a5fa;
   --link-hover: #93c5fd;
   --selection: #23468c;
+  --find: #735d1e;
+  --find-current: #b45309;
   --doc-canvas: #23211d;
   --page-shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 22px rgb(0 0 0 / 35%);
   --notice-surface: #221d14;
@@ -218,6 +225,9 @@
   --link: #86aee6;
   --link-hover: #a6c4ee;
   --selection: #34486a;
+  --find: #5c4d1f;
+  --find-current: #7a5317;
+  --find-text: #e8e4dc;
   --doc-canvas: #282b30;
   --page-shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 22px rgb(0 0 0 / 35%);
   --notice-surface: #2d3035;
@@ -243,6 +253,9 @@
   --link: #e0a86e;
   --link-hover: #ebc08f;
   --selection: #4d3f2c;
+  --find: #6a5420;
+  --find-current: #82561c;
+  --find-text: #f1e9db;
   --doc-canvas: #2c2721;
   --page-shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 22px rgb(0 0 0 / 35%);
   --notice-surface: #322c25;
@@ -1208,11 +1221,13 @@ body {
   text-rendering: auto;
 }
 
+/* --ld-paper and --ld-ink are set only when the page follows the theme
+   (reader.js updatePageColorStyle); a paper page is white with black ink. */
 #docBody .docx-wrapper > section.docx {
   margin: 0 0 var(--space-6);
-  background: #ffffff;
+  background: var(--ld-paper, #ffffff);
   box-shadow: var(--page-shadow);
-  color: #000000;
+  color: var(--ld-ink, #000000);
 }
 
 /* docx-preview hyphenates every document; Word only one whose settings turn
@@ -1339,6 +1354,24 @@ body {
   color: #0e0d0b;
 }
 
+/* A page that follows the theme marks matches and selections in the
+   theme's colours, LeanMark's find tokens. */
+:root[data-page-color="theme"] ::highlight(leandoc-find),
+:root[data-page-color="theme"] #docBody mark.ld-find {
+  background: var(--find);
+  color: var(--find-text);
+}
+
+:root[data-page-color="theme"] ::highlight(leandoc-find-current),
+:root[data-page-color="theme"] #docBody mark.ld-find[data-current] {
+  background: var(--find-current);
+  color: var(--find-text);
+}
+
+:root[data-page-color="theme"] #docBody section.docx ::selection {
+  background: var(--selection);
+}
+
 /* Reading view: one paper column that reflows to the window. */
 
 :root[data-view="reading"] #docBody .docx-wrapper {
@@ -1349,7 +1382,7 @@ body {
   margin: var(--space-8) auto var(--space-12);
   padding: var(--space-12) 3.5rem;
   border-radius: var(--radius-sm);
-  background: #ffffff;
+  background: var(--ld-paper, #ffffff);
   box-shadow: var(--page-shadow);
 }
 

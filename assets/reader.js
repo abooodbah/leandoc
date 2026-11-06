@@ -183,6 +183,16 @@
   // The theme button's order, as in LeanMark. Dim and Dusk are the softer
   // dark themes.
   var THEMES = ["system", "light", "dark", "dim", "dusk"];
+  // The page: white like paper (the default, as in 0.1), or the theme's
+  // colours.
+  var PAGE_COLORS = ["paper", "theme"];
+  var currentPageColor = "paper";
+  // The colours the open document names (Fixups.colorPalette) and its theme
+  // part's colours, for the page that follows a dark theme.
+  var documentColors = { palette: [], theme: {} };
+  var pageColorStyle = document.createElement("style");
+  pageColorStyle.id = "pageColorStyle";
+  document.head.appendChild(pageColorStyle);
 
   function applyTheme(theme) {
     currentTheme = THEMES.indexOf(theme) > 0 ? theme : "system";
@@ -199,6 +209,53 @@
       "Theme: " + name + ". Activate to change theme.");
     elements.themeButton.title = shortcut("Theme: " + name + " (Ctrl+Shift+T)");
     updateSettingsPanel();
+    updatePageColorStyle();
+  }
+
+  function applyPageColor(choice) {
+    currentPageColor = PAGE_COLORS.indexOf(choice) > 0 ? choice : "paper";
+    if (currentPageColor === "paper") {
+      root.removeAttribute("data-page-color");
+    } else {
+      root.setAttribute("data-page-color", currentPageColor);
+    }
+    updateSettingsPanel();
+    updatePageColorStyle();
+  }
+
+  function shownThemeIsDark() {
+    return currentTheme === "dark" || currentTheme === "dim" || currentTheme === "dusk" ||
+      (currentTheme === "system" && systemTheme.matches);
+  }
+
+  // A page that follows the theme takes the theme's canvas and text colours.
+  // On a dark theme every colour the document names is mapped onto it
+  // (Fixups.darkPageColor); on a light theme the document keeps its colours.
+  // A paper page sets nothing, so it draws exactly the colours it named.
+  function updatePageColorStyle() {
+    if (currentPageColor !== "theme") {
+      pageColorStyle.textContent = "";
+      return;
+    }
+    var tokens = window.getComputedStyle(root);
+    var paper = tokens.getPropertyValue("--canvas").trim();
+    var ink = tokens.getPropertyValue("--text-primary").trim();
+    var page = ["--ld-paper: " + paper, "--ld-ink: " + ink];
+    var theme = [];
+    if (shownThemeIsDark()) {
+      documentColors.palette.forEach(function (entry, index) {
+        page.push(Fixups.PAGE_COLOR_PREFIX + index + ": " +
+          Fixups.darkPageColor(entry.color, entry.role, paper, ink));
+      });
+      Object.keys(documentColors.theme).forEach(function (name) {
+        var value = String(documentColors.theme[name]);
+        if (/^[a-z0-9]+$/i.test(name) && /^[0-9a-f]{6}$/i.test(value)) {
+          theme.push("--docx-" + name + "-color: " + Fixups.darkPageColor("#" + value, "line", paper, ink));
+        }
+      });
+    }
+    pageColorStyle.textContent = "#docBody { " + page.join("; ") + "; }" +
+      (theme.length ? " #docBody .docx { " + theme.join("; ") + "; }" : "");
   }
 
   function titleCase(name) {
@@ -648,6 +705,7 @@
         doc: parsed,
         hyphenate: prepared.autoHyphenation,
         titleSections: prepared.titleSections || [],
+        colors: { palette: prepared.palette || [], theme: prepared.themeColors || {} },
         saved: keep ? saveModel(parsed) : null
       };
       if (entry.saved && packageCache === cache) {
@@ -686,6 +744,8 @@
           revokeBlobUrls(collectBlobUrls(nodes));
           return null;
         }
+        documentColors = model.colors;
+        updatePageColorStyle();
         return attachDocument(nodes, view, serial, model.hyphenate).then(function (attached) {
           if (attached) {
             finishRender(expected, ratio, started, firstRender, attached.movedWhileLoading);
@@ -3533,6 +3593,9 @@
         break;
       case "theme":
         applyTheme(data.theme);
+        if (typeof data.pageColor === "string") {
+          applyPageColor(data.pageColor);
+        }
         if (data.view === "page" || data.view === "reading") {
           setView(data.view, false);
         }
@@ -3970,6 +4033,9 @@
     elements.settingsPanel.querySelectorAll('input[name="settings-view"]').forEach(function (input) {
       input.checked = input.value === currentView;
     });
+    elements.settingsPanel.querySelectorAll('input[name="settings-page"]').forEach(function (input) {
+      input.checked = input.value === currentPageColor;
+    });
   }
 
   function placeSettingsPanel() {
@@ -4033,6 +4099,9 @@
       post({ type: "setTheme", theme: currentTheme });
     } else if (input.name === "settings-view") {
       setView(input.value, true);
+    } else if (input.name === "settings-page") {
+      applyPageColor(input.value);
+      post({ type: "setPageColor", pageColor: currentPageColor });
     }
   });
   elements.settingsZoomIn.addEventListener("click", function () {

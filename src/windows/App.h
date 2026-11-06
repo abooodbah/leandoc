@@ -161,6 +161,7 @@ private:
     unsigned recoveriesInWindow_ = 0;
 
     ThemeMode theme_ = ThemeMode::System;
+    settings::PageColor pageColor_ = settings::PageColor::Paper;
     std::string view_ = "page";
     std::vector<std::wstring> recent_;
     EditorChoice editor_;

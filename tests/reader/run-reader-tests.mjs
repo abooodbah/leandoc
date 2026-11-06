@@ -640,6 +640,115 @@ describe("keyboard reading and the outline (U-02, U-06)", () => {
   });
 });
 
+describe("page colour", () => {
+  const COLOR_FIXTURES = ["headings.docx", "tables.docx", "hyperlinks.docx", "bullets.docx"]
+    .concat(["styles.docx", "theme.docx", "tables.docx", "numbering.docx", "headers-footers.docx",
+      "notes.docx", "arabic-table.docx", "tracked-changes.docx"]
+      .map((name) => path.join(repositoryRoot, "tests", "fixtures", "features", name)));
+
+  // Every colour LeanDoc draws inside the document, element by element.
+  function drawnColors(host) {
+    return host.page.evaluate(() => {
+      const rows = [];
+      document.querySelectorAll("#docBody *").forEach((node) => {
+        const style = getComputedStyle(node);
+        rows.push([node.tagName, style.color, style.backgroundColor, style.borderTopColor, style.borderRightColor,
+          style.borderBottomColor, style.borderLeftColor, style.textDecorationColor].join("|"));
+      });
+      return rows;
+    });
+  }
+
+  // A paper page draws every colour the document names, as 0.1.4 did: each
+  // colour goes through var(--ldc-N, colour), and with no variable set that
+  // must compute to the colour itself. The check renders each fixture, then
+  // writes every routed colour back as the plain colour (in the elements'
+  // styles and the document's style sheets) and compares every element's
+  // computed colours, in the same browser.
+  test("paper pages draw every colour exactly as the document names it", async () => {
+    await withHost({ theme: "dusk", colorScheme: "dark" }, async (host) => {
+      let generation = 1;
+      let routed = 0;
+      for (const file of COLOR_FIXTURES) {
+        const { bytes, report } = fixture(file);
+        await host.openDocument({ bytes, report, generation, fileName: path.basename(file) });
+        generation += 1;
+        const before = await drawnColors(host);
+        routed += await host.page.evaluate(() => {
+          const pattern = /var\(--ldc-\d+, ([^)]+)\)/g;
+          let count = 0;
+          const plain = (text) => text.replace(pattern, (_all, color) => { count += 1; return color; });
+          document.querySelectorAll("#docBody [style]").forEach((node) => {
+            node.setAttribute("style", plain(node.getAttribute("style")));
+          });
+          document.querySelectorAll("#docStyles style").forEach((node) => {
+            node.textContent = plain(node.textContent);
+          });
+          return count;
+        });
+        assert.deepEqual(await drawnColors(host), before, path.basename(file));
+      }
+      assert.ok(routed > 50, `the fixtures route colours (${routed})`);
+    });
+  });
+
+  function contrast(a, b) {
+    const luminance = (rgb) => {
+      const [r, g, b2] = rgb.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number).map((v) => {
+        const c = v / 255;
+        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b2;
+    };
+    const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+    return (x + 0.05) / (y + 0.05);
+  }
+
+  test("the page follows the theme when asked, and the choice reaches the host", async () => {
+    await withHost({ theme: "dusk", colorScheme: "dark" }, async (host) => {
+      await openFixture(host, path.join(repositoryRoot, "tests", "fixtures", "features", "theme.docx"));
+      const page = () => host.page.$eval("#docBody section.docx", (node) =>
+        [getComputedStyle(node).backgroundColor, getComputedStyle(node).color]);
+      assert.deepEqual(await page(), ["rgb(255, 255, 255)", "rgb(0, 0, 0)"], "paper by default");
+      await host.page.click("#settingsButton");
+      assert.equal(await host.page.isChecked('input[name="settings-page"][value="paper"]'), true);
+      const labels = await host.page.$$eval('input[name="settings-page"]', (inputs) =>
+        inputs.map((input) => [input.value, input.closest("label").textContent.trim()]));
+      assert.deepEqual(labels, [["paper", "White, like paper"], ["theme", "The theme's colours"]]);
+      const posted = host.waitFor((message) => message.type === "setPageColor");
+      await host.page.check('input[name="settings-page"][value="theme"]');
+      assert.deepEqual(await posted, { type: "setPageColor", pageColor: "theme" });
+      assert.equal(await host.page.getAttribute("html", "data-page-color"), "theme");
+      assert.deepEqual(await page(), ["rgb(34, 30, 25)", "rgb(212, 200, 180)"], "Dusk's canvas and text");
+      // Every text the document draws stays readable on the page.
+      const texts = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody section.docx *"))
+        .filter((node) => Array.from(node.childNodes).some((child) => child.nodeType === 3 && child.nodeValue.trim()))
+        .filter((node) => getComputedStyle(node).backgroundColor === "rgba(0, 0, 0, 0)")
+        .map((node) => [node.textContent.trim().slice(0, 30), getComputedStyle(node).color]));
+      assert.ok(texts.length > 5);
+      for (const [text, color] of texts) {
+        assert.ok(contrast(color, "rgb(34, 30, 25)") >= 4.5, `"${text}" in ${color} is readable on Dusk`);
+      }
+      for (const [theme, canvas, ink] of [["dark", "rgb(14, 13, 11)", "rgb(250, 249, 247)"],
+        ["dim", "rgb(30, 32, 35)", "rgb(200, 204, 210)"], ["light", "rgb(250, 249, 247)", "rgb(26, 25, 23)"]]) {
+        await host.send({ type: "theme", theme, view: "page", pageColor: "theme" });
+        assert.deepEqual(await page(), [canvas, ink], `${theme}: the theme's canvas and text`);
+      }
+      // A coloured run keeps its own colour on a light page.
+      const accent = await host.page.evaluate(() => {
+        const span = Array.from(document.querySelectorAll("#docBody span")).find((node) => node.textContent.includes("Accent 2."));
+        return getComputedStyle(span).color;
+      });
+      assert.equal(accent, "rgb(192, 80, 77)");
+      await host.send({ type: "theme", theme: "dark", view: "page", pageColor: "paper" });
+      assert.deepEqual(await page(), ["rgb(255, 255, 255)", "rgb(0, 0, 0)"], "the host's choice of paper");
+      assert.equal(await host.page.isChecked('input[name="settings-page"][value="paper"]'), true);
+      await host.send({ type: "theme", theme: "dark", view: "page", pageColor: "sepia" });
+      assert.equal(await host.page.getAttribute("html", "data-page-color"), null, "an unknown choice reads as paper");
+    });
+  });
+});
+
 describe("toolbar and tabs (LeanMark's layout)", () => {
   // LeanMark 0.6.0's toolbar and tab strip (assets/reader.css in the
   // leanmark repository): 56 px bar with 20 px sides, 40 px controls with

@@ -108,14 +108,17 @@ menu).
 
 | Host | Where | What |
 | --- | --- | --- |
-| Windows | `HKCU\Software\LeanDoc` | `Theme`, `View`, `Recent` (up to 10) |
-| Linux | `$XDG_CONFIG_HOME/leandoc/settings.ini`, group `[Reader]` | `Theme`, `View`, `Recent` (up to 10) |
-| macOS | `NSUserDefaults` | `LeanDocTheme`, `LeanDocView`, `LeanDocRecent` (up to 10) |
+| Windows | `HKCU\Software\LeanDoc` | `Theme`, `View`, `PageColor`, `Recent` (up to 10) |
+| Linux | `$XDG_CONFIG_HOME/leandoc/settings.ini`, group `[Reader]` | `Theme`, `View`, `PageColor`, `Recent` (up to 10) |
+| macOS | `NSUserDefaults` | `LeanDocTheme`, `LeanDocView`, `LeanDocPageColor`, `LeanDocRecent` (up to 10) |
 
 `Theme` is `system`, `light`, `dark`, `dim`, or `dusk`; anything else reads
 as `system`. The names, the theme order, and each theme's window background
 (LeanMark's `--canvas` colours) come from one header, `src/core/ReaderSettings.h`,
-which all three hosts include. Zoom stays per session in the reader. The smoke
+which all three hosts include. `PageColor` is `paper` (the default) or `theme`;
+anything else reads as `paper`. The `theme` message carries `theme`, `view`,
+and `pageColor`, and the reader posts `setPageColor` when the reader changes
+it. Zoom stays per session in the reader. The smoke
 test writes no settings.
 
 ## Links and open in editor

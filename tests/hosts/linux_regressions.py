@@ -201,6 +201,31 @@ def themes(build):
     print(f"themes: {seen}", flush=True)
 
 
+def page_color(build):
+    """The page colour is saved and comes back on the next launch; paper is the default."""
+    config = Path(tempfile.mkdtemp(prefix="leandoc-page-"))
+    try:
+        seen = []
+        for choice in ("theme", "sepia"):
+            with Session(build, [], config_dir=config) as app:
+                app.wait("document.documentElement.dataset.renderState === 'empty'")
+                seen.append(app.eval("document.documentElement.getAttribute('data-page-color') || 'paper'"))
+                app.js("webkit.messageHandlers.leandoc.postMessage(JSON.stringify({type: 'setPageColor', "
+                       "pageColor: " + json.dumps(choice) + "})); return 1")
+                time.sleep(0.5)
+            stored = (config / "leandoc" / "settings.ini").read_text()
+            match = re.search(r"^PageColor=(.*)$", stored, re.M)
+            seen.append(match.group(1) if match else None)
+        with Session(build, [], config_dir=config) as app:
+            app.wait("document.documentElement.dataset.renderState === 'empty'")
+            seen.append(app.eval("document.documentElement.getAttribute('data-page-color') || 'paper'"))
+    finally:
+        shutil.rmtree(config, ignore_errors=True)
+    check(seen == ["paper", "theme", "theme", "theme", "theme"],
+          f"the page colour is saved and restored, an unknown one is refused: {seen}")
+    print(f"page colour: {seen}", flush=True)
+
+
 def images(build):
     fixture = ROOT / "tests" / "fixtures" / "features" / "images.docx"
     with Session(build, [fixture]) as app:
@@ -250,7 +275,8 @@ def keyboard_focus(build):
 def main():
     build = Build.find(sys.argv[1] if len(sys.argv) > 1 else None)
     os.environ.setdefault("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
-    for step in (fallbacks, context_menu, crash_cap, non_utf8_names, themes, images, keyboard_focus):
+    for step in (fallbacks, context_menu, crash_cap, non_utf8_names, themes, page_color, images,
+                 keyboard_focus):
         wait_for_no_leftovers()
         try:
             step(build)
