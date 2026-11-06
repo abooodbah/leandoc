@@ -141,6 +141,9 @@
   --duration-short: 180ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --reading-measure: 36rem;
+  --settings-width: 300px;
+  /* Where the toolbar ends; reader.js sets it while the settings panel is open. */
+  --chrome-bottom: 57px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -262,6 +265,8 @@
 .outline *,
 .state-pane,
 .state-pane *,
+.settings-panel,
+.settings-panel *,
 .status-toast {
   box-sizing: border-box;
 }
@@ -293,7 +298,7 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-:where(.chrome, .state-pane, .outline) :where(button, input) {
+:where(.chrome, .state-pane, .outline, .settings-panel) :where(button, input) {
   font: inherit;
   color: inherit;
 }
@@ -685,6 +690,195 @@ body {
 .theme-swatch[data-swatch="dusk"] { --swatch: #c98f4f; }
 .theme-swatch[data-swatch="system"] {
   background: linear-gradient(90deg, #ffffff 50%, #000000 50%);
+}
+
+/* Settings panel, as in LeanMark: beside the document, below the toolbar.
+   It is not modal: the reader keeps working, and Escape returns the focus. */
+
+.button-icon {
+  width: 36px;
+  padding: 0;
+}
+
+.button-icon svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.6;
+}
+
+.button[aria-expanded="true"] {
+  border-color: var(--border);
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+
+.panel-button {
+  display: inline-grid;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 var(--space-2);
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.panel-button:hover:not(:disabled) {
+  background: var(--surface-muted);
+}
+
+.panel-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.panel-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+:root[data-settings-open] .reader,
+:root[data-settings-open] .state-pane {
+  margin-right: var(--settings-width);
+}
+
+.settings-panel {
+  position: fixed;
+  z-index: 30;
+  top: var(--chrome-bottom);
+  right: 0;
+  bottom: 0;
+  width: var(--settings-width);
+  max-width: 100%;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-5) var(--space-8);
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.settings-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.settings-group {
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  border: 0;
+}
+
+.settings-group legend,
+.settings-label {
+  display: block;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.settings-choice {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.settings-choice input {
+  margin: 0;
+  accent-color: var(--link);
+}
+
+.settings-choice:has(input:disabled) {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.settings-zoom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settings-zoom .settings-label {
+  width: 100%;
+}
+
+.settings-zoom-value {
+  min-width: 48px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.shortcut-list h4 {
+  margin: var(--space-4) 0 var(--space-1);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.shortcut-list dl {
+  margin: 0;
+}
+
+.shortcut-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.shortcut-row dt {
+  flex: none;
+}
+
+.shortcut-row dd {
+  margin: 0;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.shortcut-row kbd {
+  padding: 1px var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+@media (max-width: 560px) {
+  :root {
+    --settings-width: 100vw;
+  }
 }
 
 /* Tabs */
@@ -1422,11 +1616,18 @@ body {
   .theme-swatch {
     border-color: ButtonText;
   }
+
+  .settings-panel {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
 }
 
 @media print {
   .chrome,
   .outline,
+  .settings-panel,
   .status-toast {
     display: none !important;
   }

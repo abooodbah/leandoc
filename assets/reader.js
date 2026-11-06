@@ -41,6 +41,15 @@
     stateTitle: document.getElementById("stateTitle"),
     status: document.getElementById("statusToast"),
     tabStrip: document.getElementById("tabStrip"),
+    settingsButton: document.getElementById("settingsButton"),
+    settingsClose: document.getElementById("settingsClose"),
+    settingsPanel: document.getElementById("settingsPanel"),
+    settingsZoomFit: document.getElementById("settingsZoomFit"),
+    settingsZoomIn: document.getElementById("settingsZoomIn"),
+    settingsZoomOut: document.getElementById("settingsZoomOut"),
+    settingsZoomReset: document.getElementById("settingsZoomReset"),
+    settingsZoomValue: document.getElementById("settingsZoomValue"),
+    shortcutList: document.getElementById("shortcutList"),
     themeButton: document.getElementById("themeButton"),
     themeLabel: document.getElementById("themeLabel"),
     themeSwatch: document.getElementById("themeSwatch"),
@@ -103,6 +112,7 @@
   var resizeTimer = 0;
   var RESIZE_SETTLE_MS = 150;
   var wheelTotal = 0;
+  var settingsReturnFocus = null;
 
   function post(message) {
     var text = JSON.stringify(message);
@@ -188,6 +198,7 @@
     elements.themeButton.setAttribute("aria-label",
       "Theme: " + name + ". Activate to change theme.");
     elements.themeButton.title = shortcut("Theme: " + name + " (Ctrl+Shift+T)");
+    updateSettingsPanel();
   }
 
   function titleCase(name) {
@@ -231,6 +242,7 @@
 
   function updateShortcutTitles() {
     elements.openButton.title = shortcut("Open a document (Ctrl+O)");
+    elements.settingsButton.title = shortcut("Settings and shortcuts (Ctrl+/)");
     elements.viewPage.title = shortcut("Page view (Ctrl+Shift+V)");
     elements.viewReading.title = shortcut("Reading view (Ctrl+Shift+V)");
     elements.zoomIn.title = shortcut("Zoom in (Ctrl++)");
@@ -298,6 +310,13 @@
     elements.zoomIn.disabled = !enabled;
     elements.zoomOut.disabled = !enabled;
     elements.zoomValue.disabled = !enabled;
+    elements.settingsZoomFit.disabled = !enabled;
+    elements.settingsZoomReset.disabled = !enabled;
+    elements.settingsZoomIn.disabled = !enabled;
+    elements.settingsZoomOut.disabled = !enabled;
+    elements.settingsPanel.querySelectorAll('input[name="settings-view"]').forEach(function (input) {
+      input.disabled = !enabled;
+    });
     if (enabled) {
       updateZoomLabel(effectiveZoom());
     }
@@ -2891,6 +2910,7 @@
   function updateViewButtons() {
     elements.viewPage.setAttribute("aria-pressed", currentView === "page" ? "true" : "false");
     elements.viewReading.setAttribute("aria-pressed", currentView === "reading" ? "true" : "false");
+    updateSettingsPanel();
   }
 
   function setView(view, fromUser) {
@@ -2959,9 +2979,12 @@
     elements.zoomValue.title = shortcut(zoomMode === "fit"
       ? "Fit width. Activate for 100% (Ctrl+0 resets)"
       : "Activate to fit width (Ctrl+0 resets)");
+    elements.settingsZoomValue.textContent = percent;
     if (displayed) {
       elements.zoomOut.disabled = factor <= ZOOM_STEPS[0] + 0.001;
       elements.zoomIn.disabled = factor >= ZOOM_STEPS[ZOOM_STEPS.length - 1] - 0.001;
+      elements.settingsZoomOut.disabled = elements.zoomOut.disabled;
+      elements.settingsZoomIn.disabled = elements.zoomIn.disabled;
     }
     root.dataset.zoom = String(Math.round(factor * 100));
     root.dataset.zoomMode = zoomMode;
@@ -3047,6 +3070,14 @@
       zoomMode = "fit";
     }
     requestZoom();
+  }
+
+  function fitWidth() {
+    if (!displayed) {
+      return;
+    }
+    zoomMode = "fit";
+    applyZoom(true);
   }
 
   function resetZoom() {
@@ -3644,36 +3675,19 @@
     if (index < 0) {
       return;
     }
-    var next = -1;
-    if (event.key === "ArrowRight") {
-      next = (index + 1) % tabs.length;
-    } else if (event.key === "ArrowLeft") {
-      next = (index - 1 + tabs.length) % tabs.length;
-    } else if (event.key === "Home") {
-      next = 0;
-    } else if (event.key === "End") {
-      next = tabs.length - 1;
-    } else if (event.key === "Delete") {
+    var entry = findShortcut(tabStripShortcuts, event);
+    if (entry) {
       event.preventDefault();
-      closeTab(tab.id);
-      return;
-    }
-    if (next >= 0) {
-      event.preventDefault();
-      selectTab(tabs[next].id, true);
+      entry.run(event, tab.id, index);
     }
   });
 
   elements.findInput.addEventListener("input", scheduleSearch);
   elements.findInput.addEventListener("keydown", function (event) {
-    if (event.key === "Enter") {
+    var entry = findShortcut(findShortcuts, event);
+    if (entry) {
       event.preventDefault();
-      moveSearch(event.shiftKey ? -1 : 1);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      elements.findInput.value = "";
-      clearSearch();
-      elements.docScroller.focus();
+      entry.run(event);
     }
   });
 
@@ -3718,74 +3732,338 @@
     return true;
   }
 
+  // Keyboard shortcuts. Each table is what its key handler acts on and what
+  // the settings panel lists, so the list cannot drift from the keys, as in
+  // LeanMark. keys is the label in Windows and Linux terms; macOS shows Cmd
+  // for Ctrl. Ctrl+Tab and Ctrl+Page Down use Ctrl on every platform.
+  function keyName(event) {
+    // Chromium sends keydown without a key for autofill; ignore those.
+    return typeof event.key === "string" ? event.key.toLowerCase() : "";
+  }
+
+  function plainModifier(letter) {
+    return function (event) {
+      return modifier(event) && !event.altKey && !event.shiftKey && keyName(event) === letter;
+    };
+  }
+
+  function shiftModifier(letter) {
+    return function (event) {
+      return modifier(event) && event.shiftKey && !event.altKey && keyName(event) === letter;
+    };
+  }
+
+  function tabsAvailable() {
+    return host.tabs;
+  }
+
+  function enoughTabs() {
+    return tabs.length > 1;
+  }
+
+  var readerShortcuts = [
+    { group: "Reader", keys: "Ctrl+O", label: "Open a document",
+      match: plainModifier("o"), run: function () { post({ type: "open" }); } },
+    { group: "Reader", keys: "Ctrl+F", label: "Find in the document",
+      match: plainModifier("f"),
+      run: function () {
+        if (!elements.findInput.disabled) {
+          elements.findInput.focus();
+          elements.findInput.select();
+        }
+      } },
+    { group: "Reader", keys: "F3", label: "Next match",
+      match: function (event) { return event.key === "F3" && !event.shiftKey; },
+      run: function () { moveSearch(1); } },
+    { group: "Reader", keys: "Shift+F3", label: "Previous match",
+      match: function (event) { return event.key === "F3" && event.shiftKey; },
+      run: function () { moveSearch(-1); } },
+    { group: "Reader", keys: "F5", label: "Reload from disk",
+      match: function (event) { return event.key === "F5"; },
+      run: function () { post({ type: "reload" }); } },
+    { group: "Reader", keys: "Ctrl+R", label: "Reload from disk",
+      match: plainModifier("r"), run: function () { post({ type: "reload" }); } },
+    { group: "Reader", keys: "Ctrl+Shift+V", label: "Switch page and reading view",
+      // In the find box the keys paste as plain text.
+      match: function (event) {
+        return shiftModifier("v")(event) && event.target !== elements.findInput;
+      },
+      run: function () {
+        if (displayed) {
+          setView(currentView === "page" ? "reading" : "page", true);
+        }
+      } },
+    { group: "Reader", keys: "Ctrl+Shift+T", label: "Change the theme",
+      match: shiftModifier("t"), run: cycleTheme },
+    { group: "Reader", keys: "Ctrl+Shift+E", label: "Open in the editor",
+      match: shiftModifier("e"), run: openInEditor },
+    { group: "Reader", keys: "Ctrl+Shift+C", label: "Copy all text",
+      match: shiftModifier("c"), run: copyAll },
+    { group: "Reader", keys: "Ctrl++", label: "Zoom in",
+      match: function (event) {
+        return modifier(event) && !event.altKey && (event.key === "+" || event.key === "=");
+      },
+      run: function () { stepZoom(1); } },
+    { group: "Reader", keys: "Ctrl+-", label: "Zoom out",
+      match: function (event) {
+        return modifier(event) && !event.altKey && (event.key === "-" || event.key === "_");
+      },
+      run: function () { stepZoom(-1); } },
+    { group: "Reader", keys: "Ctrl+0", label: "Reset the zoom",
+      match: function (event) { return modifier(event) && !event.altKey && event.key === "0"; },
+      run: resetZoom },
+    { group: "Reader", keys: "Ctrl+/", label: "Settings and shortcuts",
+      match: function (event) { return modifier(event) && !event.altKey && event.key === "/"; },
+      run: function () { openSettings(false); } },
+    { group: "Reader", keys: "F1", label: "Settings and shortcuts",
+      match: function (event) { return event.key === "F1" && !modifier(event) && !event.altKey; },
+      run: function () { openSettings(false); } },
+    { group: "Settings panel", keys: "Esc", label: "Close the settings panel",
+      match: function (event) { return event.key === "Escape" && !elements.settingsPanel.hidden; },
+      run: function () { closeSettings(true); } },
+    { group: "Tabs", keys: "Ctrl+Tab", label: "Next tab", available: tabsAvailable,
+      match: function (event) {
+        return event.ctrlKey && !event.shiftKey && event.key === "Tab" && enoughTabs();
+      },
+      run: function () { cycleTab(1); } },
+    { group: "Tabs", keys: "Ctrl+Shift+Tab", label: "Previous tab", available: tabsAvailable,
+      match: function (event) {
+        return event.ctrlKey && event.shiftKey && event.key === "Tab" && enoughTabs();
+      },
+      run: function () { cycleTab(-1); } },
+    { group: "Tabs", keys: "Ctrl+Page Down", label: "Next tab", available: tabsAvailable,
+      match: function (event) { return event.ctrlKey && event.key === "PageDown" && enoughTabs(); },
+      run: function () { cycleTab(1); } },
+    { group: "Tabs", keys: "Ctrl+Page Up", label: "Previous tab", available: tabsAvailable,
+      match: function (event) { return event.ctrlKey && event.key === "PageUp" && enoughTabs(); },
+      run: function () { cycleTab(-1); } },
+    { group: "Tabs", keys: "Ctrl+W", label: "Close the tab", available: tabsAvailable,
+      match: function (event) {
+        return plainModifier("w")(event) && host.tabs && idKey(activeTabId) !== "";
+      },
+      run: function () { closeTab(activeTabId); } },
+    { group: "Tabs", keys: "Ctrl+1 to Ctrl+8", label: "Go to a tab by position",
+      available: tabsAvailable,
+      match: function (event) {
+        return modifier(event) && !event.shiftKey && !event.altKey && /^[1-8]$/.test(event.key) &&
+          enoughTabs();
+      },
+      run: function (event) {
+        var target = tabs[Number(event.key) - 1];
+        if (target) {
+          selectTab(target.id, false);
+        }
+      } },
+    { group: "Tabs", keys: "Ctrl+9", label: "Go to the last tab", available: tabsAvailable,
+      match: function (event) {
+        return modifier(event) && !event.shiftKey && !event.altKey && event.key === "9" &&
+          enoughTabs();
+      },
+      run: function () { selectTab(tabs[tabs.length - 1].id, false); } }
+  ];
+
+  var findShortcuts = [
+    { group: "Find box", keys: "Enter", label: "Next match",
+      match: function (event) { return event.key === "Enter" && !event.shiftKey; },
+      run: function () { moveSearch(1); } },
+    { group: "Find box", keys: "Shift+Enter", label: "Previous match",
+      match: function (event) { return event.key === "Enter" && event.shiftKey; },
+      run: function () { moveSearch(-1); } },
+    { group: "Find box", keys: "Esc", label: "Clear the search",
+      match: function (event) { return event.key === "Escape"; },
+      run: function () {
+        elements.findInput.value = "";
+        clearSearch();
+        elements.docScroller.focus();
+      } }
+  ];
+
+  var tabStripShortcuts = [
+    { group: "Tab strip", keys: "Right arrow", label: "Next tab", available: tabsAvailable,
+      match: function (event) { return event.key === "ArrowRight"; },
+      run: function (_event, _id, index) { selectTab(tabs[(index + 1) % tabs.length].id, true); } },
+    { group: "Tab strip", keys: "Left arrow", label: "Previous tab", available: tabsAvailable,
+      match: function (event) { return event.key === "ArrowLeft"; },
+      run: function (_event, _id, index) {
+        selectTab(tabs[(index - 1 + tabs.length) % tabs.length].id, true);
+      } },
+    { group: "Tab strip", keys: "Home", label: "First tab", available: tabsAvailable,
+      match: function (event) { return event.key === "Home"; },
+      run: function () { selectTab(tabs[0].id, true); } },
+    { group: "Tab strip", keys: "End", label: "Last tab", available: tabsAvailable,
+      match: function (event) { return event.key === "End"; },
+      run: function () { selectTab(tabs[tabs.length - 1].id, true); } },
+    { group: "Tab strip", keys: "Delete", label: "Close the tab", available: tabsAvailable,
+      match: function (event) { return event.key === "Delete"; },
+      run: function (_event, id) { closeTab(id); } }
+  ];
+
+  // macOS handles these through its menu bar before the page sees them.
+  var MAC_MENU_SHORTCUTS = [
+    { keys: "Cmd+W", label: "Close the window" },
+    { keys: "Cmd+M", label: "Minimize the window" },
+    { keys: "Cmd+H", label: "Hide LeanDoc" },
+    { keys: "Cmd+Q", label: "Quit LeanDoc" }
+  ];
+
+  function findShortcut(table, event) {
+    for (var index = 0; index < table.length; index += 1) {
+      if (table[index].match(event)) {
+        return table[index];
+      }
+    }
+    return null;
+  }
+
+  // Every shortcut this window acts on, in the order the panel shows them.
+  function listedShortcuts() {
+    var listed = [];
+    [readerShortcuts, findShortcuts, tabStripShortcuts].forEach(function (table) {
+      table.forEach(function (entry) {
+        if (!entry.available || entry.available()) {
+          listed.push({ group: entry.group, keys: shortcut(entry.keys), label: entry.label });
+        }
+      });
+    });
+    if (isMac) {
+      MAC_MENU_SHORTCUTS.forEach(function (entry) {
+        listed.push({ group: "Menu", keys: entry.keys, label: entry.label });
+      });
+    }
+    return listed;
+  }
+
+  function renderShortcutList() {
+    var fragment = document.createDocumentFragment();
+    var currentGroup = "";
+    var list = null;
+    listedShortcuts().forEach(function (entry) {
+      if (entry.group !== currentGroup) {
+        currentGroup = entry.group;
+        var heading = document.createElement("h4");
+        heading.textContent = entry.group;
+        list = document.createElement("dl");
+        fragment.appendChild(heading);
+        fragment.appendChild(list);
+      }
+      var row = document.createElement("div");
+      row.className = "shortcut-row";
+      var keys = document.createElement("dt");
+      var kbd = document.createElement("kbd");
+      kbd.textContent = entry.keys;
+      keys.appendChild(kbd);
+      var label = document.createElement("dd");
+      label.textContent = entry.label;
+      row.appendChild(keys);
+      row.appendChild(label);
+      list.appendChild(row);
+    });
+    elements.shortcutList.replaceChildren(fragment);
+  }
+
+  // The settings panel sits beside the document, below the toolbar. It is
+  // not modal: the reader keeps working, and Escape returns the focus.
+  function updateSettingsPanel() {
+    elements.settingsPanel.querySelectorAll('input[name="settings-theme"]').forEach(function (input) {
+      input.checked = input.value === currentTheme;
+    });
+    elements.settingsPanel.querySelectorAll('input[name="settings-view"]').forEach(function (input) {
+      input.checked = input.value === currentView;
+    });
+  }
+
+  function placeSettingsPanel() {
+    var chrome = document.getElementById("chrome");
+    root.style.setProperty("--chrome-bottom", Math.round(chrome.getBoundingClientRect().bottom) + "px");
+  }
+
+  function settingsChangedWidth() {
+    if (displayed && zoomMode !== "fixed") {
+      applyZoom(true);
+    }
+  }
+
+  function openSettings(fromButton) {
+    if (elements.settingsPanel.hidden) {
+      settingsReturnFocus = fromButton ? elements.settingsButton : document.activeElement;
+      renderShortcutList();
+      updateSettingsPanel();
+      placeSettingsPanel();
+      elements.settingsPanel.hidden = false;
+      root.setAttribute("data-settings-open", "");
+      elements.settingsButton.setAttribute("aria-expanded", "true");
+      settingsChangedWidth();
+    }
+    var checked = elements.settingsPanel.querySelector('input[name="settings-theme"]:checked');
+    (checked || elements.settingsClose).focus({ preventScroll: true });
+  }
+
+  function closeSettings(restoreFocus) {
+    if (elements.settingsPanel.hidden) {
+      return;
+    }
+    elements.settingsPanel.hidden = true;
+    root.removeAttribute("data-settings-open");
+    elements.settingsButton.setAttribute("aria-expanded", "false");
+    settingsChangedWidth();
+    var target = settingsReturnFocus && settingsReturnFocus.isConnected &&
+      settingsReturnFocus !== document.body && settingsReturnFocus !== root
+      ? settingsReturnFocus
+      : elements.settingsButton;
+    settingsReturnFocus = null;
+    if (restoreFocus) {
+      target.focus({ preventScroll: true });
+    }
+  }
+
+  elements.settingsButton.addEventListener("click", function () {
+    if (elements.settingsPanel.hidden) {
+      openSettings(true);
+    } else {
+      closeSettings(true);
+    }
+  });
+  elements.settingsClose.addEventListener("click", function () {
+    closeSettings(true);
+  });
+  elements.settingsPanel.addEventListener("change", function (event) {
+    var input = event.target;
+    if (input.name === "settings-theme") {
+      applyTheme(input.value);
+      post({ type: "setTheme", theme: currentTheme });
+    } else if (input.name === "settings-view") {
+      setView(input.value, true);
+    }
+  });
+  elements.settingsZoomIn.addEventListener("click", function () {
+    stepZoom(1);
+  });
+  elements.settingsZoomOut.addEventListener("click", function () {
+    stepZoom(-1);
+  });
+  elements.settingsZoomFit.addEventListener("click", fitWidth);
+  elements.settingsZoomReset.addEventListener("click", resetZoom);
+  if (typeof ResizeObserver === "function") {
+    // The toolbar grows with the tab strip and the fidelity bar.
+    new ResizeObserver(function () {
+      if (!elements.settingsPanel.hidden) {
+        placeSettingsPanel();
+      }
+    }).observe(document.getElementById("chrome"));
+  }
+
   document.addEventListener("keydown", function (event) {
     if (wrapTabFocus(event)) {
       return;
     }
-    var key = typeof event.key === "string" ? event.key.toLowerCase() : "";
-    var mod = modifier(event);
-    var inFind = event.target === elements.findInput;
-    if (mod && !event.altKey && !event.shiftKey && key === "o") {
+    // A key a focused control already acted on, such as Escape in the find box.
+    if (event.defaultPrevented) {
+      return;
+    }
+    var entry = findShortcut(readerShortcuts, event);
+    if (entry) {
       event.preventDefault();
-      post({ type: "open" });
-    } else if (mod && !event.altKey && !event.shiftKey && key === "f") {
-      event.preventDefault();
-      if (!elements.findInput.disabled) {
-        elements.findInput.focus();
-        elements.findInput.select();
-      }
-    } else if (event.key === "F3") {
-      event.preventDefault();
-      moveSearch(event.shiftKey ? -1 : 1);
-    } else if (event.key === "F5" || (mod && !event.altKey && !event.shiftKey && key === "r")) {
-      event.preventDefault();
-      post({ type: "reload" });
-    } else if (mod && event.shiftKey && !event.altKey && key === "t") {
-      event.preventDefault();
-      cycleTheme();
-    } else if (mod && event.shiftKey && !event.altKey && key === "v" && !inFind) {
-      event.preventDefault();
-      if (displayed) {
-        setView(currentView === "page" ? "reading" : "page", true);
-      }
-    } else if (mod && event.shiftKey && !event.altKey && key === "e") {
-      event.preventDefault();
-      openInEditor();
-    } else if (mod && event.shiftKey && !event.altKey && key === "c") {
-      event.preventDefault();
-      copyAll();
-    } else if (event.ctrlKey && event.key === "Tab") {
-      if (tabs.length > 1) {
-        event.preventDefault();
-        cycleTab(event.shiftKey ? -1 : 1);
-      }
-    } else if (event.ctrlKey && (event.key === "PageDown" || event.key === "PageUp")) {
-      if (tabs.length > 1) {
-        event.preventDefault();
-        cycleTab(event.key === "PageDown" ? 1 : -1);
-      }
-    } else if (mod && !event.shiftKey && !event.altKey && key === "w") {
-      if (host.tabs && idKey(activeTabId) !== "") {
-        event.preventDefault();
-        closeTab(activeTabId);
-      }
-    } else if (mod && !event.shiftKey && !event.altKey && /^[1-9]$/.test(event.key)) {
-      if (tabs.length > 1) {
-        event.preventDefault();
-        var target = event.key === "9" ? tabs[tabs.length - 1] : tabs[Number(event.key) - 1];
-        if (target) {
-          selectTab(target.id, false);
-        }
-      }
-    } else if (mod && !event.altKey && (event.key === "+" || event.key === "=")) {
-      event.preventDefault();
-      stepZoom(1);
-    } else if (mod && !event.altKey && (event.key === "-" || event.key === "_")) {
-      event.preventDefault();
-      stepZoom(-1);
-    } else if (mod && !event.altKey && event.key === "0") {
-      event.preventDefault();
-      resetZoom();
+      entry.run(event);
     }
   });
 
