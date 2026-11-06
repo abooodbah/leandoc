@@ -14,6 +14,21 @@ figure below is a test-gate figure from a cloud session or a CI runner. None
 of them is a product claim: published figures come only from the owner's
 laptop run of `tests/owner/`.
 
+## v0.2.0 publication
+
+Pending: this build session cannot create tags. After the owner tags the
+merge commit of #33 as v0.2.0, the tag build publishes the release; this
+section then records the release, its seven assets and their SHA-256
+values, the Store package run, and the site deployment.
+
+| Check | Result |
+| --- | --- |
+| Version bump | [#33](https://github.com/abooodbah/leandoc/pull/33) |
+| Pull requests in 0.2.0 | #22 to #32 |
+| Reader suite on the final code | 165 tests: 164 pass, 1 todo (Word's justified line breaking), in Chromium 153 here and Chromium 141 in CI |
+| Host logic checks | Pass on Windows, Linux, and macOS in CI |
+| Windows perf (CI, AMD EPYC 7763) | P-01 51.5 ms, P-03 1,282.5 ms, P-04 2,312.5 ms, M-04 386.3 MiB, peak working set 632.7 MiB with 1,000 pages; LeanDoc.exe 582,656 bytes |
+
 ## v0.1.0 publication
 
 LeanDoc 0.1.0 is published on
