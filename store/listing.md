@@ -8,7 +8,7 @@ Paste each field into Partner Center > your app > Submission > Store listings > 
 - Publisher display name: Lean Apps Studio
 - Short title (50 characters or fewer): LeanDoc: Word document viewer
 - Version in this pack: 0.2.0 (package version 0.2.0.0)
-- File types it opens: Word documents (.docx, .docm, .dotx, .dotm, plus .doc, .rtf, and .odt, which get a page that offers your editor)
+- File types it shows as pages: Word documents (.docx, .docm, .dotx, .dotm). Older .doc files, .rtf, and .odt are not shown: they open to a page that offers your editor
 
 ## Short description
 

@@ -1,8 +1,10 @@
 # LeanDoc: a free, read-only Word (.docx) viewer for Windows, Linux and macOS
 
-Open a .docx without Microsoft Office. LeanDoc shows the document as pages, never runs macros, and never fetches anything the document points to. MIT licensed, no telemetry.
+Open a .docx without Microsoft Office. LeanDoc shows the document as pages, never runs macros, and never fetches anything the document points to. MIT licensed, no telemetry. The 0.2.0 Windows download is a 950 KiB ZIP.
 
-[Website](https://abooodbah.github.io/leandoc/) · [Microsoft Store](https://apps.microsoft.com/detail/9NSM04BJL6F6) · `winget install abooodbah.LeanDoc` · `choco install leandoc` · [All Lean apps](https://abooodbah.github.io/)
+[Website](https://abooodbah.github.io/leandoc/) · [Microsoft Store](https://apps.microsoft.com/detail/9NSM04BJL6F6) · `winget install abooodbah.LeanDoc` · `choco install leandoc` · [Open a .docx without Word](https://abooodbah.github.io/leandoc/open-docx-without-word/) · [Releases feed (Atom)](https://github.com/abooodbah/leandoc/releases.atom) · [All Lean apps](https://abooodbah.github.io/)
+
+[![Latest release](https://img.shields.io/github/v/release/abooodbah/leandoc)](https://github.com/abooodbah/leandoc/releases/latest) [![winget package version](https://img.shields.io/winget/v/abooodbah.LeanDoc)](https://github.com/microsoft/winget-pkgs/tree/master/manifests/a/abooodbah/LeanDoc) [![Microsoft Store](https://img.shields.io/badge/Microsoft%20Store-9NSM04BJL6F6-0078D4)](https://apps.microsoft.com/detail/9NSM04BJL6F6) [![MIT license](https://img.shields.io/github/license/abooodbah/leandoc)](LICENSE) [![GitHub downloads](https://img.shields.io/github/downloads/abooodbah/leandoc/total)](https://github.com/abooodbah/leandoc/releases)
 
 **Read the document, not the office suite.**
 
@@ -146,8 +148,10 @@ window, and a later launch hands its files to that window.
 
 The optional per-user installer adds LeanDoc to the Start menu, to Open With,
 and to Default Apps for `.docx`, `.dotx`, `.docm`, `.dotm`, `.doc`, `.rtf`, and
-`.odt`. It makes LeanDoc the default only for a type that has no default app
-yet. It never changes a default you or your organisation already chose.
+`.odt`. LeanDoc shows the first four as pages; `.doc`, `.rtf`, and `.odt` open to
+a page with the button to your editor. It makes LeanDoc the default only for a
+type that has no default app yet. It never changes a default you or your
+organisation already chose.
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\installer\install.ps1 -ValidateOnly
@@ -380,8 +384,10 @@ disk.
 Sizes are from the v0.1.0 release files, read on 2026-10-20. In 0.1.4 the
 reader's two scripts and its style sheet are 106,112 bytes larger than in
 0.1.0, and the core changed; in 0.2.0 the reader's page, scripts, and style
-sheet are 39,855 bytes larger than in 0.1.4. The packages have not been
-measured again.
+sheet are 39,855 bytes larger than in 0.1.4. The 0.2.0 release files are
+972,464 bytes (Windows ZIP), 625,478 bytes (Linux `.deb`), and 811,831 bytes
+(macOS ZIP), as the GitHub release lists them on 2026-11-07; their unpacked
+sizes have not been measured again.
 
 Measured figures will be added after a run on a reference Windows machine; the method is in [tests/owner/README.md](tests/owner/README.md).
 
