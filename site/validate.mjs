@@ -112,6 +112,19 @@ if (!structured) {
     if (data.downloadUrl !== `https://github.com/abooodbah/leandoc/releases/tag/${tag}`) {
       fail(`JSON-LD downloadUrl must be the ${tag} release page`);
     }
+    // codeRepository belongs to SoftwareSourceCode, not SoftwareApplication;
+    // the repository goes in sameAs with the package listings.
+    if ("codeRepository" in data) fail("JSON-LD must not use codeRepository on a SoftwareApplication; use sameAs");
+    for (const listing of ["https://github.com/abooodbah/leandoc", "https://apps.microsoft.com/detail/9NSM04BJL6F6"]) {
+      if (!Array.isArray(data.sameAs) || !data.sameAs.includes(listing)) fail(`JSON-LD sameAs must list ${listing}`);
+    }
+    if (data.screenshot !== "https://abooodbah.github.io/leandoc/assets/leandoc-window.png") {
+      fail("JSON-LD screenshot must be the published window capture");
+    }
+    // LeanDoc has no ratings or reviews to show; structured data must not invent them.
+    for (const key of ["aggregateRating", "review"]) {
+      if (key in data) fail(`JSON-LD must not contain ${key}`);
+    }
   } catch (error) {
     fail(`JSON-LD must contain valid JSON: ${error.message}`);
   }
@@ -237,6 +250,8 @@ requireMatch(robots, /^Sitemap: https:\/\/abooodbah\.github\.io\/leandoc\/sitema
 const sitemap = await readFile(resolve(siteRoot, "sitemap.xml"), "utf8").catch(() => "");
 requireMatch(sitemap, /<loc>https:\/\/abooodbah\.github\.io\/leandoc\/<\/loc>/, "sitemap.xml must list the site URL");
 requireMatch(sitemap, /<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/, "sitemap.xml must give a lastmod date");
+requireMatch(html, /<link\s+rel="alternate"\s+type="application\/atom\+xml"[^>]*href="https:\/\/github\.com\/abooodbah\/leandoc\/releases\.atom">/,
+  "index.html must link the releases Atom feed");
 
 // --- Accessibility and responsive CSS --------------------------------------------------
 
