@@ -299,6 +299,15 @@ for (const slug of taskPages) {
   }
 }
 
+// LeanDoc does not render .doc files; no surface may call it a .doc viewer.
+for (const [name, text] of [["index.html", html], ...await Promise.all(taskPages.map(async (slug) =>
+  [`${slug}/index.html`, await readFile(resolve(siteRoot, slug, "index.html"), "utf8").catch(() => "")]))]) {
+  const plain = text.replace(/<[^>]+>/g, "");
+  if (/\.doc\s+viewer|\.docx\s*\/\s*\.doc\b|views?\s+\.doc\b|renders?\s+\.doc\b/i.test(plain)) {
+    fail(`${name} implies LeanDoc displays .doc files; it only offers the editor for them`);
+  }
+}
+
 // --- Accessibility and responsive CSS --------------------------------------------------
 
 requireMatch(css, /:focus-visible\s*\{[^}]*outline:/s, "visible focus styles are required");

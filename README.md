@@ -146,8 +146,10 @@ window, and a later launch hands its files to that window.
 
 The optional per-user installer adds LeanDoc to the Start menu, to Open With,
 and to Default Apps for `.docx`, `.dotx`, `.docm`, `.dotm`, `.doc`, `.rtf`, and
-`.odt`. It makes LeanDoc the default only for a type that has no default app
-yet. It never changes a default you or your organisation already chose.
+`.odt`. LeanDoc shows the first four as pages; `.doc`, `.rtf`, and `.odt` open to
+a page with the button to your editor. It makes LeanDoc the default only for a
+type that has no default app yet. It never changes a default you or your
+organisation already chose.
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\installer\install.ps1 -ValidateOnly
