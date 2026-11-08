@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e0d0b" media="(prefers-color-scheme: dark)">
+  <title>Open a .docx file without Word on Windows 11 | LeanDoc</title>
+  <meta name="description" content="Windows 11 has no built-in way to read a .docx without Office. Compare Word for the web, LibreOffice, the Explorer preview, and LeanDoc, a free read-only viewer.">
+  <link rel="canonical" href="https://abooodbah.github.io/leandoc/open-docx-without-word/">
+  <link rel="icon" href="../assets/leandoc-icon.svg" type="image/svg+xml">
+  <link rel="icon" href="../assets/leandoc-icon.png" sizes="256x256" type="image/png">
+  <link rel="apple-touch-icon" href="../assets/leandoc-icon.png">
+  <link rel="alternate" type="application/atom+xml" title="LeanDoc releases" href="https://github.com/abooodbah/leandoc/releases.atom">
+  <link rel="preload" href="../assets/fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="../assets/fonts/ibm-plex-serif-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="../styles.css">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Open a .docx file without Word on Windows 11">
+  <meta property="og:description" content="Windows 11 has no built-in way to read a .docx without Office. Compare Word for the web, LibreOffice, the Explorer preview, and LeanDoc, a free read-only viewer.">
+  <meta property="og:url" content="https://abooodbah.github.io/leandoc/open-docx-without-word/">
+  <meta property="og:image" content="https://abooodbah.github.io/leandoc/assets/social-preview.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta property="og:image:alt" content="LeanDoc, a Word document viewer, showing a report with headings, a list, a table, and an Arabic paragraph.">
+  <meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-row">
+      <a class="brand" href="../" aria-label="LeanDoc home">
+        <img src="../assets/leandoc-icon.svg" width="36" height="36" alt="">
+        <span>LeanDoc</span>
+      </a>
+      <nav class="primary-nav" aria-label="Primary navigation">
+        <a href="#options">Options</a>
+        <a href="#with-leandoc">With LeanDoc</a>
+        <a href="#limits">Limits</a>
+        <a href="../#faq">FAQ</a>
+        <a href="https://github.com/abooodbah/leandoc">Source</a>
+      </nav>
+      <a class="button button-small button-primary header-download" href="../#platforms">
+        Download
+      </a>
+    </div>
+  </header>
+
+  <main id="main-content">
+    <section class="hero" id="top" aria-labelledby="page-heading">
+      <div class="container">
+        <div class="hero-copy">
+          <p class="eyebrow">Guide</p>
+          <h1 id="page-heading">Open a .docx file without Word on Windows 11</h1>
+          <p class="hero-lead">
+            Someone emails you a Word document and the PC has no Office. This
+            page lists the ways to read it, what each one needs, and what each
+            one cannot do. LeanDoc is one of them, and it is made by the author
+            of this page.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-muted" id="why" aria-labelledby="why-heading">
+      <div class="container">
+        <div class="section-copy section-intro">
+          <h2 id="why-heading">Why Windows 11 has no built-in way</h2>
+          <ul class="check-list">
+            <li>Windows 11 version 24H2 removed WordPad, which could open simple <code>.docx</code> files.</li>
+            <li>Microsoft retired the free Word Viewer in November 2017.</li>
+            <li>The Explorer preview pane shows <code>.docx</code> files only when Microsoft Office is installed.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="options" aria-labelledby="options-heading">
+      <div class="container">
+        <div class="section-copy section-intro">
+          <h2 id="options-heading">The options, side by side</h2>
+          <p class="section-lead">
+            Pick by what you need to do: read the file, or change it.
+          </p>
+        </div>
+        <div class="table-wrap">
+          <table class="platform-table">
+            <caption class="visually-hidden">Ways to open a .docx file without Microsoft Word</caption>
+            <thead>
+              <tr>
+                <th scope="col">Option</th>
+                <th scope="col">What it needs</th>
+                <th scope="col">Can it edit?</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Word for the web</th>
+                <td>A Microsoft account and a browser. The file is uploaded first.</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <th scope="row">LibreOffice Writer</th>
+                <td>A free, open-source office suite to install. It also opens older <code>.doc</code> files.</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <th scope="row">Explorer preview pane</th>
+                <td>Microsoft Office installed on the PC.</td>
+                <td>No</td>
+              </tr>
+              <tr>
+                <th scope="row">LeanDoc</th>
+                <td>A small free install from the Microsoft Store, winget, Chocolatey, Scoop, or GitHub. Nothing is uploaded and no account is needed.</td>
+                <td>No. It is read-only; one button hands the file to an editor.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-muted" id="with-leandoc" aria-labelledby="with-leandoc-heading">
+      <div class="container split-section">
+        <div class="section-copy">
+          <h2 id="with-leandoc-heading">Open a .docx with LeanDoc</h2>
+          <ol class="check-list">
+            <li>Install it from the <a href="https://apps.microsoft.com/detail/9NSM04BJL6F6">Microsoft Store</a>, or run <code>winget install abooodbah.LeanDoc</code> in a terminal.</li>
+            <li>Open the file from LeanDoc, drop it on the window, or pick LeanDoc in Open With. It shows the document as pages.</li>
+            <li>To change the document, press <strong>Open in ...</strong>. It names Word, LibreOffice, or your default app for <code>.docx</code>, whichever LeanDoc finds first.</li>
+          </ol>
+          <p>
+            LeanDoc never runs macros and never fetches remote templates,
+            linked images, or linked fields. It reads a cleaned copy of the
+            document, not the original file.
+          </p>
+          <a class="text-link" href="../#platforms">
+            All downloads and install commands
+            <span aria-hidden="true">→</span>
+          </a>
+        </div>
+        <div class="editor-order">
+          <h3>Measured, not promised</h3>
+          <p>LeanDoc 0.2.0 showed the first page of a 3-page document 377 ms after launch, and of a 300-page document 776 ms after launch: the median of six rounds of five launches on one GitHub-hosted Windows runner (AMD EPYC 9V45, WebView2 156), not a typical home PC.</p>
+          <p>The 0.2.0 Windows ZIP is 972,464 bytes, as GitHub lists the release file. LeanDoc draws pages with the Microsoft Edge WebView2 Runtime, which is not counted in that size.</p>
+          <p class="editor-note">
+            Sources: the
+            <a href="https://github.com/abooodbah/leandoc/blob/main/docs/VALIDATION_STATUS.md">validation record</a>
+            and the
+            <a href="https://github.com/abooodbah/leandoc/releases/tag/v0.2.0">0.2.0 release page</a>.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="limits" aria-labelledby="limits-heading">
+      <div class="container">
+        <div class="section-copy section-intro">
+          <h2 id="limits-heading">What LeanDoc does not do</h2>
+          <ul class="check-list">
+            <li>It does not render older <code>.doc</code> files (Word 97 to 2003), <code>.rtf</code>, or <code>.odt</code>. They open to a page that says what the file is, with the button to your editor. Use Word or LibreOffice for those.</li>
+            <li>It does not display charts, SmartArt, or most text boxes. A bar above the page names what is missing and offers the editor.</li>
+            <li>It does not edit, save, or print.</li>
+            <li>Page breaks can fall in different places than in Word.</li>
+          </ul>
+          <a class="text-link" href="../#faq">
+            Read the LeanDoc questions and answers
+            <span aria-hidden="true">→</span>
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-row">
+      <a class="brand" href="../">
+        <img src="../assets/leandoc-icon.svg" width="32" height="32" alt="">
+        <span>LeanDoc</span>
+      </a>
+      <p>MIT-licensed open source software for Windows, Linux, and macOS.</p>
+      <nav aria-label="Footer navigation">
+        <a href="../">LeanDoc</a>
+        <a href="https://github.com/abooodbah/leandoc">GitHub</a>
+        <a href="https://github.com/abooodbah/leandoc/releases">Releases</a>
+        <a href="https://abooodbah.github.io/">All Lean apps</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

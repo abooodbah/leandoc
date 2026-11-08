@@ -170,7 +170,9 @@ for (const match of html.matchAll(/href="#([^"]*)"/g)) {
 
 async function checkLocal(value, from) {
   if (/^(?:https?:|mailto:|data:|#)/i.test(value)) return;
-  const path = resolve(siteRoot, value.split(/[?#]/, 1)[0]);
+  // A folder link such as "open-docx-without-word/" is served from its index.html.
+  const target = value.split(/[?#]/, 1)[0];
+  const path = resolve(siteRoot, target.endsWith("/") ? `${target}index.html` : target);
   if (path !== siteRoot && !path.startsWith(siteRoot + sep)) {
     fail(`${from}: local reference escapes site/: ${value}`);
     return;
@@ -252,6 +254,50 @@ requireMatch(sitemap, /<loc>https:\/\/abooodbah\.github\.io\/leandoc\/<\/loc>/, 
 requireMatch(sitemap, /<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/, "sitemap.xml must give a lastmod date");
 requireMatch(html, /<link\s+rel="alternate"\s+type="application\/atom\+xml"[^>]*href="https:\/\/github\.com\/abooodbah\/leandoc\/releases\.atom">/,
   "index.html must link the releases Atom feed");
+
+// --- Task pages ---------------------------------------------------------------------
+// Each one is plain HTML in its own folder, uses the same style sheet, is linked
+// from index.html, and is listed in the sitemap. It loads no script at all.
+
+const taskPages = ["open-docx-without-word"];
+for (const slug of taskPages) {
+  const name = `${slug}/index.html`;
+  const page = await readFile(resolve(siteRoot, name), "utf8").catch(() => null);
+  if (page === null) {
+    fail(`missing task page: ${name}`);
+    continue;
+  }
+  const url = `https://abooodbah.github.io/leandoc/${slug}/`;
+  requireMatch(page, /^<!doctype html>/i, `${name} must start with an HTML5 doctype`);
+  requireMatch(page, /<html\s+lang="en">/i, `${name} must declare its language`);
+  requireMatch(page, /<meta\s+name="description"\s+content="[^"]{40,}"/i, `${name} needs a meta description`);
+  requireMatch(page, /<title>[^<]*LeanDoc[^<]*<\/title>/i, `${name} title must name LeanDoc`);
+  if (!page.includes(`<link rel="canonical" href="${url}">`)) fail(`${name} canonical must be ${url}`);
+  if (!page.includes(`<link rel="stylesheet" href="../styles.css">`)) fail(`${name} must use the site style sheet`);
+  if ((page.match(/<h1\b/gi) ?? []).length !== 1) fail(`${name} must have exactly one h1`);
+  if (/<script\b/i.test(page)) fail(`${name} must not contain a script`);
+  if (!html.includes(`href="${slug}/"`)) fail(`index.html must link the task page ${slug}/`);
+  if (!sitemap.includes(`<loc>${url}</loc>`)) fail(`sitemap.xml must list ${url}`);
+  const pageIds = new Set([...page.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
+  for (const match of page.matchAll(/href="#([^"]*)"/g)) {
+    if (!pageIds.has(match[1])) fail(`${name}: same-page link has no target: #${match[1]}`);
+  }
+  for (const match of page.matchAll(/href="\.\.\/#([^"]+)"/g)) {
+    if (!ids.has(match[1])) fail(`${name}: link to index.html#${match[1]} has no target`);
+  }
+  for (const match of page.matchAll(/(?:href|src)="([^"]+)"/g)) {
+    const value = match[1];
+    if (/^(?:https?:|mailto:|data:|#)/i.test(value)) continue;
+    await checkLocal(`${slug}/${value}`, name);
+  }
+  for (const match of page.matchAll(/(?:href|src|content)="(https?:\/\/[^"/]+)/g)) {
+    if (!allowedHosts.has(match[1])) fail(`${name}: unexpected external host: ${match[1]}`);
+  }
+  for (const match of page.matchAll(/<img\b([^>]*)>/gi)) {
+    if (!/\salt="[^"]*"/.test(match[1])) fail(`${name}: image has no alt attribute`);
+    if (!/\swidth="\d+"/.test(match[1]) || !/\sheight="\d+"/.test(match[1])) fail(`${name}: image needs width and height`);
+  }
+}
 
 // --- Accessibility and responsive CSS --------------------------------------------------
 
