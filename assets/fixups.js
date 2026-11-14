@@ -891,21 +891,54 @@
   // (reader.js hideCustomMarks).
   function customMarkNotes(xmlBody) {
     var ids = [];
+    function take(child) {
+      var follows = getAttr(child, "customMarkFollows");
+      var id = getAttr(child, "id");
+      if (follows !== null && !/^(0|false|off)$/i.test(follows) && id !== null && ids.indexOf(id) < 0) {
+        ids.push(id);
+      }
+    }
+    // The parser's own index: walking a 1,000-page body took 13 ms.
+    if (xmlBody && xmlBody.getElementsByTagNameNS) {
+      Array.prototype.forEach.call(xmlBody.getElementsByTagNameNS("*", "footnoteReference"), take);
+      return ids;
+    }
     (function visit(element) {
       var children = (element && element.children) || [];
       for (var index = 0; index < children.length; index += 1) {
         var child = children[index];
         if (child.localName === "footnoteReference") {
-          var follows = getAttr(child, "customMarkFollows");
-          var id = getAttr(child, "id");
-          if (follows !== null && !/^(0|false|off)$/i.test(follows) && id !== null && ids.indexOf(id) < 0) {
-            ids.push(id);
-          }
+          take(child);
         } else {
           visit(child);
         }
       }
     }(xmlBody));
+    return ids;
+  }
+
+  // Notes whose text carries the note's own reference mark (w:footnoteRef).
+  // Word prints the note's number there even when the reference in the text
+  // says a mark of the author's own follows: a heading whose reference had
+  // no mark after it showed nothing in the text and "1" in the note.
+  function notesWithReferenceMark(notesRoot) {
+    var ids = [];
+    Array.prototype.forEach.call((notesRoot && notesRoot.children) || [], function (note) {
+      var id = getAttr(note, "id");
+      if (id === null) {
+        return;
+      }
+      (function visit(element) {
+        var children = (element && element.children) || [];
+        for (var index = 0; index < children.length && ids[ids.length - 1] !== id; index += 1) {
+          if (children[index].localName === "footnoteRef") {
+            ids.push(id);
+          } else {
+            visit(children[index]);
+          }
+        }
+      }(note));
+    });
     return ids;
   }
 
@@ -1274,6 +1307,11 @@
   }
 
   function floatTextBoxes(modelBody, xmlBody) {
+    // A body with no VML picture has no text box to float; pairing its
+    // paragraphs took 6 ms on a 1,000-page report.
+    if (xmlBody && xmlBody.getElementsByTagNameNS && !xmlBody.getElementsByTagNameNS("*", "pict").length) {
+      return 0;
+    }
     var modelParagraphs = [];
     var xmlParagraphs = [];
     modelBlocks(modelBody ? modelBody.children : [], modelParagraphs, []);
@@ -1592,6 +1630,14 @@
       }
       return {};
     }
+    function cancelsStyleNumbering(element) {
+      if (!element.numbering || element.numbering.id !== "0") {
+        return false;
+      }
+      var style = byId[element.styleName];
+      var numbering = style && style.paragraphProps && style.paragraphProps.numbering;
+      return !!(numbering && numbering.id && numbering.id !== "0");
+    }
     // Whether a paragraph's text starts with a tab of its own.
     function startsWithTab(parent) {
       var children = parent.children || [];
@@ -1631,7 +1677,18 @@
         return;
       }
       var key = numberingKey(element);
-      if (key && !element.numbering) {
+      if (cancelsStyleNumbering(element)) {
+        // w:numId 0 under a style that numbers: Word drops the style's left
+        // and first-line indents with its numbering (Word 16, COM: both 0),
+        // and a leading tab goes to the first stop. The paragraph's own
+        // indents still apply.
+        element.cssStyle = element.cssStyle || {};
+        ["text-indent", "margin-inline-start", "margin-left"].forEach(function (name) {
+          if (element.cssStyle[name] === undefined) {
+            element.cssStyle[name] = "0pt";
+          }
+        });
+      } else if (key && !element.numbering) {
         var indents = linkedIndents(element.styleName);
         // The paragraph's own indents still win, each on its own.
         Object.keys(indents).forEach(function (name) {
@@ -2338,7 +2395,7 @@
       noteReferences: 0, pageFields: 0, autoHyphenation: false, sectionBreakParagraphs: 0, fittedTables: 0,
       fixedTables: 0, markSizes: 0, contextualSpacing: 0, savedPageStarts: 0, droppedPageStarts: 0,
       widowControlOff: 0, keepLines: 0, keepNext: 0, defaultPageSetups: 0, reservedPictures: 0,
-      fontStandIns: 0, floats: 0, inheritedHeaders: 0, tabs: 0, defaultTabStop: 36, customMarkNotes: [] };
+      fontStandIns: 0, floats: 0, inheritedHeaders: 0, tabs: 0, defaultTabStop: 36, customMarkNotes: [], numberedCustomMarkNotes: [] };
     if (!doc) {
       return stats;
     }
@@ -2552,6 +2609,12 @@
     stats.droppedPageStarts = saved.dropped;
     markNotes(doc.footnotesPart);
     stats.customMarkNotes = customMarkNotes(xmlBody);
+    if (stats.customMarkNotes.length) {
+      var referenced = notesWithReferenceMark(partRoot(doc.footnotesPart));
+      stats.numberedCustomMarkNotes = stats.customMarkNotes.filter(function (id) {
+        return referenced.indexOf(id) >= 0;
+      });
+    }
     stats.sectionBreakParagraphs = hideSectionBreakParagraphs(doc.documentPart && doc.documentPart.body);
     stats.defaultPageSetups = fillDocumentPageSetup(doc.documentPart && doc.documentPart.body);
     stats.inheritedHeaders = inheritHeaderFooters(doc.documentPart && doc.documentPart.body);
@@ -2629,6 +2692,7 @@
     floatTextBoxes: floatTextBoxes,
     inheritHeaderFooters: inheritHeaderFooters,
     customMarkNotes: customMarkNotes,
+    notesWithReferenceMark: notesWithReferenceMark,
     TAB_CLASS: TAB_CLASS,
     markTabs: markTabs,
     numberingTabs: numberingTabs,

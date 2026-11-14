@@ -1255,6 +1255,12 @@ body {
   content: none !important;
 }
 
+/* A paragraph split inside a word at the foot of a page (reader.js
+   splitParagraph) ends with the hyphen its line break printed. */
+#docBody section.docx p[data-ld-hyphen]::after {
+  content: "-";
+}
+
 #docBody section.docx p[data-ld-continued] {
   list-style-type: none !important;
 }

@@ -708,6 +708,7 @@
         hyphenate: prepared.autoHyphenation,
         tabInterval: prepared.defaultTabStop,
         customMarks: prepared.customMarkNotes || [],
+        numberedCustomMarks: prepared.numberedCustomMarkNotes || [],
         titleSections: prepared.titleSections || [],
         colors: { palette: prepared.palette || [], theme: prepared.themeColors || {} },
         saved: keep ? saveModel(parsed) : null
@@ -751,6 +752,7 @@
         documentColors = model.colors;
         documentTabInterval = model.tabInterval > 0 ? model.tabInterval : 36;
         documentCustomMarks = model.customMarks || [];
+        documentNumberedCustomMarks = model.numberedCustomMarks || [];
         updatePageColorStyle();
         return attachDocument(nodes, view, serial, model.hyphenate).then(function (attached) {
           if (attached) {
@@ -1299,6 +1301,9 @@
     return kept;
   }
 
+  // Letters of the scripts Chrome and Word hyphenate.
+  var HYPHENATED_LETTER = /[A-Za-z\u00c0-\u024f\u0370-\u03ff\u0400-\u04ff]/;
+
   function splitParagraph(paragraph, over) {
     var kept = keptPart(paragraph, over);
     if (!kept) {
@@ -1307,8 +1312,17 @@
     var moving = document.createRange();
     moving.setStart(kept.endContainer, kept.endOffset);
     moving.setEnd(paragraph, paragraph.childNodes.length);
+    // A page that starts inside a word: the line broke at a hyphenation
+    // point, whose hyphen Chrome prints only where a line breaks. Word
+    // prints it at the foot of the page.
+    var head = moving.toString().charAt(0);
+    var tail = kept.toString().slice(-1);
+    if (HYPHENATED_LETTER.test(head) && (tail === "\u00ad" || HYPHENATED_LETTER.test(tail))) {
+      paragraph.setAttribute("data-ld-hyphen", "");
+    }
     var rest = paragraph.cloneNode(false);
     rest.removeAttribute("id");
+    rest.removeAttribute("data-ld-hyphen");
     rest.appendChild(moving.extractContents());
     rest.setAttribute("data-ld-continued", "");
     rest.style.textIndent = "0";
@@ -1597,8 +1611,10 @@
 
   // A footnote with a mark of the author's own (Fixups.customMarkNotes)
   // shows that mark, not docx-preview's number, at the reference and in
-  // the note.
+  // the note, unless the note starts with its own reference mark
+  // (Fixups.notesWithReferenceMark): Word prints the number there.
   var documentCustomMarks = [];
+  var documentNumberedCustomMarks = [];
 
   function hideCustomMarks(container) {
     if (!container.querySelector) {
@@ -1612,7 +1628,7 @@
       }
       var note = container.querySelector("[id='" + Fixups.NOTE_ANCHOR + id + "']");
       var item = note ? note.closest("li") : null;
-      if (item) {
+      if (item && documentNumberedCustomMarks.indexOf(id) < 0) {
         item.classList.add("ld-custom-mark");
       }
     });
@@ -1867,6 +1883,7 @@
       tail.appendChild(head.firstChild);
     }
     head.parentNode.removeChild(head);
+    tail.removeAttribute("data-ld-hyphen");
     var saved = tail[SPLIT_STYLE];
     if (saved) {
       tail.style.marginBottom = saved.marginBottom;
@@ -2379,6 +2396,11 @@
     }
     var rect = math.getBoundingClientRect();
     var own = paragraph.getBoundingClientRect();
+    // Not laid out (a hidden pane): nothing to compare, and every equation
+    // looked wider than its 0-wide column.
+    if (!own.width) {
+      return 0;
+    }
     var excess = rect.right - own.right;
     var article = paragraph.closest("article");
     if (!article || rect.width < own.width - 1) {
@@ -3216,10 +3238,14 @@
     prepareDocumentDom(pages.slice(0, FIRST_BATCH), 0, pages.length);
     showLoadingPages(current && current.report);
     // In the hidden pane every paragraph is 0 wide, so no tab got a width and
-    // a contents page lost its leaders. The tabs are sized again once the
-    // pane is shown. Running all of matchWordLines here instead cost about
-    // 10 MiB more on the 1,000-page report in WebView2 (CI's M-04).
-    body.forEach(setTabStops);
+    // a contents page lost its leaders, and no equation could be measured.
+    // Both passes run again once the pane is shown. Running all of
+    // matchWordLines here instead cost about 10 MiB more on the 1,000-page
+    // report in WebView2 (CI's M-04).
+    body.forEach(function (node) {
+      wrapWideMaths(node);
+      setTabStops(node);
+    });
     var startTop = elements.docScroller.scrollTop;
     var next = 0;
     return new Promise(function (resolve) {

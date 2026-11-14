@@ -138,6 +138,13 @@ Decisions taken here (the owner can change them):
   that wrap inside the column; an equation's tokens no longer wrap inside
   themselves. Test document: makeEquationDocx in
   tests/reader/make-numbered-docx.mjs, expected values from Word 16.
+- Fourth round, after a third review: a paragraph that cancels its list
+  style's numbering (w:numId 0) drops the style's left and first-line
+  indents, as Word does; a note whose reference promises a mark of the
+  author's own but has none keeps its number in the note when the note
+  holds its reference mark; equations in a batched document's first pages
+  are measured once the pane is shown; a page that starts inside a word
+  ends with a hyphen. Two body-wide walks use the parser's own index.
 - Measured against main on one Windows laptop (perf-probe, five rounds,
   medians), third round: 300 pages 684 to 712 ms, 1,000 pages 2,056 to
   2,097 ms, the 19-page paper 1,037 to 1,108 ms and 215 to 221 MiB (the
