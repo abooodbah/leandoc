@@ -1134,3 +1134,60 @@ test("Notes that start with their own reference mark are listed", () => {
   assert.deepEqual(Fixups.notesWithReferenceMark(root), ["1", "3"]);
   assert.deepEqual(Fixups.notesWithReferenceMark(null), []);
 });
+
+// Strict OOXML parts in the transitional form docx-preview reads. Word saves
+// lengths with units; each kind converts to its own transitional unit.
+test("Strict OOXML parts are rewritten to the transitional form", () => {
+  const strictW = "http://purl.oclc.org/ooxml/wordprocessingml/main";
+  const transitionalW = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+  const part = `<w:styles xmlns:w="${strictW}" xmlns:r="http://purl.oclc.org/ooxml/officeDocument/relationships">` +
+    `<w:pPr><w:tabs><w:tab w:val="start" w:pos="14.40pt"/></w:tabs><w:ind w:start="0.5in" w:hanging="-18pt"/>` +
+    `<w:spacing w:after="6pt" w:line="11.40pt" w:lineRule="auto"/><w:pBdr><w:top w:val="single" w:sz="0.5pt" w:space="1pt"/></w:pBdr></w:pPr>` +
+    `<w:cols w:space="36pt"/><w:rPr><w:sz w:val="10pt"/><w:szCs w:val="9.5pt"/><w:w w:val="90%"/></w:rPr>` +
+    `<w:tblW w:w="100%" w:type="pct"/><w:pgSz w:w="2.54cm" w:h="25.4mm"/><w:t>12pt="1pt"</w:t></w:styles>`;
+  const out = Fixups.transitionalXml(part);
+  assert.equal(out, `<w:styles xmlns:w="${transitionalW}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+    `<w:pPr><w:tabs><w:tab w:val="start" w:pos="288"/></w:tabs><w:ind w:start="720" w:hanging="-360"/>` +
+    `<w:spacing w:after="120" w:line="228" w:lineRule="auto"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="1"/></w:pBdr></w:pPr>` +
+    `<w:cols w:space="720"/><w:rPr><w:sz w:val="20"/><w:szCs w:val="19"/><w:w w:val="90"/></w:rPr>` +
+    `<w:tblW w:w="5000" w:type="pct"/><w:pgSz w:w="1440" w:h="1440"/><w:t>12pt="1pt"</w:t></w:styles>`);
+  const rels = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rId1" Type="http://purl.oclc.org/ooxml/officeDocument/relationships/styles" Target="styles.xml"/>` +
+    `<Relationship Id="rId2" Type="http://purl.oclc.org/ooxml/officeDocument/relationships/extendedProperties" Target="docProps/app.xml"/>` +
+    `<Relationship Id="rId3" Type="http://purl.oclc.org/ooxml/drawingml/main" Target="x"/></Relationships>`;
+  assert.equal(Fixups.transitionalXml(rels),
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>` +
+    `<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>` +
+    `<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/drawingml/2006/main" Target="x"/></Relationships>`);
+  // A transitional part is returned as it is, units and all.
+  const transitional = `<w:p xmlns:w="${transitionalW}"><w:ind w:left="14.40pt"/></w:p>`;
+  assert.equal(Fixups.transitionalXml(transitional), transitional);
+});
+
+test("Only a Strict package has its parts rewritten", async () => {
+  const JSZip = require(path.join(repositoryRoot, "node_modules", "jszip"));
+  const strictRels = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" ` +
+    `Type="http://purl.oclc.org/ooxml/officeDocument/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  const strictDocument = `<w:document xmlns:w="http://purl.oclc.org/ooxml/wordprocessingml/main"><w:ind w:start="14.4pt"/></w:document>`;
+  const strict = new JSZip();
+  strict.file("_rels/.rels", strictRels);
+  strict.file("word/document.xml", strictDocument);
+  strict.file("word/media/image1.png", "purl.oclc.org/ooxml/ 1pt");
+  const opened = await Fixups.transitionalPackage(strict);
+  assert.equal(opened, strict);
+  assert.match(await opened.file("_rels/.rels").async("string"), /2006\/relationships\/officeDocument/);
+  assert.equal(await opened.file("word/document.xml").async("string"),
+    `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:ind w:start="288"/></w:document>`);
+  assert.equal(await opened.file("word/media/image1.png").async("string"), "purl.oclc.org/ooxml/ 1pt");
+
+  // A transitional package whose text mentions the Strict namespace is
+  // left alone: only the package relationships decide.
+  const plain = new JSZip();
+  plain.file("_rels/.rels", strictRels.replace("http://purl.oclc.org/ooxml/officeDocument/relationships",
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships"));
+  plain.file("word/document.xml", strictDocument);
+  await Fixups.transitionalPackage(plain);
+  assert.equal(await plain.file("word/document.xml").async("string"), strictDocument);
+  assert.equal(await Fixups.transitionalPackage(new JSZip()).then((zip) => Object.keys(zip.files).length), 0);
+});

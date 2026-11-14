@@ -3354,11 +3354,10 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
   // 14.4 pt from the margin, "Cancelled plain" at 0, and "Body tabbed" (the
   // style below, which keeps its 14.4 pt first line) at 36 pt, and
   // "Cancelled indented", whose list style's base indents 36 pt, at 0.
-  test("a paragraph that cancels its style's numbering starts where Word's does", async () => {
-    await withHost({}, async (host) => {
-      const { bytes, report } = await makeCancelledNumberingDocx();
-      await host.openDocument({ bytes, report, fileName: "cancelled-numbering.docx" });
-      const starts = await host.page.evaluate(() => {
+  // Where each paragraph's text starts on the first page, in points from
+  // the left margin, by its first two words.
+  async function textStarts(host) {
+    return host.page.evaluate(() => {
         const page = document.querySelector("#docBody .docx-wrapper > section.docx");
         const article = page.querySelector("article");
         const box = page.getBoundingClientRect();
@@ -3382,11 +3381,45 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
           }
         });
         return result;
+    });
+  }
+
+  // Word 16, COM, on these fixtures (the transitional and the Strict file
+  // give the same positions).
+  const CANCELLED_WORD_STARTS = { "Cancelled tabbed": 14.4, "Cancelled plain": 0, "Body tabbed": 36.3,
+    "Cancelled indented": 0, "Cancelled own": 36.3 };
+
+  test("a paragraph that cancels its style's numbering starts where Word's does", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeCancelledNumberingDocx();
+      await host.openDocument({ bytes, report, fileName: "cancelled-numbering.docx" });
+      const starts = await textStarts(host);
+      Object.keys(CANCELLED_WORD_STARTS).forEach((name) => {
+        const word = CANCELLED_WORD_STARTS[name];
+        assert.ok(Math.abs(starts[name] - word) <= 1, `"${name}" starts at ${starts[name]} pt; Word's at ${word} pt`);
       });
-      const word = { "Cancelled tabbed": 14.4, "Cancelled plain": 0, "Body tabbed": 36.3, "Cancelled indented": 0 };
-      Object.keys(word).forEach((name) => {
-        assert.ok(Math.abs(starts[name] - word[name]) <= 1, `"${name}" starts at ${starts[name]} pt; Word's at ${word[name]} pt`);
+    });
+  });
+
+  // docx-preview reads only the transitional namespaces: a Strict document
+  // lost its styles part, numbering and every paragraph property, and its
+  // tabbed paragraphs went to the 36 pt default stop. Its body paragraphs
+  // also lost the style's 14.4 pt first line.
+  test("a Strict OOXML document keeps its styles, indents and tab stops", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeCancelledNumberingDocx({ strict: true });
+      await host.openDocument({ bytes, report, fileName: "cancelled-numbering-strict.docx" });
+      const starts = await textStarts(host);
+      Object.keys(CANCELLED_WORD_STARTS).forEach((name) => {
+        const word = CANCELLED_WORD_STARTS[name];
+        assert.ok(Math.abs(starts[name] - word) <= 1, `"${name}" starts at ${starts[name]} pt; Word's at ${word} pt`);
       });
+      const listed = await host.page.evaluate(() => {
+        const item = Array.from(document.querySelectorAll("#docBody article p")).find((p) => /Listed item/.test(p.textContent));
+        return item ? { numbered: /\bdocx-num-/.test(item.className), align: getComputedStyle(item).textAlign } : null;
+      });
+      assert.ok(listed && listed.numbered, "the listed item is numbered");
+      assert.equal(listed.align, "justify");
     });
   });
 

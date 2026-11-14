@@ -256,8 +256,14 @@ const SMALL_STYLES_HEAD = `<?xml version="1.0" encoding="UTF-8" standalone="yes"
 // margin, and its leading tab goes to the 14.4 pt stop (Word 16, COM: left
 // indent and first line 0, text at 14.4 pt). A Body Text paragraph starts at
 // 14.4 pt, so its leading tab goes on to the 36 pt default stop. A list
-// style whose base sets a 36 pt left indent loses that too.
-export function makeCancelledNumberingDocx() {
+// style whose base sets a 36 pt left indent loses that too. One that sets
+// its own 14.4 pt left indent keeps it, and its leading tab goes on to the
+// 36 pt default stop.
+//
+// With { strict: true } the same document is written as Strict OOXML, as
+// Word's "Strict Open XML Document" saves it: purl.oclc.org namespaces and
+// relationship types, lengths in points ("14.4pt"), "start" for left.
+export function makeCancelledNumberingDocx({ strict = false } = {}) {
   const styles = `${SMALL_STYLES_HEAD}
 <w:style w:type="paragraph" w:styleId="BodyText"><w:name w:val="Body Text"/><w:basedOn w:val="Normal"/>
 <w:pPr><w:tabs><w:tab w:val="left" w:pos="288"/></w:tabs><w:ind w:firstLine="288"/><w:jc w:val="both"/></w:pPr></w:style>
@@ -282,13 +288,14 @@ export function makeCancelledNumberingDocx() {
     para(cancel, "Cancelled plain", false),
     para(`<w:pStyle w:val="BodyText"/>`, "Body tabbed", true),
     para(`<w:pStyle w:val="ListPara"/>`, "Listed item", false),
-    para(cancel.replace("ListPara", "ListLeft"), "Cancelled indented", false)
+    para(cancel.replace("ListPara", "ListLeft"), "Cancelled indented", false),
+    para(`${cancel}<w:ind w:left="288"/>`, "Cancelled own", true)
   ];
   const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${body.join("\n")}
 ${PLAIN_SECTION}
 </w:body></w:document>`;
-  return packageDocx({
+  const parts = {
     "[Content_Types].xml": CONTENT_TYPES.replace(/<Override PartName="\/word\/(header1|footer1)\.xml"[^>]*\/>\n?/g, ""),
     "_rels/.rels": ROOT_RELS,
     "word/document.xml": documentXml,
@@ -296,7 +303,28 @@ ${PLAIN_SECTION}
     "word/styles.xml": styles,
     "word/settings.xml": SETTINGS,
     "word/numbering.xml": numbering
-  });
+  };
+  if (strict) {
+    Object.keys(parts).forEach((name) => {
+      parts[name] = toStrict(parts[name]);
+    });
+  }
+  return packageDocx(parts);
+}
+
+// A transitional part as Strict OOXML writes it. Twips become points, font
+// sizes (half points) become points, and "left" becomes "start".
+const STRICT_TWIPS = /\sw:(pos|left|right|firstLine|hanging|w|h|top|bottom|header|footer|gutter|before|after|line)="(-?\d+)"/g;
+function toStrict(text) {
+  return text
+    .split(W).join("http://purl.oclc.org/ooxml/wordprocessingml/main")
+    .split(R).join("http://purl.oclc.org/ooxml/officeDocument/relationships")
+    .replace(/(<w:(?:sz|szCs)\s+w:val=")(\d+)"/g, (_whole, head, value) => `${head}${Number(value) / 2}pt"`)
+    .replace(/(<w:defaultTabStop\s+w:val=")(\d+)"/g, (_whole, head, value) => `${head}${Number(value) / 20}pt"`)
+    .replace(STRICT_TWIPS, (_whole, name, value) => ` w:${name}="${Number(value) / 20}pt"`)
+    .replace(/<w:ind w:left=/g, "<w:ind w:start=")
+    .replace(/<w:tab w:val="left"/g, '<w:tab w:val="start"')
+    .replace(/<w:(jc|lvlJc) w:val="left"/g, '<w:$1 w:val="start"');
 }
 
 // A paragraph whose footnote reference says a mark of the author's own
