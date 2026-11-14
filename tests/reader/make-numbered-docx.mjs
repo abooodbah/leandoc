@@ -108,7 +108,10 @@ function paragraph(text) {
   return `<w:p><w:r><w:t xml:space="preserve">${text}</w:t></w:r></w:p>`;
 }
 
-export async function makeNumberedDocx({ offPage = false } = {}) {
+// With `morePages`, that many one-paragraph pages follow, each after a page
+// break. docx-preview makes a section of each page, and a document of more
+// than 60 sections opens in batches (reader.js PROGRESSIVE_PAGES).
+export async function makeNumberedDocx({ offPage = false, morePages = 0 } = {}) {
   const body = [];
   body.push(`<w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr><w:r><w:t xml:space="preserve">Contents line heron about ${words(1, 9)}</w:t></w:r>` +
     `<w:r><w:tab/><w:t>12</w:t></w:r></w:p>`);
@@ -120,6 +123,9 @@ export async function makeNumberedDocx({ offPage = false } = {}) {
   });
   body.push(heading("Method", "Heading1"));
   body.push(paragraph(`Method para. ${words(9, 30)}.`));
+  for (let index = 1; index <= morePages; index += 1) {
+    body.push(`<w:p><w:r><w:br w:type="page"/></w:r><w:r><w:t xml:space="preserve">Later page ${index}. ${words(index, 20)}.</w:t></w:r></w:p>`);
+  }
   const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${body.join("\n")}
 <w:sectPr><w:headerReference w:type="default" r:id="rId4"/><w:footerReference w:type="default" r:id="rId5"/>
@@ -152,5 +158,68 @@ export async function makeNumberedDocx({ offPage = false } = {}) {
       outline: [],
       properties: { title: "", creator: "", rightToLeft: false }
     }
+  };
+}
+
+// A two-column page whose left column holds two display equations wider
+// than the column: a flat run of names with subscripts, separated by commas,
+// as Word's equation editor writes a set. The second sits in a borderless
+// table of two cells, the equation and its number, as a paper template sets
+// numbered equations. Word breaks both after commas and keeps them in the
+// column. A sum and a quotient follow, which Word breaks before their
+// operators. The long paragraph after them fills the left column and goes on
+// at the top of the right one, beside the equations.
+const MATH = "http://schemas.openxmlformats.org/officeDocument/2006/math";
+
+function mathRun(text) {
+  return `<m:r><m:t xml:space="preserve">${text}</m:t></m:r>`;
+}
+
+function subscript(base, sub) {
+  return `<m:sSub><m:e>${mathRun(base)}</m:e><m:sub>${mathRun(sub)}</m:sub></m:sSub>`;
+}
+
+export async function makeEquationDocx() {
+  const equation = mathRun("Kinds = {Alph") + subscript("a", "north") + mathRun(", Bet") + subscript("a", "south") +
+    mathRun(", Gamm") + subscript("a", "east") + mathRun(", Delt") + subscript("a", "west") +
+    mathRun(",  Rho, Sigma,  Omeg") + subscript("a", "upper") + mathRun(",  Omeg") + subscript("a", "lower") +
+    mathRun(", Kapp") + subscript("a", "GenericMember") + mathRun("}");
+  const body = [];
+  body.push(paragraph(`Left lead para. ${words(3, 45)}.`));
+  const display = `<w:p><w:pPr><w:ind w:firstLine="0"/><w:jc w:val="center"/></w:pPr><m:oMathPara><m:oMath>${equation}</m:oMath></m:oMathPara></w:p>`;
+  const none = ["top", "left", "bottom", "right", "insideH", "insideV"].map((side) => `<w:${side} w:val="none" w:sz="0" w:space="0" w:color="auto"/>`).join("");
+  const cell = (width, content) => `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>${content}</w:tc>`;
+  body.push(display);
+  body.push(paragraph(`Left middle para. ${words(4, 20)}.`));
+  const numbered = (content, number, [left, right] = [3960, 360], fixed = false) => `<w:tbl><w:tblPr>${fixed ? `<w:tblW w:w="${left + right}" w:type="dxa"/><w:tblLayout w:type="fixed"/>` : `<w:tblW w:w="0" w:type="auto"/>`}<w:tblBorders>${none}</w:tblBorders></w:tblPr><w:tblGrid><w:gridCol w:w="${left}"/><w:gridCol w:w="${right}"/></w:tblGrid><w:tr>` +
+    cell(left, content) + cell(right, `<w:p><w:pPr><w:ind w:firstLine="0"/><w:jc w:val="right"/></w:pPr><w:r><w:t>(${number})</w:t></w:r></w:p>`) + "</w:tr></w:tbl>";
+  const centred = (math) => `<w:p><w:pPr><w:ind w:firstLine="0"/><w:jc w:val="center"/></w:pPr><m:oMathPara><m:oMath>${math}</m:oMath></m:oMathPara></w:p>`;
+  body.push(numbered(display, 1));
+  body.push(paragraph(`Left third para. ${words(6, 20)}.`));
+  body.push(centred(mathRun("Total = Alpha + Beta + Gamma + Delta + Epsilon + Zeta + Theta + Iota + Kappa + Lambda")));
+  body.push(centred(mathRun("Ratio = (AlphaBetaGammaDeltaEpsilon) / (ZetaThetaIotaKappaLambdaMu) - (NuXiOmicronPiRhoSigmaTau)")));
+  body.push(paragraph(`Left tail para. ${words(5, 450)}.`));
+  // A short numbered equation in the right column, in a table of fixed
+  // widths wider than the column: the equation fits its cell.
+  body.push(numbered(centred(mathRun("Short = Alpha + Beta")), 2, [4300, 800], true));
+  body.push(paragraph(`Right last para. ${words(8, 20)}.`));
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${W}" xmlns:r="${R}" xmlns:m="${MATH}"><w:body>${body.join("\n")}
+<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>
+<w:cols w:num="2" w:space="720"/></w:sectPr>
+</w:body></w:document>`;
+  const zip = new JSZip();
+  const options = { date: FIXED_DATE };
+  zip.file("[Content_Types].xml", CONTENT_TYPES.replace(/<Override PartName="\/word\/(numbering|header1|footer1)\.xml"[^>]*\/>\n?/g, ""), options);
+  zip.file("_rels/.rels", ROOT_RELS, options);
+  zip.file("word/document.xml", documentXml, options);
+  zip.file("word/_rels/document.xml.rels", DOCUMENT_RELS.replace(/<Relationship Id="rId[345]"[^>]*\/>\n?/g, ""), options);
+  zip.file("word/styles.xml", STYLES, options);
+  zip.file("word/settings.xml", SETTINGS, options);
+  const bytes = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+  return {
+    bytes,
+    report: { ok: true, errorCode: "", errorMessage: "", kind: "docx", sourceBytes: bytes.length, features: [], outline: [],
+      properties: { title: "", creator: "", rightToLeft: false } }
   };
 }

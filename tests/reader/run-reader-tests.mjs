@@ -16,7 +16,7 @@ import {
 } from "./fake-host.mjs";
 import { makeBigDocx } from "./make-big-docx.mjs";
 import { makeFloatsDocx } from "./make-floats-docx.mjs";
-import { makeNumberedDocx } from "./make-numbered-docx.mjs";
+import { makeEquationDocx, makeNumberedDocx } from "./make-numbered-docx.mjs";
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeWordMetricsDocx } from "./make-saved-pages-docx.mjs";
 
@@ -2253,6 +2253,134 @@ describe("page view follows Word's tables and equations", () => {
       assert.deepEqual(labels, Array.from({ length: longRows }, (_, index) => `Row ${index + 1}`));
     });
   });
+
+  // Four display equations wider than their column. The first two are sets
+  // of names separated by commas, the second in a borderless table beside
+  // its number; the third is a sum and the fourth a quotient. Word breaks
+  // the sets after commas into four lines each, the sum before its plus
+  // signs into three, and the quotient before "=", "/" and "-" into four,
+  // all inside the left column (72 to 288 pt): the first set from 75.7 to
+  // 284.3 pt, the second from 72.5 to 287.6 pt with "(1)" ending at
+  // 290.1 pt, the sum from 79.5 to 283.2 pt, the quotient from 98.3 to
+  // 261.8 pt. What follows each starts below it, the right column's
+  // text beside them is untouched, and the spaces around a break stay. Chrome's
+  // MathML does not wrap: the first set ran to 409 pt, and the second widened
+  // its table across the gap, both over the right column's text. A short
+  // numbered equation in the right column, in a table of fixed widths that
+  // reaches past the column, fits its cell and stays on one line from
+  // 324.85 pt; Word prints its "(2)" past the column, to 575.4 pt.
+  test("a display equation wider than its column wraps inside the column", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeEquationDocx();
+      await host.openDocument({ bytes, report, fileName: "equation-columns.docx" });
+      const layout = await host.page.evaluate(() => {
+        const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+        const box = page.getBoundingClientRect();
+        const scale = box.width / page.offsetWidth;
+        const points = (value) => value / scale * 0.75;
+        const groups = new Map();
+        page.querySelectorAll("math").forEach((math) => {
+          const paragraph = math.closest("p");
+          const tokens = Array.from(math.querySelectorAll("ms, mi, mn, mo, mtext")).filter((token) => token.textContent.trim());
+          groups.set(paragraph, (groups.get(paragraph) || []).concat(tokens));
+        });
+        const tail = Array.from(page.querySelectorAll("p")).find((p) => p.textContent.startsWith("Left tail para"));
+        const range = document.createRange();
+        range.selectNodeContents(tail);
+        const rightLines = Array.from(range.getClientRects()).filter((line) => points(line.left - box.left) > 300);
+        const number = Array.from(page.querySelectorAll("p")).find((p) => p.textContent.trim() === "(1)");
+        range.selectNodeContents(number);
+        const numberRight = points(range.getBoundingClientRect().right - box.left);
+        // The gap before the first glyph `after`, from the glyph printed
+        // before it, or null when a break falls between them.
+        const gap = (tokens, after) => {
+          const glyphs = [];
+          tokens.forEach((token) => {
+            const text = token.firstChild;
+            for (let index = 0; text && index < text.length; index += 1) {
+              if (text.data.charAt(index).trim()) {
+                range.setStart(text, index);
+                range.setEnd(text, index + 1);
+                glyphs.push({ character: text.data.charAt(index), rect: range.getBoundingClientRect() });
+              }
+            }
+          });
+          const at = glyphs.findIndex((glyph, index) => index && glyph.character === after);
+          const left = glyphs[at - 1].rect;
+          const right = glyphs[at].rect;
+          return Math.abs(left.top - right.top) > 2 ? null : points(right.left - left.right);
+        };
+        return {
+          rightLines: rightLines.length,
+          number: numberRight,
+          equations: Array.from(groups, ([paragraph, tokens]) => {
+            // Across, where the text is drawn: a token longer than the line
+            // was cut at the paragraph's edge, and its box ended there.
+            // A line starts at its first letter, not at a space before it.
+            const rects = tokens.map((token) => {
+              const text = document.createRange();
+              text.selectNodeContents(token);
+              const drawn = text.getBoundingClientRect();
+              const own = token.getBoundingClientRect();
+              text.setStart(token.firstChild, token.firstChild.data.search(/[^ ]/));
+              return { left: text.getBoundingClientRect().left, right: Math.max(drawn.right, own.right), top: own.top, bottom: own.bottom };
+            });
+            const top = Math.min(...rects.map((rect) => rect.top));
+            const bottom = Math.max(...rects.map((rect) => rect.bottom));
+            const block = paragraph.closest("table") || paragraph;
+            // Where each line starts: a subscript sits a few points below
+            // its line's top, the next line a whole line below.
+            const starts = [];
+            rects.slice().sort((one, other) => one.top - other.top).forEach((rect) => {
+              const last = starts[starts.length - 1];
+              if (last && rect.top - last.top < 8 / 0.75 * scale) {
+                last.left = Math.min(last.left, rect.left);
+              } else {
+                starts.push({ top: rect.top, left: rect.left });
+              }
+            });
+            return {
+              maths: paragraph.querySelectorAll("math").length,
+              starts: starts.map((start) => points(start.left - box.left)),
+              left: points(Math.min(...rects.map((rect) => rect.left)) - box.left),
+              right: points(Math.max(...rects.map((rect) => rect.right)) - box.left),
+              height: points(bottom - top),
+              size: parseFloat(getComputedStyle(paragraph.querySelector("math")).fontSize) * 0.75,
+              // The long paragraph runs on in the right column: its first fragment.
+              nextGap: points(block.nextElementSibling.getClientRects()[0].top - bottom),
+              hits: rightLines.filter((line) => rects.some((rect) =>
+                rect.left < line.right - 1 && rect.right > line.left + 1 && rect.top < line.bottom - 1 && rect.bottom > line.top + 1)).length,
+              equalsGap: gap(tokens, "="),
+              betaGap: gap(tokens, "B")
+            };
+          })
+        };
+      });
+      assert.equal(layout.equations.length, 5, "the five equations render");
+      assert.ok(layout.rightLines > 10, `the right column holds ${layout.rightLines} lines of the long paragraph`);
+      const short = layout.equations.pop();
+      assert.ok(short.left > 320 && short.right <= 541, `the short equation spans ${short.left} to ${short.right} pt; the right column runs from 324 to 540 pt`);
+      assert.ok(short.height < short.size * 1.6, `the short equation is ${short.height} pt tall at ${short.size} pt type; Word sets it on one line`);
+      assert.equal(short.maths, 1, "the short equation, which fits its cell, is left whole");
+      layout.equations.forEach((equation, index) => {
+        const name = `equation ${index + 1}`;
+        assert.ok(equation.right <= 289, `${name} reaches ${equation.right} pt; the left column ends at 288 pt`);
+        assert.equal(equation.hits, 0, `${name} is drawn over ${equation.hits} lines of the right column`);
+        assert.ok(equation.height > equation.size * 2, `${name} is ${equation.height} pt tall at ${equation.size} pt type; Word sets it on three or four lines`);
+        assert.ok(equation.nextGap >= -0.5, `what follows ${name} starts ${equation.nextGap} pt below it`);
+        // Word prints a space before "=" and before "Beta", after a comma or
+        // a plus sign.
+        assert.ok(equation.equalsGap === null || equation.equalsGap > 1.5, `${name}: "=" is ${equation.equalsGap} pt from the name before it`);
+        assert.ok(index === 3 || equation.betaGap === null || equation.betaGap > 1.5, `${name}: "Beta" is ${equation.betaGap} pt from the sign before it`);
+      });
+      // Word starts every line of a set at the same place: 75.7 pt for the
+      // first, 72.5 pt for the second. (It indents the sum's later lines.)
+      layout.equations.slice(0, 2).forEach((equation, index) => {
+        assert.ok(Math.max(...equation.starts) - Math.min(...equation.starts) <= 1, `equation ${index + 1}'s lines start at ${equation.starts.join(", ")} pt`);
+      });
+      assert.ok(layout.number <= 291, `the equation number ends at ${layout.number} pt; Word's ends at 290.1 pt`);
+    });
+  });
 });
 
 describe("page view splits long documents without freezing the window", () => {
@@ -3163,6 +3291,39 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
       assert.ok(Math.abs(layout.numbers.FOOTER.size - 10) <= 0.1, `the footer's number is ${layout.numbers.FOOTER.size} pt; Word prints it at 10 pt`);
       assert.equal(layout.numbers.HEADER && layout.numbers.HEADER.text, "1");
       assert.ok(Math.abs(layout.numbers.HEADER.size - 7) <= 0.1, `the header's number is ${layout.numbers.HEADER.size} pt; Word prints it at 7 pt`);
+    });
+  });
+
+  // A document of more than 60 sections opens in batches, and its first
+  // pages were measured while the reader pane was still hidden: every
+  // paragraph measured 0 wide, no tab got a width, and a contents page lost
+  // its dot leaders and right-aligned page numbers. Word's PDF of the same
+  // file (71 pages): the leaders run from 436.03 to 511.6 pt and "12" ends at
+  // 522.16 pt, on the 450 pt stop.
+  test("a contents tab is sized in a document long enough to open in batches", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeNumberedDocx({ morePages: 70 });
+      await host.openDocument({ bytes, report, fileName: "numbered-long.docx" });
+      const line = await host.page.evaluate(() => {
+        const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+        const box = page.getBoundingClientRect();
+        const points = (value) => value / (box.width / page.offsetWidth) * 0.75;
+        const contents = Array.from(page.querySelectorAll("p")).find((p) => p.textContent.includes("Contents line heron"));
+        const tab = contents.querySelector(".ld-tab");
+        const walker = document.createTreeWalker(contents, NodeFilter.SHOW_TEXT);
+        let node;
+        let number = null;
+        while ((node = walker.nextNode())) {
+          if (node.nodeValue.trim() === "12") {
+            number = node;
+          }
+        }
+        const range = document.createRange();
+        range.selectNodeContents(number);
+        return { tab: tab ? points(tab.getBoundingClientRect().width) : 0, end: points(range.getBoundingClientRect().right - box.left) };
+      });
+      assert.ok(line.tab > 60, `the contents tab is ${line.tab} pt wide; Word's leaders run 75.6 pt`);
+      assert.ok(Math.abs(line.end - 522.16) <= 1.5, `"12" ends at ${line.end} pt; Word's ends at 522.16 pt`);
     });
   });
 
