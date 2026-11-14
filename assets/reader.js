@@ -3212,12 +3212,14 @@
       wrapper.removeChild(page);
     });
     elements.docBody.replaceChildren.apply(elements.docBody, body);
+    body.forEach(matchWordLines);
     prepareDocumentDom(pages.slice(0, FIRST_BATCH), 0, pages.length);
     showLoadingPages(current && current.report);
-    // Measured in the hidden pane, every paragraph was 0 wide and no tab was
-    // sized. Shown, the first batch is at its final width and zoom, as the
-    // later batches are, and is laid out once.
-    body.forEach(matchWordLines);
+    // In the hidden pane every paragraph is 0 wide, so no tab got a width and
+    // a contents page lost its leaders. The tabs are sized again once the
+    // pane is shown. Running all of matchWordLines here instead cost about
+    // 10 MiB more on the 1,000-page report in WebView2 (CI's M-04).
+    body.forEach(setTabStops);
     var startTop = elements.docScroller.scrollTop;
     var next = 0;
     return new Promise(function (resolve) {
