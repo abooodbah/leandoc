@@ -1173,13 +1173,15 @@ test("Only a Strict package has its parts rewritten", async () => {
   const strict = new JSZip();
   strict.file("_rels/.rels", strictRels);
   strict.file("word/document.xml", strictDocument);
-  strict.file("word/media/image1.png", "purl.oclc.org/ooxml/ 1pt");
+  // Only XML parts are read as text; a picture is left as it is, even one
+  // whose bytes happen to spell the Strict namespace.
+  strict.file("word/media/image1.png", "http://purl.oclc.org/ooxml/drawingml/main w:start=\"1pt\"");
   const opened = await Fixups.transitionalPackage(strict);
   assert.equal(opened, strict);
   assert.match(await opened.file("_rels/.rels").async("string"), /2006\/relationships\/officeDocument/);
   assert.equal(await opened.file("word/document.xml").async("string"),
     `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:ind w:start="288"/></w:document>`);
-  assert.equal(await opened.file("word/media/image1.png").async("string"), "purl.oclc.org/ooxml/ 1pt");
+  assert.equal(await opened.file("word/media/image1.png").async("string"), "http://purl.oclc.org/ooxml/drawingml/main w:start=\"1pt\"");
 
   // A transitional package whose text mentions the Strict namespace is
   // left alone: only the package relationships decide.
