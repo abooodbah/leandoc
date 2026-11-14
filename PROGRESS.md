@@ -140,7 +140,9 @@ Decisions taken here (the owner can change them):
   tests/reader/make-numbered-docx.mjs, expected values from Word 16.
 - Fourth round, after a third review: a paragraph that cancels its list
   style's numbering (w:numId 0) drops the style's left and first-line
-  indents, as Word does; a note whose reference promises a mark of the
+  indents, as Word does, and keeps its own; a Strict OOXML document is
+  read in the transitional form docx-preview knows, so it keeps its styles,
+  list numbering, notes and tab stops; a note whose reference promises a mark of the
   author's own but has none keeps its number in the note when the note
   holds its reference mark; equations in a batched document's first pages
   are measured once the pane is shown; a page that starts inside a word

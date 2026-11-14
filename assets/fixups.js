@@ -1681,13 +1681,16 @@
         // w:numId 0 under a style that numbers: Word drops the style's left
         // and first-line indents with its numbering (Word 16, COM: both 0),
         // and a leading tab goes to the first stop. The paragraph's own
-        // indents still apply.
-        element.cssStyle = element.cssStyle || {};
-        ["text-indent", "margin-inline-start", "margin-left"].forEach(function (name) {
-          if (element.cssStyle[name] === undefined) {
-            element.cssStyle[name] = "0pt";
-          }
-        });
+        // indents still apply: a 0 margin-left after the paragraph's own
+        // margin-inline-start of 14.4 pt overrode it, and its text started
+        // 21.6 pt left of Word's.
+        var css = element.cssStyle = element.cssStyle || {};
+        if (css["text-indent"] === undefined) {
+          css["text-indent"] = "0pt";
+        }
+        if (css["margin-inline-start"] === undefined && css["margin-left"] === undefined) {
+          css["margin-inline-start"] = "0pt";
+        }
       } else if (key && !element.numbering) {
         var indents = linkedIndents(element.styleName);
         // The paragraph's own indents still win, each on its own.
@@ -2654,6 +2657,107 @@
     return -Math.round(JUSTIFY_SPACE_SHRINK * spaceWidth * 1000) / 1000;
   }
 
+  // Strict OOXML (Word's "Strict Open XML Document") names its parts and
+  // elements in the purl.oclc.org namespaces and writes lengths with units
+  // ("14.40pt"). docx-preview reads only the transitional names: it found no
+  // styles, numbering or notes part in such a document and dropped every
+  // paragraph and run property, so a paper saved as Strict lost its body
+  // style's first-line indent, spacing, justification and tab stops. Its
+  // parts are rewritten to the transitional form as the package opens.
+  var STRICT_NAMESPACES = [
+    ["http://purl.oclc.org/ooxml/officeDocument/relationships/extendedProperties",
+      "http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties"],
+    ["http://purl.oclc.org/ooxml/officeDocument/relationships/customProperties",
+      "http://schemas.openxmlformats.org/officeDocument/2006/relationships/custom-properties"],
+    ["http://purl.oclc.org/ooxml/officeDocument/relationships",
+      "http://schemas.openxmlformats.org/officeDocument/2006/relationships"],
+    ["http://purl.oclc.org/ooxml/officeDocument/extendedProperties",
+      "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"],
+    ["http://purl.oclc.org/ooxml/officeDocument/customProperties",
+      "http://schemas.openxmlformats.org/officeDocument/2006/custom-properties"],
+    ["http://purl.oclc.org/ooxml/officeDocument/docPropsVTypes",
+      "http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"],
+    ["http://purl.oclc.org/ooxml/officeDocument/sharedTypes",
+      "http://schemas.openxmlformats.org/officeDocument/2006/sharedTypes"],
+    ["http://purl.oclc.org/ooxml/officeDocument/math",
+      "http://schemas.openxmlformats.org/officeDocument/2006/math"],
+    ["http://purl.oclc.org/ooxml/wordprocessingml/main",
+      "http://schemas.openxmlformats.org/wordprocessingml/2006/main"],
+    ["http://purl.oclc.org/ooxml/drawingml/",
+      "http://schemas.openxmlformats.org/drawingml/2006/"]
+  ];
+  var STRICT_MARK = "http://purl.oclc.org/ooxml/";
+  var POINTS_PER_UNIT = { pt: 1, pc: 12, pi: 12, "in": 72, cm: 72 / 2.54, mm: 72 / 25.4 };
+  // Strict lengths in the units transitional readers expect: half points for
+  // font sizes and run positions, eighths of a point for a border's width,
+  // points for a border's spacing, twips for everything else.
+  var HALF_POINT_VALUES = { sz: true, szCs: true, kern: true, position: true };
+
+  function transitionalLength(element, attribute, points) {
+    if (attribute === "val" && HALF_POINT_VALUES[element]) {
+      return Math.round(points * 2);
+    }
+    if (attribute === "sz") {
+      return Math.round(points * 8);
+    }
+    if (attribute === "space" && element !== "cols") {
+      return Math.round(points);
+    }
+    return Math.round(points * 20);
+  }
+
+  function transitionalXml(text) {
+    if (typeof text !== "string" || text.indexOf(STRICT_MARK) < 0) {
+      return text;
+    }
+    STRICT_NAMESPACES.forEach(function (pair) {
+      text = text.split(pair[0]).join(pair[1]);
+    });
+    return text.replace(/<w:([A-Za-z]+)(\s[^<>]*?)(\/?)>/g, function (tag, element, attributes, close) {
+      if (!/="-?\d*\.?\d+(?:pt|pc|pi|in|cm|mm|%)"/.test(attributes)) {
+        return tag;
+      }
+      attributes = attributes.replace(/(\sw:)([A-Za-z]+)="(-?\d*\.?\d+)(pt|pc|pi|in|cm|mm|%)"/g,
+        function (whole, prefix, attribute, number, unit) {
+          var value = parseFloat(number);
+          if (unit === "%") {
+            // Table and cell widths count fiftieths of a percent; a text
+            // scale counts whole percent.
+            return prefix + attribute + '="' + Math.round(attribute === "w" ? value * 50 : value) + '"';
+          }
+          return prefix + attribute + '="' + transitionalLength(element, attribute, value * POINTS_PER_UNIT[unit]) + '"';
+        });
+      return "<w:" + element + attributes + close + ">";
+    });
+  }
+
+  // A JSZip package as docx-preview opens it: a Strict one's XML parts are
+  // replaced by their transitional form; any other is left as it is.
+  function transitionalPackage(zip) {
+    var rels = zip && zip.files && zip.files["_rels/.rels"];
+    if (!rels) {
+      return Promise.resolve(zip);
+    }
+    return rels.async("string").then(function (text) {
+      if (text.indexOf(STRICT_MARK) < 0) {
+        return zip;
+      }
+      var names = Object.keys(zip.files).filter(function (name) {
+        return !zip.files[name].dir && /\.(xml|rels)$/i.test(name);
+      });
+      return Promise.all(names.map(function (name) {
+        return zip.files[name].async("string").then(function (part) {
+          var converted = transitionalXml(part);
+          if (converted !== part) {
+            zip.file(name, converted);
+          }
+        });
+      })).then(function () {
+        return zip;
+      });
+    });
+  }
+
   return Object.freeze({
     SYMBOL: SYMBOL,
     WINGDINGS: WINGDINGS,
@@ -2697,6 +2801,8 @@
     markTabs: markTabs,
     numberingTabs: numberingTabs,
     parseTabStops: parseTabStops,
+    transitionalXml: transitionalXml,
+    transitionalPackage: transitionalPackage,
     prepareModel: prepareModel
   });
 }));

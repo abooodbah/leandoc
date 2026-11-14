@@ -720,6 +720,22 @@
     });
   }
 
+  // docx-preview opens a package with JSZip.loadAsync; a Strict OOXML one
+  // is rewritten to the transitional form there (Fixups.transitionalPackage),
+  // before docx-preview reads any part of it.
+  function openStrictPackages() {
+    var zip = window.JSZip;
+    if (!zip || typeof zip.loadAsync !== "function" || !Fixups || zip.loadAsync.leanDocStrict) {
+      return;
+    }
+    var load = zip.loadAsync;
+    var open = function () {
+      return load.apply(this, arguments).then(Fixups.transitionalPackage);
+    };
+    open.leanDocStrict = true;
+    zip.loadAsync = open;
+  }
+
   function renderPackage(serial, ratio, started, firstRender) {
     var options = renderOptions();
     var view = currentView;
@@ -4999,6 +5015,7 @@
   updateShortcutTitles();
   setControlsEnabled(false);
   root.dataset.renderState = "empty";
+  openStrictPackages();
   if (!window.docx || !Fixups || !Wording) {
     root.dataset.renderState = "failed";
     showStatus("LeanDoc could not load its document renderer.", "error");
