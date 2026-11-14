@@ -1331,14 +1331,23 @@
     // A page that starts inside a word: the line broke at a hyphenation
     // point, whose hyphen Chrome prints only where a line breaks. Word
     // prints it at the foot of the page.
+    // A part split again (settleSplit) hands its old end, and that end's
+    // hyphen, to the new middle part.
+    var endHyphen = paragraph.hasAttribute("data-ld-hyphen");
     var head = moving.toString().charAt(0);
     var tail = kept.toString().slice(-1);
     if (HYPHENATED_LETTER.test(head) && (tail === "\u00ad" || HYPHENATED_LETTER.test(tail))) {
       paragraph.setAttribute("data-ld-hyphen", "");
+    } else {
+      paragraph.removeAttribute("data-ld-hyphen");
     }
     var rest = paragraph.cloneNode(false);
     rest.removeAttribute("id");
-    rest.removeAttribute("data-ld-hyphen");
+    if (endHyphen) {
+      rest.setAttribute("data-ld-hyphen", "");
+    } else {
+      rest.removeAttribute("data-ld-hyphen");
+    }
     rest.appendChild(moving.extractContents());
     rest.setAttribute("data-ld-continued", "");
     rest.style.textIndent = "0";
@@ -1895,11 +1904,17 @@
     if (key === null || !head || key !== paragraphKey(head) || !head.hasAttribute("data-ld-continued")) {
       return;
     }
+    // The joined part ends where the continuation ended.
+    var endHyphen = head.hasAttribute("data-ld-hyphen");
     while (head.firstChild) {
       tail.appendChild(head.firstChild);
     }
     head.parentNode.removeChild(head);
-    tail.removeAttribute("data-ld-hyphen");
+    if (endHyphen) {
+      tail.setAttribute("data-ld-hyphen", "");
+    } else {
+      tail.removeAttribute("data-ld-hyphen");
+    }
     var saved = tail[SPLIT_STYLE];
     if (saved) {
       tail.style.marginBottom = saved.marginBottom;
