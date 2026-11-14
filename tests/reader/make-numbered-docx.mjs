@@ -371,17 +371,23 @@ ${PLAIN_SECTION}
 // soft hyphen typed into the text), so most lines end inside a word. A page
 // starts inside one of them. Word prints a hyphen at the end of such a line,
 // at the foot of a page as anywhere else.
-export function makeSoftHyphenDocx() {
+//
+// With { columns: true }: 36 justified paragraphs in two columns. A page
+// whose kept lines wrap differently once split is split again higher up,
+// so a paragraph's first part is split a second time.
+export function makeSoftHyphenDocx({ columns = false } = {}) {
   const parts = ["counter", "revolution", "aries", "inter", "national", "ization", "photo", "synthe", "sizing"];
   const word = (seed) => [0, 1, 2].map((step) => parts[(seed + step) % parts.length]).join("­");
   const body = [];
-  for (let index = 0; index < 12; index += 1) {
+  for (let index = 0; index < (columns ? 36 : 12); index += 1) {
     const text = Array.from({ length: 60 }, (_, at) => word(index * 5 + at)).join(" ");
-    body.push(`<w:p><w:r><w:t xml:space="preserve">Hyphen para ${index + 1}. ${text}.</w:t></w:r></w:p>`);
+    const props = columns ? `<w:pPr><w:jc w:val="both"/></w:pPr>` : "";
+    body.push(`<w:p>${props}<w:r><w:t xml:space="preserve">Hyphen para ${index + 1}. ${text}.</w:t></w:r></w:p>`);
   }
+  const section = columns ? PLAIN_SECTION.replace("</w:sectPr>", `<w:cols w:num="2" w:space="720"/></w:sectPr>`) : PLAIN_SECTION;
   const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${body.join("\n")}
-${PLAIN_SECTION}
+${section}
 </w:body></w:document>`;
   return packageDocx({
     "[Content_Types].xml": CONTENT_TYPES.replace(/<Override PartName="\/word\/(numbering|header1|footer1)\.xml"[^>]*\/>\n?/g, ""),

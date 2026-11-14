@@ -3449,6 +3449,37 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
     });
   });
 
+  // A page's first part of a paragraph can be split again when its kept
+  // lines wrap differently once split (a justified paragraph in columns).
+  // The hyphen belongs to where each part now ends: the first split's
+  // hyphen stayed on the part that was split again, so a page ending
+  // between two words printed one ("following-"), and the new middle part,
+  // which ends inside the word, printed none.
+  test("a paragraph split twice keeps a hyphen only where a part ends inside a word", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeSoftHyphenDocx({ columns: true });
+      await host.openDocument({ bytes, report, fileName: "soft-hyphens-columns.docx" });
+      const splits = await host.page.evaluate(() => {
+        const all = Array.from(document.querySelectorAll("#docBody article p"));
+        return all.map((rest, index) => {
+          if (!rest.hasAttribute("data-ld-continued") || index === 0) {
+            return null;
+          }
+          const kept = all[index - 1];
+          return {
+            inWord: /[a-z­]$/i.test(kept.textContent) && /^[a-z]/i.test(rest.textContent),
+            hyphen: kept.hasAttribute("data-ld-hyphen") && /-/.test(getComputedStyle(kept, "::after").content),
+            ends: kept.textContent.slice(-12)
+          };
+        }).filter(Boolean);
+      });
+      assert.ok(splits.some((split) => split.inWord), `a page starts inside a word (${splits.length} splits)`);
+      assert.ok(splits.some((split) => !split.inWord), `a page starts between words (${splits.length} splits)`);
+      splits.forEach((split, index) => assert.equal(split.hyphen, split.inWord,
+        `split ${index + 1} (ends "${split.ends}") ${split.inWord ? "inside a word shows no" : "between words shows a"} hyphen`));
+    });
+  });
+
   // A footnote reference that says a mark of the author's own follows, with
   // no mark after it, whose note starts with the note's own reference mark
   // (w:footnoteRef). Word's PDF: no mark at the reference, and the note
