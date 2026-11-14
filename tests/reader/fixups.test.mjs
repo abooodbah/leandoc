@@ -1067,6 +1067,30 @@ test("A numbered paragraph's label tab is its first tab, its stops rank as Word 
   assert.equal(direct.cssStyle["text-indent"], undefined);
 });
 
+// A list whose items start with their text, as most reports' numbered lists
+// do, keeps docx-preview's label and gets no tab run per item: in the
+// 300-page perf report the runs cost about 4 MiB, and its 1,000-page
+// sibling missed the Windows memory budget (M-04) by 0.8 MiB. A level with
+// any item that starts with a tab of its own gets the label's tab on every
+// item, as the label's suffix belongs to the level.
+test("A numbered level gets its label's tab only where its paragraphs start with a tab of their own", () => {
+  const numberings = [
+    { id: "5", level: 0, levelText: "%1.", suff: "tab" },
+    { id: "5", level: 1, levelText: "%2)", suff: "tab" }
+  ];
+  const item = (level, ...children) => ({ type: "paragraph", numbering: { id: "5", level },
+    children: [{ type: "run", children }] });
+  const plain = item(0, { type: "text", text: "First item" });
+  const bookmarked = item(1, { type: "bookmarkStart" }, { type: "tab" }, { type: "text", text: "Tabbed item" });
+  const sibling = item(1, { type: "text", text: "Plain item at the tabbed level" });
+  assert.equal(Fixups.markTabs([plain, bookmarked, sibling], [], numberings, {}), 3, "the tabbed item's own tab and the two label tabs at its level");
+  assert.equal(plain.children.length, 1, "no label tab where the level's items start with text");
+  assert.equal(numberings[0].suff, "tab");
+  assert.equal(bookmarked.children.length, 2);
+  assert.equal(sibling.children.length, 2, "every item at a tabbed level gets the label's tab");
+  assert.equal(numberings[1].suff, "nothing");
+});
+
 test("A PAGE result takes its field code's format unless the code keeps the result's own", () => {
   const field = (charType) => ({ type: "run", fieldRun: true, children: [{ type: "complexField", charType }] });
   const plain = { type: "run", cssStyle: { "font-size": "7pt" }, children: [{ type: "text", text: "3" }] };
