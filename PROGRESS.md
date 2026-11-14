@@ -131,8 +131,9 @@ Decisions taken here (the owner can change them):
   its own; a right stop past the right indent keeps its line whole. Test
   document for the numbering: tests/reader/make-numbered-docx.mjs.
 - Third round, after a second review: a document of more than 60
-  sections measures its first pages with the reader pane shown out of the
-  flow, so their tabs get widths (a contents page had lost its leaders);
+  sections measures its first pages once the reader pane is shown, at
+  their final width and zoom, so their tabs get widths (a contents page
+  had lost its leaders);
   an equation wider than its column, or one that widens its table past
   the column, is cut after commas and before operators into equations
   that wrap inside the column; an equation's tokens no longer wrap inside

@@ -3212,13 +3212,12 @@
       wrapper.removeChild(page);
     });
     elements.docBody.replaceChildren.apply(elements.docBody, body);
-    // Measured in a hidden pane, every paragraph is 0 wide and no tab is
-    // sized; the first batch is measured with the pane shown out of the flow.
-    beginMeasuring(serial);
-    body.forEach(matchWordLines);
-    endMeasuring(serial);
     prepareDocumentDom(pages.slice(0, FIRST_BATCH), 0, pages.length);
     showLoadingPages(current && current.report);
+    // Measured in the hidden pane, every paragraph was 0 wide and no tab was
+    // sized. Shown, the first batch is at its final width and zoom, as the
+    // later batches are, and is laid out once.
+    body.forEach(matchWordLines);
     var startTop = elements.docScroller.scrollTop;
     var next = 0;
     return new Promise(function (resolve) {
