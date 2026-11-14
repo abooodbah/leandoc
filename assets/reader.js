@@ -2333,6 +2333,117 @@
     });
   }
 
+  // Word breaks an equation wider than its column after a comma or before a
+  // relation or operator, and every line stays in the column. Chrome's
+  // MathML does not wrap: an equation in a table cell of a two-column paper
+  // widened its table across the gap, over the next column's text. An
+  // equation that reaches past its paragraph, or fills its paragraph and
+  // makes its table wider than a column, is cut at those breaks into
+  // equations of their own, which the line wraps between, left-aligned in
+  // one block as Word sets them.
+  var MATH_TOKEN = /^(ms|mi|mn|mo|mtext)$/i;
+  var MATH_OPERATOR = /[=+\-*\/<>\u00b1\u00d7\u00f7\u2212\u2248\u2260\u2264\u2265]/;
+
+  function wrapWideMaths(container) {
+    if (!container.querySelectorAll) {
+      return;
+    }
+    var maths = container.querySelectorAll("math");
+    if (!maths.length) {
+      return;
+    }
+    Array.prototype.filter.call(maths, function (math) {
+      return mathExcess(math) > 0.5;
+    }).forEach(function (math) {
+      Array.prototype.slice.call(math.children).forEach(splitMathToken);
+      var block = document.createElement("span");
+      block.className = "ld-math-lines";
+      var part = null;
+      Array.prototype.slice.call(math.children).forEach(function (item, index, items) {
+        if (!part || breaksBefore(items, index)) {
+          part = block.appendChild(math.cloneNode(false));
+        }
+        part.appendChild(item);
+      });
+      math.parentNode.replaceChild(block, math);
+    });
+  }
+
+  // How far the equation reaches past its paragraph, or, when it fills its
+  // paragraph, how much wider than a column its block is. An equation that
+  // fits stays whole.
+  function mathExcess(math) {
+    var paragraph = math.closest("p");
+    if (!paragraph) {
+      return 0;
+    }
+    var rect = math.getBoundingClientRect();
+    var own = paragraph.getBoundingClientRect();
+    var excess = rect.right - own.right;
+    var article = paragraph.closest("article");
+    if (!article || rect.width < own.width - 1) {
+      return excess;
+    }
+    var outer = paragraph;
+    while (outer.parentElement !== article) {
+      outer = outer.parentElement;
+    }
+    return Math.max(excess, outer.getBoundingClientRect().width - columnWidth(article));
+  }
+
+  function columnWidth(article) {
+    var style = getComputedStyle(article);
+    var count = parseInt(style.columnCount, 10) || 1;
+    var scale = article.offsetWidth ? article.getBoundingClientRect().width / article.offsetWidth : 1;
+    var inner = article.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
+    return (inner - (parseFloat(style.columnGap) || 0) * (count - 1)) / count * scale;
+  }
+
+  // "a, b = c / d" becomes "a, " "b " "= c " "/ d": a break may follow a
+  // comma and its spaces, or come before an operator, a slash among them.
+  function splitMathToken(token) {
+    if (!MATH_TOKEN.test(token.nodeName) || token.firstElementChild) {
+      return;
+    }
+    var text = token.textContent;
+    var pieces = [];
+    var start = 0;
+    for (var index = 0; index < text.length; index += 1) {
+      var character = text.charAt(index);
+      if (character === ",") {
+        var end = index + 1;
+        while (text.charAt(end) === " ") {
+          end += 1;
+        }
+        pieces.push(text.slice(start, end));
+        start = end;
+        index = end - 1;
+      } else if (index > start && MATH_OPERATOR.test(character)) {
+        pieces.push(text.slice(start, index));
+        start = index;
+      }
+    }
+    if (start < text.length) {
+      pieces.push(text.slice(start));
+    }
+    if (pieces.length < 2) {
+      return;
+    }
+    pieces.forEach(function (piece) {
+      var copy = token.cloneNode(false);
+      copy.textContent = piece;
+      token.parentNode.insertBefore(copy, token);
+    });
+    token.parentNode.removeChild(token);
+  }
+
+  function breaksBefore(items, index) {
+    var before = items[index - 1];
+    var item = items[index];
+    return (MATH_TOKEN.test(before.nodeName) && /,\s*$/.test(before.textContent)) ||
+      (MATH_TOKEN.test(item.nodeName) && MATH_OPERATOR.test(item.textContent.trim().charAt(0)));
+  }
+
   // Width of one space in each run font, for shrinkJustifiedSpaces.
   var spaceContext = null;
   var spaceWidths = new Map();
@@ -2619,6 +2730,10 @@
     fitParagraphsToRuns(container);
     setSingleLines(container);
     alignLabels(container);
+    // Before the tabs: setTabStops reads the layout this pass reads, so a
+    // page with no wide equation is not laid out again. Read after the last
+    // pass, it laid the 19-page paper's body out once more (6 MiB).
+    wrapWideMaths(container);
     setTabStops(container);
     shrinkJustifiedSpaces(container);
   }
@@ -3097,7 +3212,11 @@
       wrapper.removeChild(page);
     });
     elements.docBody.replaceChildren.apply(elements.docBody, body);
+    // Measured in a hidden pane, every paragraph is 0 wide and no tab is
+    // sized; the first batch is measured with the pane shown out of the flow.
+    beginMeasuring(serial);
     body.forEach(matchWordLines);
+    endMeasuring(serial);
     prepareDocumentDom(pages.slice(0, FIRST_BATCH), 0, pages.length);
     showLoadingPages(current && current.report);
     var startTop = elements.docScroller.scrollTop;

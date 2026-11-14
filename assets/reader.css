@@ -1289,6 +1289,23 @@ body {
   text-indent: 0;
 }
 
+/* A token of an equation is set on one line. docx-preview's runs may wrap
+   anywhere (pre-wrap, break-word), and a sum written as one run longer than
+   the line wrapped inside its token, which shows its first line only: the
+   rest of the equation was lost. */
+#docBody math {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+/* An equation wider than its column, set on several lines (reader.js
+   wrapWideMaths): the lines are left-aligned as one block, which the
+   paragraph places. */
+#docBody span.ld-math-lines {
+  display: inline-block;
+  text-align: left;
+}
+
 #docBody span.ld-tab-leader {
   overflow: hidden;
   white-space: nowrap;

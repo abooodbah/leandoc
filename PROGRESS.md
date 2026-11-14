@@ -130,13 +130,24 @@ Decisions taken here (the owner can change them):
   labels; a PAGE result takes its field code's size unless the code keeps
   its own; a right stop past the right indent keeps its line whole. Test
   document for the numbering: tests/reader/make-numbered-docx.mjs.
+- Third round, after a second review: a document of more than 60
+  sections measures its first pages with the reader pane shown out of the
+  flow, so their tabs get widths (a contents page had lost its leaders);
+  an equation wider than its column, or one that widens its table past
+  the column, is cut after commas and before operators into equations
+  that wrap inside the column; an equation's tokens no longer wrap inside
+  themselves. Test document: makeEquationDocx in
+  tests/reader/make-numbered-docx.mjs, expected values from Word 16.
 - Measured against main on one Windows laptop (perf-probe, five rounds,
-  medians): 300 pages 691 to 709 ms, 1,000 pages 2,114 to 2,162 ms, the
-  19-page paper 1,086 to 1,135 ms and 216 to 219 MiB (the paper's four
-  boxes lay their pages out again: 28 page layouts against main's 19);
-  the reports' memory as on main. Page counts against Word on 27 local
-  documents: 17 of 27 on main, 18 here; page starts 221 of 624 on main,
-  224 here.
+  medians), third round: 300 pages 684 to 712 ms, 1,000 pages 2,056 to
+  2,097 ms, the 19-page paper 1,037 to 1,108 ms and 215 to 221 MiB (the
+  paper's four boxes lay their pages out again); the reports' memory as on
+  main. Against the second round's code, the third round's changes moved
+  the reports by +9 and -20 ms and the paper by -14 ms, memory within
+  2 MiB, inside the spread of the runs. Page counts against Word on 27
+  local documents: 17 of 27 on main, 19 here; page starts 221 of 624 on
+  both. On ten more private documents: 7 of 10 on both, page starts 109 of
+  165 on main and 111 here.
 
 ## Efficiency review (0.2.0)
 
