@@ -16,7 +16,7 @@ import {
 } from "./fake-host.mjs";
 import { makeBigDocx } from "./make-big-docx.mjs";
 import { makeFloatsDocx } from "./make-floats-docx.mjs";
-import { makeEquationDocx, makeNumberedDocx } from "./make-numbered-docx.mjs";
+import { makeCancelledNumberingDocx, makeEmptyMarkNoteDocx, makeEquationDocx, makeNumberedDocx, makeSoftHyphenDocx } from "./make-numbered-docx.mjs";
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeWordMetricsDocx } from "./make-saved-pages-docx.mjs";
 
@@ -2269,11 +2269,10 @@ describe("page view follows Word's tables and equations", () => {
   // numbered equation in the right column, in a table of fixed widths that
   // reaches past the column, fits its cell and stays on one line from
   // 324.85 pt; Word prints its "(2)" past the column, to 575.4 pt.
-  test("a display equation wider than its column wraps inside the column", async () => {
-    await withHost({}, async (host) => {
-      const { bytes, report } = await makeEquationDocx();
-      await host.openDocument({ bytes, report, fileName: "equation-columns.docx" });
-      const layout = await host.page.evaluate(() => {
+  async function equationLayout(host, options = {}) {
+    const { bytes, report } = await makeEquationDocx(options);
+    await host.openDocument({ bytes, report, fileName: "equation-columns.docx" });
+    return host.page.evaluate(() => {
         const page = document.querySelector("#docBody .docx-wrapper > section.docx");
         const box = page.getBoundingClientRect();
         const scale = box.width / page.offsetWidth;
@@ -2355,7 +2354,12 @@ describe("page view follows Word's tables and equations", () => {
             };
           })
         };
-      });
+    });
+  }
+
+  test("a display equation wider than its column wraps inside the column", async () => {
+    await withHost({}, async (host) => {
+      const layout = await equationLayout(host);
       assert.equal(layout.equations.length, 5, "the five equations render");
       assert.ok(layout.rightLines > 10, `the right column holds ${layout.rightLines} lines of the long paragraph`);
       const short = layout.equations.pop();
@@ -2379,6 +2383,23 @@ describe("page view follows Word's tables and equations", () => {
         assert.ok(Math.max(...equation.starts) - Math.min(...equation.starts) <= 1, `equation ${index + 1}'s lines start at ${equation.starts.join(", ")} pt`);
       });
       assert.ok(layout.number <= 291, `the equation number ends at ${layout.number} pt; Word's ends at 290.1 pt`);
+    });
+  });
+
+  // In a document of more than 60 sections the first pages are matched while
+  // the reader pane is hidden, where every box is 0 wide: each equation in a
+  // column section looked wider than its column and was cut, the short one
+  // that fits its cell too.
+  test("an equation that fits is left whole in a document long enough to open in batches", async () => {
+    await withHost({}, async (host) => {
+      const layout = await equationLayout(host, { morePages: 70 });
+      assert.equal(layout.equations.length, 5, "the five equations render");
+      const short = layout.equations.pop();
+      assert.equal(short.maths, 1, "the short equation, which fits its cell, is left whole");
+      layout.equations.forEach((equation, index) => {
+        assert.ok(equation.maths > 1, `equation ${index + 1} is cut into lines`);
+        assert.ok(equation.right <= 289, `equation ${index + 1} reaches ${equation.right} pt; the left column ends at 288 pt`);
+      });
     });
   });
 });
@@ -3324,6 +3345,95 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
       });
       assert.ok(line.tab > 60, `the contents tab is ${line.tab} pt wide; Word's leaders run 75.6 pt`);
       assert.ok(Math.abs(line.end - 522.16) <= 1.5, `"12" ends at ${line.end} pt; Word's ends at 522.16 pt`);
+    });
+  });
+
+  // A paragraph of a list style that cancels the style's numbering (w:numId
+  // 0) loses the style's indents in Word, and its leading tab goes to the
+  // 14.4 pt stop. Word 16 (COM) starts the text of "Cancelled tabbed" at
+  // 14.4 pt from the margin, "Cancelled plain" at 0, and "Body tabbed" (the
+  // style below, which keeps its 14.4 pt first line) at 36 pt.
+  test("a paragraph that cancels its style's numbering starts where Word's does", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeCancelledNumberingDocx();
+      await host.openDocument({ bytes, report, fileName: "cancelled-numbering.docx" });
+      const starts = await host.page.evaluate(() => {
+        const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+        const article = page.querySelector("article");
+        const box = page.getBoundingClientRect();
+        const scale = box.width / page.offsetWidth;
+        const margin = article.getBoundingClientRect().left + parseFloat(getComputedStyle(article).paddingLeft) * scale;
+        const result = {};
+        article.querySelectorAll("p").forEach((p) => {
+          const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+          let node;
+          while ((node = walker.nextNode())) {
+            const at = node.nodeValue.search(/\S/);
+            if (at < 0 || node.parentElement.closest(".ld-tab")) {
+              continue;
+            }
+            const range = document.createRange();
+            range.setStart(node, at);
+            range.setEnd(node, at + 1);
+            const name = node.nodeValue.trim().split(" ").slice(0, 2).join(" ");
+            result[name] = (range.getClientRects()[0].left - margin) / scale * 0.75;
+            return;
+          }
+        });
+        return result;
+      });
+      const word = { "Cancelled tabbed": 14.4, "Cancelled plain": 0, "Body tabbed": 36.3 };
+      Object.keys(word).forEach((name) => {
+        assert.ok(Math.abs(starts[name] - word[name]) <= 1, `"${name}" starts at ${starts[name]} pt; Word's at ${word[name]} pt`);
+      });
+    });
+  });
+
+  // A page that starts inside a word: the line before the break ended at an
+  // optional hyphen, which Chrome prints only where a line breaks. Split
+  // there, the page's last line ended "...revol" with no hyphen and the next
+  // page started "ution...". Word prints the hyphen.
+  test("a word broken across pages keeps its hyphen", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeSoftHyphenDocx();
+      await host.openDocument({ bytes, report, fileName: "soft-hyphens.docx" });
+      const splits = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody p[data-ld-continued]")).map((rest) => {
+        const pages = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"));
+        const page = rest.closest("section.docx");
+        const before = pages[pages.indexOf(page) - 1];
+        const kept = before ? Array.from(before.querySelectorAll("article p")).pop() : null;
+        const keptText = kept ? kept.textContent : "";
+        const after = getComputedStyle(kept, "::after").content;
+        return {
+          inWord: /[a-z­]$/i.test(keptText) && /^[a-z]/i.test(rest.textContent),
+          hyphen: /-|‐/.test(after) || /-$/.test(keptText.replace(/­$/, ""))
+        };
+      }));
+      const inWord = splits.filter((split) => split.inWord);
+      assert.ok(inWord.length > 0, `a page starts inside a word (${splits.length} splits)`);
+      inWord.forEach((split, index) => assert.ok(split.hyphen, `split ${index + 1} inside a word shows no hyphen`));
+    });
+  });
+
+  // A footnote reference that says a mark of the author's own follows, with
+  // no mark after it, whose note starts with the note's own reference mark
+  // (w:footnoteRef). Word's PDF: no mark at the reference, and the note
+  // starts with its number, 1.
+  test("a note whose own mark is empty keeps its number in the note", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeEmptyMarkNoteDocx();
+      await host.openDocument({ bytes, report, fileName: "empty-mark-note.docx" });
+      const marks = await host.page.evaluate(() => {
+        const visible = (node) => node && getComputedStyle(node).display !== "none" && node.getClientRects().length > 0;
+        const lead = Array.from(document.querySelectorAll("#docBody article p")).find((p) => p.textContent.includes("Summary heron"));
+        const note = Array.from(document.querySelectorAll("#docBody li")).find((li) => li.textContent.includes("Note heron"));
+        return {
+          shownNumbers: Array.from(lead.querySelectorAll("sup")).filter(visible).map((sup) => sup.textContent),
+          marker: note ? getComputedStyle(note).listStyleType : null
+        };
+      });
+      assert.deepEqual(marks.shownNumbers, [], "no mark at the reference");
+      assert.notEqual(marks.marker, "none", "the note shows its number");
     });
   });
 

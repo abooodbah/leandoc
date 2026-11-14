@@ -1122,3 +1122,15 @@ test("Footnotes whose reference has the author's own mark are listed", () => {
   assert.deepEqual(Fixups.customMarkNotes(body), ["1", "4"]);
   assert.deepEqual(Fixups.customMarkNotes(null), []);
 });
+
+test("Notes that start with their own reference mark are listed", () => {
+  const note = (id, children) => el("footnote", [el("p", children)], { id });
+  const root = el("footnotes", [
+    note("-1", [el("r", [el("separator")])]),
+    note("1", [el("r", [el("footnoteRef")]), el("r", [el("t")])]),
+    note("2", [el("r", [el("t")])]),
+    note("3", [el("pPr"), el("r", [el("rPr"), el("footnoteRef")])])
+  ]);
+  assert.deepEqual(Fixups.notesWithReferenceMark(root), ["1", "3"]);
+  assert.deepEqual(Fixups.notesWithReferenceMark(null), []);
+});
