@@ -16,6 +16,7 @@ import {
 } from "./fake-host.mjs";
 import { makeBigDocx } from "./make-big-docx.mjs";
 import { makeFloatsDocx } from "./make-floats-docx.mjs";
+import { makeNumberedDocx } from "./make-numbered-docx.mjs";
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeWordMetricsDocx } from "./make-saved-pages-docx.mjs";
 
@@ -2364,8 +2365,9 @@ describe("page view splits long documents without freezing the window", () => {
       // Waiting rows were once put back all at once on the page where the
       // table stopped, clipped by the page: 26 pages. Moving whole rows only
       // gave 27. Word breaks rows across pages and gives 22; LeanDoc does
-      // too and gives 23.
-      assert.equal(rendered.pages, 23);
+      // too, and gave 23 while a one-line paragraph of runs smaller than its
+      // style stayed as tall as the style's size. It now gives Word's 22.
+      assert.equal(rendered.pages, 22);
       console.log(`# 1,500-row table: ${rendered.pages} pages, reader ${rendered.ms} ms, longest task ${result.longest} ms`);
     });
   });
@@ -2765,7 +2767,9 @@ describe("page view follows Word's floating boxes, tab stops, and running header
       assert.ok(float.pageLevel, "the box belongs to the page, not to a column");
       assert.ok(Math.abs(float.top) <= 1, `the box starts ${float.top}px below the top margin`);
       assert.ok(Math.abs(float.width - 514 * POINT) <= 1, `the box is ${float.width}px wide; 514 pt spans both columns`);
-      assert.ok(Math.abs(float.height - 73.2 * POINT) <= 1, `the box is ${float.height}px tall; Word's is 73.2 pt`);
+      // Chrome draws each of the table's five 0.5 pt rules a pixel wide:
+      // the reader's box is 1.3 pt taller than Word's.
+      assert.ok(Math.abs(float.height - 73.2 * POINT) <= 2 * POINT, `the box is ${float.height}px tall; Word's is 73.2 pt`);
       for (const paragraph of page.paragraphs) {
         for (const rect of paragraph.rects) {
           assert.ok(rect.top >= float.bottom + 12 * POINT - 1,
@@ -2982,6 +2986,212 @@ describe("page view follows Word's floating boxes, tab stops, and running header
             .map(() => p.textContent.trim().slice(0, 24)));
       });
       assert.deepEqual(overlaps, []);
+    });
+  });
+
+  // Word refits a box that fits its text when it lays the page out: a file
+  // that saved the box at 140 pt prints it 73.2 pt tall, as Word does the
+  // default fixture. The reader held such a box at the height saved.
+  test("a box that fits its text is as tall as its text, whatever height the file saved", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeFloatsDocx({ boxHeight: 140 });
+      await host.openDocument({ bytes, report, fileName: "floats-tall.docx" });
+      const pages = await floatLayout(host);
+      const page = pages.find((p) => p.floats.some((f) => f.text.includes("Floatbox heron")));
+      const float = page.floats.find((f) => f.text.includes("Floatbox heron"));
+      // Chrome draws each of the table's five 0.5 pt rules a pixel wide:
+      // the reader's box is 1.3 pt taller than Word's.
+      assert.ok(Math.abs(float.height - 73.2 * POINT) <= 2 * POINT, `the box is ${float.height / POINT} pt tall; Word's is 73.2 pt`);
+      for (const paragraph of page.paragraphs) {
+        for (const rect of paragraph.rects) {
+          assert.ok(rect.top >= float.bottom + 12 * POINT - 1,
+            `"${paragraph.text}" starts at ${rect.top}px, inside the box or the 12 pt below it (box ends at ${float.bottom}px)`);
+        }
+      }
+    });
+  });
+
+  // With 23 paragraphs before it, "II. Anchor Heading" no longer fits on
+  // page 2 below the box, and Word moves the heading, and the box anchored
+  // in it, to page 3: the box at the top margin and the heading 154.35 pt
+  // from the top of the page. The reader set the box on page 2 and the
+  // heading on page 3.
+  test("a box goes to the next page with its anchor when Word moves the anchor there", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeFloatsDocx({ before: 23, savedStart: null });
+      await host.openDocument({ bytes, report, fileName: "floats-23.docx" });
+      const pages = await floatLayout(host);
+      const boxPage = pages.find((p) => p.floats.some((f) => f.text.includes("Floatbox heron")));
+      const anchorPage = pages.find((p) => p.paragraphs.some((q) => q.text.startsWith("II. Anchor Heading")));
+      assert.equal(boxPage.index, 3, `the box is on page ${boxPage.index}; Word prints it on page 3`);
+      assert.equal(anchorPage.index, 3, `the anchor heading is on page ${anchorPage.index}; Word puts it on page 3`);
+      const heading = anchorPage.paragraphs.find((q) => q.text.startsWith("II. Anchor Heading"));
+      const top = heading.rects[0].top / POINT;
+      assert.ok(Math.abs(top - 154.35) <= 1.5, `the heading starts ${top} pt from the top of the page; Word's starts at 154.35 pt`);
+    });
+  });
+
+  // Word never prints text past the paper's edge or in a third column. A
+  // line the browser breaks later than the reader measured (here every
+  // last line of a justified paragraph is spaced wider) left words of a
+  // two-column paper in a third column, off the page.
+  test("no text runs past the page or into a third column when lines come out longer than measured", async () => {
+    await withHost({}, async (host) => {
+      await host.page.addStyleTag({ content: '#docBody p[style*="text-align-last"] { letter-spacing: 0.4px; }' });
+      await openFloats(host);
+      const outside = await host.page.evaluate(() => {
+        const found = [];
+        document.querySelectorAll("#docBody .docx-wrapper > section.docx").forEach((page, index) => {
+          const box = page.getBoundingClientRect();
+          const walker = document.createTreeWalker(page, NodeFilter.SHOW_TEXT);
+          let node;
+          while ((node = walker.nextNode())) {
+            if (!/\S/.test(node.nodeValue)) {
+              continue;
+            }
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            for (const rect of range.getClientRects()) {
+              if (rect.width > 0 && (rect.left < box.left - 1 || rect.right > box.right + 1 || rect.bottom > box.bottom + 1)) {
+                found.push(`page ${index + 1}: "${node.nodeValue.trim().slice(0, 24)}" at ${Math.round(rect.left - box.left)}px`);
+              }
+            }
+          }
+        });
+        return found;
+      });
+      assert.deepEqual(outside, []);
+    });
+  });
+});
+
+describe("page view follows Word's numbered headings, page fields, and stops past the indent", () => {
+  // Expected values come from Word itself: tests/reader/make-numbered-docx.mjs
+  // exported to PDF by Word 16. A Heading 1's text starts 100.82 pt from the
+  // page's left edge (its "I." centred on the margin, then the style's
+  // 10.8 pt stop and the level's 28.8 pt stop), a Heading 2's 108.02 pt (its
+  // "A." at the margin, then the style's 14.4 pt stop and the 36 pt default
+  // stop). The contents line is one line. The header's page number prints
+  // at 6.96 pt, the footer's at 9.96 pt.
+  async function numberedLayout(host) {
+    const { bytes, report } = await makeNumberedDocx();
+    await host.openDocument({ bytes, report, fileName: "numbered.docx" });
+    return host.page.evaluate(() => {
+      const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+      const box = page.getBoundingClientRect();
+      const scale = box.width / page.offsetWidth;
+      const points = (value) => value / scale * 0.75;
+      const headings = Array.from(page.querySelectorAll("article p")).filter((p) => /heading/i.test(p.className)).map((p) => {
+        // The label is the paragraph's ::before box, which no range reaches:
+        // its left edge is where the first line starts plus its own margin.
+        const style = getComputedStyle(p);
+        const before = getComputedStyle(p, "::before");
+        const label = points(p.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft) +
+          parseFloat(style.textIndent) + (parseFloat(before.marginLeft) || 0) - box.left);
+        const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+          const start = node.nodeValue.search(/\S/);
+          if (start < 0 || node.parentElement.closest(".ld-tab")) {
+            continue;
+          }
+          const range = document.createRange();
+          range.setStart(node, start);
+          range.setEnd(node, start + 1);
+          return { text: node.nodeValue.trim(), x: points(range.getClientRects()[0].left - box.left), label };
+        }
+        return { text: p.textContent.trim(), x: NaN, label };
+      });
+      const contents = Array.from(page.querySelectorAll("article p")).find((p) => p.textContent.includes("Contents line heron"));
+      const range = document.createRange();
+      range.selectNodeContents(contents);
+      const tops = [];
+      for (const rect of range.getClientRects()) {
+        if (rect.width > 0 && !tops.some((top) => Math.abs(top - rect.top) < 4)) {
+          tops.push(rect.top);
+        }
+      }
+      const numbers = {};
+      Array.from(page.children).filter((child) => /^(HEADER|FOOTER)$/.test(child.nodeName)).forEach((part) => {
+        const walker = document.createTreeWalker(part, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+          if (/^\s*\d+\s*$/.test(node.nodeValue)) {
+            numbers[part.nodeName] = { text: node.nodeValue.trim(), size: parseFloat(getComputedStyle(node.parentElement).fontSize) * 0.75 };
+          }
+        }
+      });
+      return { headings, contentsLines: tops.length, numbers };
+    });
+  }
+
+  test("a numbered heading's text starts where Word's does", async () => {
+    await withHost({}, async (host) => {
+      const layout = await numberedLayout(host);
+      const word = { Introduction: 100.82, "Alpha Part": 108.02, "Beta Part": 108.02, "Gamma Part": 108.02, "Delta Part": 108.02, Method: 100.82 };
+      assert.deepEqual(layout.headings.map((heading) => heading.text), Object.keys(word));
+      for (const heading of layout.headings) {
+        assert.ok(Math.abs(heading.x - word[heading.text]) <= 1.5, `"${heading.text}" starts at ${heading.x} pt; Word's starts at ${word[heading.text]} pt`);
+      }
+    });
+  });
+
+  // Word's PDF of the fixture: "I." spans 69.14 to 74.99 pt and "II." 67.46
+  // to 76.67 pt, each centred on the 72 pt indent; the left-aligned "A." to
+  // "D." start at 72.02 pt.
+  test("a centred heading label is centred on its indent, as Word's is", async () => {
+    await withHost({}, async (host) => {
+      const layout = await numberedLayout(host);
+      const word = [69.14, 72.02, 72.02, 72.02, 72.02, 67.46];
+      layout.headings.forEach((heading, index) => {
+        assert.ok(Math.abs(heading.label - word[index]) <= 1, `the label of "${heading.text}" starts at ${heading.label} pt; Word's starts at ${word[index]} pt`);
+      });
+    });
+  });
+
+  test("a contents line whose right stop is past the right indent stays on one line", async () => {
+    await withHost({}, async (host) => {
+      const layout = await numberedLayout(host);
+      assert.equal(layout.contentsLines, 1, `the contents line takes ${layout.contentsLines} lines; Word's takes one`);
+    });
+  });
+
+  test("a page number prints in its field code's size unless the field keeps its result's format", async () => {
+    await withHost({}, async (host) => {
+      const layout = await numberedLayout(host);
+      assert.equal(layout.numbers.FOOTER && layout.numbers.FOOTER.text, "1");
+      assert.ok(Math.abs(layout.numbers.FOOTER.size - 10) <= 0.1, `the footer's number is ${layout.numbers.FOOTER.size} pt; Word prints it at 10 pt`);
+      assert.equal(layout.numbers.HEADER && layout.numbers.HEADER.text, "1");
+      assert.ok(Math.abs(layout.numbers.HEADER.size - 7) <= 0.1, `the header's number is ${layout.numbers.HEADER.size} pt; Word prints it at 7 pt`);
+    });
+  });
+
+  // A header whose right indent reaches 36 pt past the paper's edge: Word's
+  // PDF of it has no page number. The reader showed the number beside the
+  // page.
+  test("nothing past the paper's edge is shown", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeNumberedDocx({ offPage: true });
+      await host.openDocument({ bytes, report, fileName: "numbered-off.docx" });
+      const seen = await host.page.evaluate(() => {
+        const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+        const header = Array.from(page.children).find((child) => child.nodeName === "HEADER");
+        const walker = document.createTreeWalker(header, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+          if (/\d/.test(node.nodeValue)) {
+            break;
+          }
+        }
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        node.parentElement.scrollIntoView({ block: "center", inline: "nearest" });
+        const rect = range.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        return { past: rect.left - page.getBoundingClientRect().right, shown: !!hit && header.contains(hit) };
+      });
+      assert.ok(seen.past > 0, `the number starts ${seen.past}px past the page's right edge`);
+      assert.equal(seen.shown, false, "the number past the page's edge is not shown");
     });
   });
 });

@@ -77,8 +77,8 @@ const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"/><w:basedOn w:val="Normal"/><w:rPr><w:sz w:val="16"/></w:rPr></w:style>
 <w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style>
 <w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/><w:tblPr><w:tblBorders>
-<w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/><w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/>
-<w:insideH w:val="single" w:sz="4"/><w:insideV w:val="single" w:sz="4"/></w:tblBorders></w:tblPr></w:style>
+<w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:left w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:right w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+<w:insideH w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="auto"/></w:tblBorders></w:tblPr></w:style>
 </w:styles>`;
 
 // The page number at the right margin: a right tab at the text width (10280
@@ -117,9 +117,12 @@ function paragraph(text, style, pageStart = false) {
 const PAGE = `<w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1140" w:right="980" w:bottom="880" w:left="980" w:header="500" w:footer="500" w:gutter="0"/>`;
 
 // A table of four rows in a text box 514 pt wide (the text width), centred on
-// the margins at the top margin, with 12 pt below it, as Word writes it. The
-// height is the one Word gives the box when it fits it to the text (73.2 pt).
-function floatingTable() {
+// the margins at the top margin, with 12 pt below it, as Word writes it, with
+// the empty paragraph Word keeps after a table. The box fits its text
+// (mso-fit-shape-to-text), so Word lays it out 73.2 pt tall whatever height
+// the file saved (boxHeight; 73.2 pt by default, and Word gave a file saved
+// at 140 pt the same 73.2 pt).
+function floatingTable(boxHeight) {
   const cell = (text) => `<w:tc><w:tcPr><w:tcW w:w="2570" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:ind w:firstLine="0"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:sz w:val="16"/></w:rPr><w:t>${text}</w:t></w:r></w:p></w:tc>`;
   const row = (...cells) => `<w:tr>${cells.map(cell).join("")}</w:tr>`;
   const table = `<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="10280" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr>
@@ -127,12 +130,12 @@ function floatingTable() {
 ${row("Floatbox heron", "Measure", "Value", "Note")}${row("Signal", "latency", "12", "kept")}${row("Channel", "buffer", "34", "kept")}${row("Packet", "stream", "56", "moved")}</w:tbl>`;
   const caption = `<w:p><w:pPr><w:ind w:firstLine="0"/><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:sz w:val="16"/></w:rPr><w:t>TABLE I</w:t></w:r></w:p>` +
     `<w:p><w:pPr><w:ind w:firstLine="0"/><w:spacing w:after="80"/><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:sz w:val="16"/></w:rPr><w:t>Made-up measurements of a made-up system.</w:t></w:r></w:p>`;
-  const style = "position:absolute;margin-left:0;margin-top:0;width:514pt;height:73.2pt;z-index:251659265;visibility:visible;" +
+  const style = `position:absolute;margin-left:0;margin-top:0;width:514pt;height:${boxHeight}pt;z-index:251659265;visibility:visible;` +
     "mso-wrap-style:square;mso-wrap-distance-left:0;mso-wrap-distance-top:0;mso-wrap-distance-right:0;mso-wrap-distance-bottom:12pt;" +
     "mso-position-horizontal:center;mso-position-horizontal-relative:margin;mso-position-vertical:absolute;mso-position-vertical-relative:margin;v-text-anchor:top";
   return `<w:r><w:rPr><w:noProof/></w:rPr><w:pict><v:shapetype id="_x0000_t202" coordsize="21600,21600" o:spt="202" path="m,l,21600r21600,l21600,xe"><v:stroke joinstyle="miter"/><v:path gradientshapeok="t" o:connecttype="rect"/></v:shapetype>` +
     `<v:shape id="Float 1" o:spid="_x0000_s1026" type="#_x0000_t202" style="${style}" o:allowoverlap="f" filled="f" stroked="f">` +
-    `<v:textbox style="mso-fit-shape-to-text:t" inset="0,0,0,0"><w:txbxContent>${caption}${table}</w:txbxContent></v:textbox>` +
+    `<v:textbox style="mso-fit-shape-to-text:t" inset="0,0,0,0"><w:txbxContent>${caption}${table}<w:p/></w:txbxContent></v:textbox>` +
     `<w10:wrap type="topAndBottom" anchorx="margin" anchory="margin"/></v:shape></w:pict></w:r>`;
 }
 
@@ -174,7 +177,7 @@ function reference(number) {
     `<w:t xml:space="preserve">A. Author and B. Writer, "On ${words(number, 6)}," Journal of ${words(number + 3, 3)}, vol. ${number}, pp. ${number * 10}-${number * 10 + 9}, 2020.</w:t></w:r></w:p>`;
 }
 
-export async function makeFloatsDocx({ before = 14, after = 20, references = 40 } = {}) {
+export async function makeFloatsDocx({ before = 14, after = 20, references = 40, savedStart = 10, boxHeight = 73.2 } = {}) {
   const body = [];
   body.push(paragraph("Floating Box Paper Title", "Title"));
   body.push(`<w:p><w:pPr><w:pStyle w:val="Title"/><w:spacing w:after="0"/><w:rPr><w:sz w:val="22"/></w:rPr>` +
@@ -185,13 +188,13 @@ export async function makeFloatsDocx({ before = 14, after = 20, references = 40 
   for (let index = 1; index <= before; index += 1) {
     body.push(paragraph(`Lead para ${index}. ${words(index, 70)}.`));
   }
-  body.push(`<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr>${floatingTable()}<w:r><w:t>II. Anchor Heading</w:t></w:r></w:p>`);
+  body.push(`<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr>${floatingTable(boxHeight)}<w:r><w:t>II. Anchor Heading</w:t></w:r></w:p>`);
   for (let index = 1; index <= after; index += 1) {
     if (index === 14) {
       body.push(`<w:p><w:pPr><w:ind w:firstLine="0"/></w:pPr>${floatingFigure()}<w:r><w:t xml:space="preserve">Tail para 14. ${words(index + 40, 70)}.</w:t></w:r></w:p>`);
       continue;
     }
-    body.push(paragraph(`Tail para ${index}. ${words(index + 40, 70)}.`, "", index === 10));
+    body.push(paragraph(`Tail para ${index}. ${words(index + 40, 70)}.`, "", index === savedStart));
     if (index === 12) {
       body.push(centredPicture());
     }

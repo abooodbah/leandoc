@@ -932,10 +932,14 @@ test("A text box Word wraps top and bottom against the margin becomes a block at
     padding: "0pt 0pt 0pt 0pt",
     "margin-top": "0pt",
     "margin-bottom": "12pt",
-    "min-height": "282.35pt",
     "margin-left": "auto",
     "margin-right": "auto"
-  });
+  }, "a box that fits its text (mso-fit-shape-to-text) takes its text's height, not the one saved");
+});
+
+test("A floated text box that does not fit its text keeps the height Word saved", () => {
+  const { picture } = floatFixture({ style: FLOAT_STYLE, textbox: { inset: "0,0,0,0" }, shape: { filled: "f", stroked: "f" } });
+  assert.equal(picture.children[0].cssStyle["min-height"], "282.35pt");
 });
 
 test("A floated text box keeps VML's default inset, line, and fill, and goes to the foot when placed at the bottom", () => {
@@ -1014,6 +1018,75 @@ test("Tabs become runs the reader sizes, and paragraphs carry their stops from t
     { kind: "r", position: 468, leader: "o" }
   ]);
   assert.deepEqual(Fixups.parseTabStops("docx_normal ld-l3"), []);
+});
+
+// The IEEE template's heading numbering, as tests/reader/make-numbered-docx.mjs
+// writes it: level 0 centres "%1." with a stop at 28.8 pt, level 1 has a stop
+// at 18 pt that the Heading 2 style clears for its own at 14.4 pt.
+test("A numbered paragraph's label tab is its first tab, its stops rank as Word ranks them, and a numbering style keeps its indents", () => {
+  const xml = el("numbering", [
+    el("abstractNum", [
+      el("lvl", [el("lvlJc", [], { val: "center" }), el("pPr", [el("tabs", [el("tab", [], { val: "num", pos: "576" })]), el("ind", [], { firstLine: "216" })])], { ilvl: "0" }),
+      el("lvl", [el("lvlJc", [], { val: "left" }), el("pPr", [el("tabs", [el("tab", [], { val: "num", pos: "360" })])])], { ilvl: "1" })
+    ], { abstractNumId: "7" }),
+    el("num", [el("abstractNumId", [], { val: "7" })], { numId: "3" })
+  ]);
+  const levelTabs = Fixups.numberingTabs({ _xmlDocument: xml });
+  assert.deepEqual(Array.from(levelTabs["3:0"]), [{ style: "num", leader: "", position: 28.8 }]);
+  assert.equal(levelTabs["3:0"].jc, "center");
+  assert.equal(levelTabs["3:1"].jc, "left");
+  const styles = [
+    { id: "Heading1", target: "p", styles: [{ target: "p", values: { "text-indent": "0.00pt" } }],
+      paragraphProps: { numbering: { id: "3" }, tabs: [{ style: "left", position: "10.8pt" }] } },
+    { id: "Heading2", target: "p", styles: [{ target: "p", values: {} }],
+      paragraphProps: { numbering: { id: "3", level: 1 }, tabs: [{ style: "clear", position: "18pt" }, { style: "num", position: "14.4pt" }] } }
+  ];
+  const numberings = [
+    { id: "3", level: 0, levelText: "%1.", pStyleName: "Heading1", suff: "tab" },
+    { id: "3", level: 1, levelText: "%2.", pStyleName: "Heading2", suff: "tab" }
+  ];
+  const heading = (styleName, extra = {}) => ({ type: "paragraph", styleName, ...extra,
+    children: [{ type: "run", children: [{ type: "tab" }, { type: "text", text: "Title" }] }] });
+  const first = heading("Heading1");
+  const second = heading("Heading2");
+  const direct = heading("Heading2", { numbering: { id: "3", level: 1 }, cssStyle: { "margin-inline-start": "20pt" } });
+  assert.equal(Fixups.markTabs([first, second, direct], styles, numberings, levelTabs), 6, "each label's tab and each heading's own");
+  assert.equal(first.children[0].children[0].className, Fixups.TAB_CLASS, "the label's tab comes first");
+  assert.deepEqual(numberings.map((num) => num.suff), ["nothing", "nothing"], "the label prints no tab of its own");
+  // Heading 1: the level's numbering from the style (no w:ilvl), the style's
+  // first line of 0 over the level's 10.8 pt, the label centred.
+  assert.match(first.className, /(^|\s)ld-ts-l216_l576(\s|$)/);
+  assert.match(first.className, /(^|\s)ld-lj-center(\s|$)/);
+  assert.equal(first.cssStyle["text-indent"], "0.00pt");
+  // Heading 2: the style clears the level's 18 pt stop.
+  assert.match(second.className, /(^|\s)ld-ts-l288(\s|$)/);
+  assert.doesNotMatch(second.className, /ld-lj-/);
+  // Numbered by the paragraph itself: the level's stop ranks above the
+  // style's clear, and no style indent is copied.
+  assert.match(direct.className, /(^|\s)ld-ts-l288_l360(\s|$)/);
+  assert.equal(direct.cssStyle["text-indent"], undefined);
+});
+
+test("A PAGE result takes its field code's format unless the code keeps the result's own", () => {
+  const field = (charType) => ({ type: "run", fieldRun: true, children: [{ type: "complexField", charType }] });
+  const plain = { type: "run", cssStyle: { "font-size": "7pt" }, children: [{ type: "text", text: "3" }] };
+  const kept = { type: "run", cssStyle: { "font-size": "7pt" }, children: [{ type: "text", text: "3" }] };
+  const paragraph = {
+    type: "paragraph",
+    children: [
+      field("begin"),
+      { type: "run", fieldRun: true, cssStyle: { "font-family": "Code Face" }, styleName: "CodeChar", children: [{ type: "instruction", text: " PAGE " }] },
+      field("separate"), plain, field("end"),
+      field("begin"),
+      { type: "run", fieldRun: true, cssStyle: { "font-family": "Code Face" }, children: [{ type: "instruction", text: " PAGE   \\* MERGEFORMAT " }] },
+      field("separate"), kept, field("end")
+    ]
+  };
+  const doc = { documentPart: { body: { type: "body", children: [] } }, parts: [{ rootElement: { type: "header", children: [paragraph] } }] };
+  assert.equal(Fixups.prepareModel(doc).pageFields, 2);
+  assert.deepEqual(plain.cssStyle, { "font-family": "Code Face" });
+  assert.equal(plain.styleName, "CodeChar");
+  assert.deepEqual(kept.cssStyle, { "font-size": "7pt" });
 });
 
 test("Footnotes whose reference has the author's own mark are listed", () => {
