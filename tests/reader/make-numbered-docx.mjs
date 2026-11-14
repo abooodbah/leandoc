@@ -255,12 +255,17 @@ const SMALL_STYLES_HEAD = `<?xml version="1.0" encoding="UTF-8" standalone="yes"
 // style. Word then drops the style's indents: such a paragraph starts at the
 // margin, and its leading tab goes to the 14.4 pt stop (Word 16, COM: left
 // indent and first line 0, text at 14.4 pt). A Body Text paragraph starts at
-// 14.4 pt, so its leading tab goes on to the 36 pt default stop.
+// 14.4 pt, so its leading tab goes on to the 36 pt default stop. A list
+// style whose base sets a 36 pt left indent loses that too.
 export function makeCancelledNumberingDocx() {
   const styles = `${SMALL_STYLES_HEAD}
 <w:style w:type="paragraph" w:styleId="BodyText"><w:name w:val="Body Text"/><w:basedOn w:val="Normal"/>
 <w:pPr><w:tabs><w:tab w:val="left" w:pos="288"/></w:tabs><w:ind w:firstLine="288"/><w:jc w:val="both"/></w:pPr></w:style>
 <w:style w:type="paragraph" w:customStyle="1" w:styleId="ListPara"><w:name w:val="list para"/><w:basedOn w:val="BodyText"/>
+<w:pPr><w:numPr><w:numId w:val="1"/></w:numPr></w:pPr></w:style>
+<w:style w:type="paragraph" w:styleId="BodyLeft"><w:name w:val="body left"/><w:basedOn w:val="Normal"/>
+<w:pPr><w:ind w:left="720" w:firstLine="288"/></w:pPr></w:style>
+<w:style w:type="paragraph" w:customStyle="1" w:styleId="ListLeft"><w:name w:val="list left"/><w:basedOn w:val="BodyLeft"/>
 <w:pPr><w:numPr><w:numId w:val="1"/></w:numPr></w:pPr></w:style>
 </w:styles>`;
   const numbering = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -276,7 +281,8 @@ export function makeCancelledNumberingDocx() {
     para(cancel, "Cancelled tabbed", true),
     para(cancel, "Cancelled plain", false),
     para(`<w:pStyle w:val="BodyText"/>`, "Body tabbed", true),
-    para(`<w:pStyle w:val="ListPara"/>`, "Listed item", false)
+    para(`<w:pStyle w:val="ListPara"/>`, "Listed item", false),
+    para(cancel.replace("ListPara", "ListLeft"), "Cancelled indented", false)
   ];
   const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${body.join("\n")}

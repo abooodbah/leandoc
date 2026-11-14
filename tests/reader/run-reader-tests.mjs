@@ -3352,7 +3352,8 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
   // 0) loses the style's indents in Word, and its leading tab goes to the
   // 14.4 pt stop. Word 16 (COM) starts the text of "Cancelled tabbed" at
   // 14.4 pt from the margin, "Cancelled plain" at 0, and "Body tabbed" (the
-  // style below, which keeps its 14.4 pt first line) at 36 pt.
+  // style below, which keeps its 14.4 pt first line) at 36 pt, and
+  // "Cancelled indented", whose list style's base indents 36 pt, at 0.
   test("a paragraph that cancels its style's numbering starts where Word's does", async () => {
     await withHost({}, async (host) => {
       const { bytes, report } = await makeCancelledNumberingDocx();
@@ -3382,7 +3383,7 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
         });
         return result;
       });
-      const word = { "Cancelled tabbed": 14.4, "Cancelled plain": 0, "Body tabbed": 36.3 };
+      const word = { "Cancelled tabbed": 14.4, "Cancelled plain": 0, "Body tabbed": 36.3, "Cancelled indented": 0 };
       Object.keys(word).forEach((name) => {
         assert.ok(Math.abs(starts[name] - word[name]) <= 1, `"${name}" starts at ${starts[name]} pt; Word's at ${word[name]} pt`);
       });
