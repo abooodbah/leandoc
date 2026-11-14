@@ -1267,6 +1267,49 @@ body {
   margin-bottom: auto;
 }
 
+/* A text box Word floats with text above and below it (fixups.js
+   floatTextBoxes): a block of its own, never drawn over the text. The page
+   view puts it at the top or foot of its page across the columns; elsewhere
+   it sits before its anchor's paragraph and spans a section's columns. */
+#docBody .ld-float {
+  display: block !important;
+  max-width: 100%;
+  flex-shrink: 0;
+  column-span: all;
+  break-inside: avoid;
+}
+
+/* A tab is as wide as the distance to its stop (reader.js setTabStops). */
+#docBody span.ld-tab {
+  display: inline-block;
+  text-indent: 0;
+}
+
+#docBody span.ld-tab-leader {
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: text-bottom;
+}
+
+/* A footnote with the author's own mark (w:customMarkFollows) shows that
+   mark, not a number. */
+#docBody sup.ld-custom-mark {
+  display: none;
+}
+
+#docBody li.ld-custom-mark {
+  list-style-type: none;
+}
+
+/* The empty span that marks a footnote reference (Fixups.markNotes) took
+   the paragraph style's run size, which can be larger than the text's own:
+   in a 24 pt title paragraph it made an 11 pt author line 15 pt taller than
+   Word's. The mark is not printed, so it takes no height. */
+#docBody section.docx span:empty:is([id^="ld-fnref-"], [data-ld-anchor^="ld-fnref-"]) {
+  font-size: 0;
+  line-height: 0;
+}
+
 /* Footnotes at the foot of their page, under a short rule as Word prints them. */
 #docBody .docx-wrapper > section.docx > ol.ld-footnotes {
   margin: 8pt 0 0;
