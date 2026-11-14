@@ -941,6 +941,17 @@
     return runs;
   }
 
+  // Word sets an updated field's result in the format of the field code's
+  // first character, unless the code asks to keep the result's own
+  // (\* MERGEFORMAT or \* CHARFORMAT). A header's PAGE result saved at 7 pt
+  // after a 10 pt code printed at 10 pt in Word and at 7 pt here.
+  var FIELD_KEEPS_FORMAT = /\\\*\s*(MERGEFORMAT|CHARFORMAT)/i;
+  function takeCodeFormat(run, code) {
+    run.cssStyle = Object.assign({}, code.cssStyle || {});
+    run.styleName = code.styleName;
+    run.verticalAlign = code.verticalAlign;
+  }
+
   function markPageFields(paragraph, stats) {
     var fields = [];
     paragraphRuns(paragraph).forEach(function (run) {
@@ -948,13 +959,14 @@
       if (run.fieldRun) {
         children.forEach(function (child) {
           if (child.type === "complexField" && child.charType === "begin") {
-            fields.push({ instruction: "", result: false, marked: false });
+            fields.push({ instruction: "", result: false, marked: false, code: null });
           } else if (child.type === "complexField" && child.charType === "separate" && fields.length) {
             fields[fields.length - 1].result = true;
           } else if (child.type === "complexField" && child.charType === "end") {
             fields.pop();
           } else if (child.type === "instruction" && fields.length) {
             fields[fields.length - 1].instruction += child.text || "";
+            fields[fields.length - 1].code = fields[fields.length - 1].code || run;
           }
         });
         return;
@@ -963,6 +975,9 @@
       var keyword = field && field.result ? pageFieldKeyword(field.instruction) : "";
       if (!keyword) {
         return;
+      }
+      if (field.code && !FIELD_KEEPS_FORMAT.test(field.instruction)) {
+        takeCodeFormat(run, field.code);
       }
       children.forEach(function (child) {
         if (child.type !== "text") {
@@ -1204,11 +1219,14 @@
       "margin-top": vmlLength(style, "mso-wrap-distance-top") + "pt",
       "margin-bottom": vmlLength(style, "mso-wrap-distance-bottom") + "pt"
     };
-    // The height Word saved is the height it laid the box out at, also for a
-    // box that fits its text (mso-fit-shape-to-text): Word refits on save.
-    // The box keeps at least that height so the text below starts where
-    // Word's does, and grows if the reader's text runs taller.
-    css["min-height"] = vmlLength(style, "height") + "pt";
+    // A box that fits its text (mso-fit-shape-to-text) takes the height of
+    // its text: Word refits it when it lays the page out, and a box of two
+    // tables saved at 422.8 pt stood 372.9 pt tall in Word, 50 pt less.
+    // Any other box keeps the height Word saved and grows if the reader's
+    // text runs taller.
+    if (!/mso-fit-shape-to-text\s*:\s*t/i.test(getAttr(textbox, "style") || "")) {
+      css["min-height"] = vmlLength(style, "height") + "pt";
+    }
     var horizontal = vmlStyleValue(style, "mso-position-horizontal");
     if (horizontal === "center") {
       css["margin-left"] = "auto";
@@ -1362,7 +1380,9 @@
       stops = stops.filter(function (stop) {
         return stop.twips !== twips;
       });
-      var kind = TAB_KINDS[tab.style || "left"];
+      // A cleared stop stays listed ("x"), so that it also clears a stop
+      // of a layer below this one (a numbering level's).
+      var kind = tab.style === "clear" ? "x" : TAB_KINDS[tab.style || "left"];
       if (kind) {
         stops.push({ twips: twips, kind: kind, leader: TAB_LEADERS[tab.leader] || "" });
       }
@@ -1370,7 +1390,20 @@
     return stops;
   }
 
+  // `upper`'s stops over `lower`'s: one at the same position replaces or
+  // clears the lower one.
+  function overlayTabStops(lower, upper) {
+    return lower.filter(function (stop) {
+      return !upper.some(function (over) {
+        return over.twips === stop.twips;
+      });
+    }).concat(upper);
+  }
+
   function tabStopsToken(stops) {
+    stops = stops.filter(function (stop) {
+      return stop.kind !== "x";
+    });
     return stops.length ? TAB_STOPS + stops.slice().sort(function (a, b) {
       return a.twips - b.twips;
     }).map(function (stop) {
@@ -1389,7 +1422,85 @@
     }).filter(Boolean);
   }
 
-  function markTabs(roots, styles) {
+  // The numbering levels whose label Word follows with a tab (w:suff is
+  // "tab" or absent), by "id:level", each with every model level it names.
+  function tabbedLevels(numberings) {
+    var levels = {};
+    (numberings || []).forEach(function (num) {
+      if (num && !num.bullet && typeof num.levelText === "string" && num.levelText !== "" &&
+          (num.suff === undefined || num.suff === "tab")) {
+        var key = num.id + ":" + num.level;
+        (levels[key] || (levels[key] = [])).push(num);
+      }
+    });
+    return levels;
+  }
+
+  // The tab stops each numbering level sets in its own w:pPr, by
+  // "numId:ilvl", as docx-preview's tabs ({ style, leader, position } in
+  // points). docx-preview keeps a level's indents but not its stops, and
+  // Word sends the label's tab to them: a heading numbered "I." had its
+  // text at the 36 pt default stop instead of the level's 28.8 pt.
+  function numberingTabs(part) {
+    var xml = part && part._xmlDocument;
+    var root = xml && (xml.documentElement || xml);
+    var result = {};
+    if (!root || !root.children) {
+      return result;
+    }
+    var abstracts = {};
+    var nums = [];
+    Array.prototype.forEach.call(root.children, function (child) {
+      if (child.localName === "abstractNum") {
+        abstracts[getAttr(child, "abstractNumId")] = child;
+      } else if (child.localName === "num") {
+        nums.push(child);
+      }
+    });
+    function levelStops(level) {
+      var props = level ? childNamed(level, "pPr") : null;
+      var tabs = props ? childNamed(props, "tabs") : null;
+      return Array.prototype.filter.call(tabs ? tabs.children : [], function (tab) {
+        return tab.localName === "tab";
+      }).map(function (tab) {
+        return { style: getAttr(tab, "val") || "left", leader: getAttr(tab, "leader") || "",
+          position: (parseFloat(getAttr(tab, "pos")) || 0) / 20 };
+      });
+    }
+    // The label's alignment (w:lvlJc), which docx-preview drops, rides on
+    // the list as "jc".
+    function levelInfo(level) {
+      var stops = levelStops(level);
+      var jc = childNamed(level, "lvlJc");
+      stops.jc = jc ? getAttr(jc, "val") || "" : "";
+      return stops;
+    }
+    nums.forEach(function (num) {
+      var id = getAttr(num, "numId");
+      var abstractId = childNamed(num, "abstractNumId");
+      var abstract = abstractId ? abstracts[getAttr(abstractId, "val")] : null;
+      Array.prototype.forEach.call(abstract ? abstract.children : [], function (level) {
+        if (level.localName === "lvl") {
+          result[id + ":" + (getAttr(level, "ilvl") || "0")] = levelInfo(level);
+        }
+      });
+      // A w:lvlOverride with a w:lvl of its own replaces the level.
+      Array.prototype.forEach.call(num.children, function (override) {
+        var level = override.localName === "lvlOverride" ? childNamed(override, "lvl") : null;
+        if (level) {
+          result[id + ":" + (getAttr(override, "ilvl") || "0")] = levelInfo(level);
+        }
+      });
+    });
+    return result;
+  }
+
+  var INDENT_KEYS = ["text-indent", "margin-inline-start", "margin-inline-end", "margin-left", "margin-right"];
+  var LABEL_JC = { center: "ld-lj-center", right: "ld-lj-right", end: "ld-lj-right" };
+
+  function markTabs(roots, styles, numberings, levelTabs) {
+    var levels = tabbedLevels(numberings);
+    levelTabs = levelTabs || {};
     var byId = {};
     (styles || []).forEach(function (style) {
       if (style && style.id && style.target === "p") {
@@ -1427,14 +1538,105 @@
       });
       return found;
     }
+    // docx-preview prints a numbering label before the paragraph's text,
+    // with the tab after it as a space, so the text started right after the
+    // label: Word starts it at the next stop, mostly the hanging indent. The
+    // tab becomes the paragraph's first, which the reader sizes like any
+    // other. A heading numbered "A." whose text starts with a tab of its own
+    // put that text one stop short of Word's, 22 pt to the left.
+    var numbered = [];
+    // A style's w:numPr may name no level; docx-preview later takes the one
+    // whose w:pStyle names the style, as Word does.
+    var styleLevels = {};
+    (numberings || []).forEach(function (num) {
+      if (num && num.pStyleName) {
+        styleLevels[num.id + ":" + num.pStyleName] = num.level;
+      }
+    });
+    function numberingKey(element) {
+      if (element.numbering) {
+        return element.numbering.id + ":" + element.numbering.level;
+      }
+      var style = byId[element.styleName];
+      var numbering = style && style.paragraphProps && style.paragraphProps.numbering;
+      if (!numbering) {
+        return "";
+      }
+      var level = numbering.level;
+      if (level === undefined || level === null) {
+        level = styleLevels[numbering.id + ":" + element.styleName];
+      }
+      return numbering.id + ":" + level;
+    }
+    // A style that numbers its paragraphs keeps its own indents: Word lets
+    // the level's indents (docx-preview's later p.docx-num-* rule) win only
+    // over the styles below it. A heading style with w:ind w:firstLine="0"
+    // over a level's 10.8 pt first line put the label 10.8 pt right of Word's.
+    function linkedIndents(id) {
+      var found = {};
+      for (var depth = 0; id && byId[id] && depth < 20; depth += 1) {
+        var style = byId[id];
+        (style.styles || []).forEach(function (sub) {
+          if (sub && sub.target === "p" && sub.values) {
+            INDENT_KEYS.forEach(function (name) {
+              if (sub.values[name] !== undefined && found[name] === undefined) {
+                found[name] = sub.values[name];
+              }
+            });
+          }
+        });
+        if (style.paragraphProps && style.paragraphProps.numbering) {
+          return found;
+        }
+        id = style.basedOn;
+      }
+      return {};
+    }
     eachModelElement(roots, function (element) {
-      if (element.type !== "paragraph" || !replaceTabs(element)) {
+      if (element.type !== "paragraph") {
         return;
       }
-      var token = tabStopsToken(mergeTabStops(styleStops(element.styleName), element.tabs));
+      var key = numberingKey(element);
+      if (key && !element.numbering) {
+        var indents = linkedIndents(element.styleName);
+        // The paragraph's own indents still win, each on its own.
+        Object.keys(indents).forEach(function (name) {
+          element.cssStyle = element.cssStyle || {};
+          if (element.cssStyle[name] === undefined) {
+            element.cssStyle[name] = indents[name];
+          }
+        });
+      }
+      var info = key && levelTabs[key];
+      if (info && LABEL_JC[info.jc] && levels[key]) {
+        addClass(element, LABEL_JC[info.jc]);
+      }
+      var tabbed = key ? levels[key] || null : null;
+      if (tabbed) {
+        element.children = [{ type: "run", children: [{ type: "tab" }] }].concat(element.children || []);
+        tabbed.forEach(function (level) {
+          if (numbered.indexOf(level) < 0) {
+            numbered.push(level);
+          }
+        });
+      }
+      if (!replaceTabs(element)) {
+        return;
+      }
+      // A level's stops rank below the style's when the style numbers the
+      // paragraph (a heading style's w:tab w:val="clear" removes one), and
+      // above them when the paragraph numbers itself.
+      var ownLevel = mergeTabStops([], key && levelTabs[key] ? levelTabs[key] : []);
+      var styled = styleStops(element.styleName);
+      var stops = mergeTabStops(element.numbering ? overlayTabStops(styled, ownLevel) : overlayTabStops(ownLevel, styled),
+        element.tabs);
+      var token = tabStopsToken(stops);
       if (token) {
         addClass(element, token);
       }
+    });
+    numbered.forEach(function (level) {
+      level.suff = "nothing";
     });
     return marked;
   }
@@ -2320,7 +2522,7 @@
     stats.defaultPageSetups = fillDocumentPageSetup(doc.documentPart && doc.documentPart.body);
     stats.inheritedHeaders = inheritHeaderFooters(doc.documentPart && doc.documentPart.body);
     stats.titleSections = markTitleSections(doc.documentPart && doc.documentPart.body);
-    stats.tabs = markTabs(roots, styles);
+    stats.tabs = markTabs(roots, styles, numberings, numberingTabs(doc.numberingPart));
     var interval = parseFloat(doc.settingsPart && doc.settingsPart.settings && doc.settingsPart.settings.defaultTabStop);
     if (interval > 0) {
       stats.defaultTabStop = interval;
@@ -2395,6 +2597,7 @@
     customMarkNotes: customMarkNotes,
     TAB_CLASS: TAB_CLASS,
     markTabs: markTabs,
+    numberingTabs: numberingTabs,
     parseTabStops: parseTabStops,
     prepareModel: prepareModel
   });

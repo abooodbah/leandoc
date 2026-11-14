@@ -1216,6 +1216,10 @@ body {
   background: var(--ld-paper, #ffffff);
   box-shadow: var(--page-shadow);
   color: var(--ld-ink, #000000);
+  /* Word prints nothing past the paper's edge: a header whose right indent
+     reaches past the page put its page number beside the page here, and
+     Word's PDF of it has none. clip, unlike hidden, makes no scroll box. */
+  overflow: clip;
 }
 
 /* docx-preview hyphenates every document; Word only one whose settings turn
@@ -1726,4 +1730,12 @@ body {
     box-shadow: none;
     content-visibility: visible;
   }
+}
+
+/* A numbering label centred or right-aligned on its indent (reader.js
+   alignLabels sets the shift). */
+#docBody p.ld-lj-center::before,
+#docBody p.ld-lj-right::before {
+  display: inline-block;
+  margin-left: var(--ld-lj, 0px);
 }

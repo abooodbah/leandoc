@@ -122,12 +122,20 @@ Decisions taken here (the owner can change them):
   footnote with the author's own mark shows no number; the footnote
   reference's bookmark adds no height. Test document:
   tests/reader/make-floats-docx.mjs, expected values from Word 16.
-- Measured against main on one Windows laptop (perf-probe, three rounds,
-  medians): 300 pages 697 to 690 ms, 1,000 pages 2,101 to 2,143 ms, the
-  19-page paper 1,062 to 1,121 ms; memory within the run-to-run spread.
-  Page counts against Word on the 24 local corpus files: 16 of 24 on both;
-  page starts 211 of 576 on main, 210 here (one heading-tab case, listed in
-  the pull request's known gaps).
+- Second round, after review against Word on the paper and four more
+  private documents: text that a split paragraph pushes past the page
+  moves to the next page, and nothing prints past the paper's edge; a box
+  moves to the next page with its anchor; a fit-to-text box takes its
+  text's height; numbered headings take Word's indents, stops and centred
+  labels; a PAGE result takes its field code's size unless the code keeps
+  its own; a right stop past the right indent keeps its line whole. Test
+  document for the numbering: tests/reader/make-numbered-docx.mjs.
+- Measured against main on one Windows laptop (perf-probe, five rounds,
+  medians): 300 pages 687 to 713 ms, 1,000 pages 2,076 to 2,156 ms, the
+  19-page paper 1,057 to 1,129 ms and 215 to 221 MiB (the paper's four
+  boxes lay their pages out again: 28 page layouts against main's 19).
+  Page counts against Word on 27 local documents: 17 of 27 on main, 18 here;
+  page starts 221 of 624 on main, 223 here.
 
 ## Efficiency review (0.2.0)
 
