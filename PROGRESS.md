@@ -131,11 +131,12 @@ Decisions taken here (the owner can change them):
   its own; a right stop past the right indent keeps its line whole. Test
   document for the numbering: tests/reader/make-numbered-docx.mjs.
 - Measured against main on one Windows laptop (perf-probe, five rounds,
-  medians): 300 pages 687 to 713 ms, 1,000 pages 2,076 to 2,156 ms, the
-  19-page paper 1,057 to 1,129 ms and 215 to 221 MiB (the paper's four
-  boxes lay their pages out again: 28 page layouts against main's 19).
-  Page counts against Word on 27 local documents: 17 of 27 on main, 18 here;
-  page starts 221 of 624 on main, 223 here.
+  medians): 300 pages 691 to 709 ms, 1,000 pages 2,114 to 2,162 ms, the
+  19-page paper 1,086 to 1,135 ms and 216 to 219 MiB (the paper's four
+  boxes lay their pages out again: 28 page layouts against main's 19);
+  the reports' memory as on main. Page counts against Word on 27 local
+  documents: 17 of 27 on main, 18 here; page starts 221 of 624 on main,
+  224 here.
 
 ## Efficiency review (0.2.0)
 

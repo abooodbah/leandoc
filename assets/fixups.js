@@ -1592,6 +1592,40 @@
       }
       return {};
     }
+    // Whether a paragraph's text starts with a tab of its own.
+    function startsWithTab(parent) {
+      var children = parent.children || [];
+      for (var index = 0; index < children.length; index += 1) {
+        var child = children[index];
+        if (!child || typeof child !== "object" || /^(paragraph|table)$/.test(child.type || "")) {
+          continue;
+        }
+        if (child.type === "tab") {
+          return true;
+        }
+        if (child.type === "text" ? /\S/.test(child.text || "") : /^(drawing|vmlPicture|image|symbol)$/.test(child.type || "")) {
+          return false;
+        }
+        var found = startsWithTab(child);
+        if (found !== null) {
+          return found;
+        }
+      }
+      return null;
+    }
+    // Only a level with a paragraph whose text starts with a tab of its own
+    // gets the label's tab, on each of its paragraphs (the label's suffix
+    // belongs to the level). A plain numbered list keeps docx-preview's
+    // label: a tab run per item cost a 300-page report about 4 MiB.
+    var ownTab = {};
+    eachModelElement(roots, function (element) {
+      if (element.type === "paragraph") {
+        var key = numberingKey(element);
+        if (key && levels[key] && startsWithTab(element)) {
+          ownTab[key] = true;
+        }
+      }
+    });
     eachModelElement(roots, function (element) {
       if (element.type !== "paragraph") {
         return;
@@ -1611,7 +1645,7 @@
       if (info && LABEL_JC[info.jc] && levels[key]) {
         addClass(element, LABEL_JC[info.jc]);
       }
-      var tabbed = key ? levels[key] || null : null;
+      var tabbed = key && ownTab[key] ? levels[key] || null : null;
       if (tabbed) {
         element.children = [{ type: "run", children: [{ type: "tab" }] }].concat(element.children || []);
         tabbed.forEach(function (level) {
