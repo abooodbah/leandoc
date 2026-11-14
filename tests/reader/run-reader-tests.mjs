@@ -15,6 +15,7 @@ import {
   stageAssets
 } from "./fake-host.mjs";
 import { makeBigDocx } from "./make-big-docx.mjs";
+import { makeFloatsDocx } from "./make-floats-docx.mjs";
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeWordMetricsDocx } from "./make-saved-pages-docx.mjs";
 
@@ -2697,6 +2698,290 @@ describe("page view follows Word's page starts and stand-in fonts", () => {
         seen = await state();
       }
       assert.ok(seen.done, `the last page is matched once near: ${JSON.stringify(seen)}`);
+    });
+  });
+});
+
+describe("page view follows Word's floating boxes, tab stops, and running headers", () => {
+  // Expected values come from Word itself: tests/reader/make-floats-docx.mjs
+  // exported to PDF by Word 16 gives 4 pages. The text box anchored in the
+  // "II. Anchor Heading" paragraph prints at the top margin of page 2 across
+  // both columns, 73.2 pt tall, with 12 pt and then the columns' text below
+  // it; the heading is on page 2 as well. "I. Introduction" starts 115.2 pt
+  // from the top of page 1. Every page's header ends at the right margin with
+  // its page number. Each reference's text starts at its hanging indent
+  // (20 pt), on the first line after the tab and on the lines after it.
+  const POINT = 4 / 3;
+
+  async function openFloats(host, options = {}) {
+    const { bytes, report } = await makeFloatsDocx();
+    return host.openDocument({ bytes, report, fileName: "floats.docx", ...options });
+  }
+
+  async function floatLayout(host) {
+    return host.page.evaluate(() => {
+      const pages = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"));
+      return pages.map((page, index) => {
+        const box = page.getBoundingClientRect();
+        const scale = box.width / page.offsetWidth;
+        const style = getComputedStyle(page);
+        const contentTop = box.top + parseFloat(style.paddingTop) * scale;
+        const floats = Array.from(page.querySelectorAll(".ld-float")).map((node) => {
+          const r = node.getBoundingClientRect();
+          return {
+            pageLevel: node.parentElement === page,
+            top: (r.top - contentTop) / scale, bottom: (r.bottom - box.top) / scale,
+            left: (r.left - box.left) / scale, right: (r.right - box.left) / scale,
+            width: r.width / scale, height: r.height / scale,
+            text: node.textContent
+          };
+        });
+        const paragraphs = Array.from(page.querySelectorAll("article p")).filter((p) => !p.closest(".ld-float") && /\S/.test(p.textContent))
+          .map((p) => {
+            const rects = Array.from(p.getClientRects()).filter((r) => r.height > 0);
+            return {
+              text: p.textContent.trim().slice(0, 24),
+              rects: rects.map((r) => ({ top: (r.top - box.top) / scale, bottom: (r.bottom - box.top) / scale, left: (r.left - box.left) / scale, right: (r.right - box.left) / scale }))
+            };
+          });
+        const contentBottom = (box.top + (page.offsetHeight - parseFloat(style.paddingBottom)) * scale - box.top) / scale;
+        return { index: index + 1, width: page.offsetWidth, floats, paragraphs, top: (contentTop - box.top) / scale, bottom: contentBottom };
+      });
+    });
+  }
+
+  test("a text box floated at the top margin sits at the top of its anchor's page, across the columns, over no text", async () => {
+    await withHost({}, async (host) => {
+      const rendered = await openFloats(host);
+      assert.equal(rendered.pages, 4, `pages: ${rendered.pages}; Word gives 4`);
+      const pages = await floatLayout(host);
+      const withFloat = pages.filter((page) => page.floats.some((f) => f.text.includes("Floatbox heron")));
+      assert.equal(withFloat.length, 1, "the box is shown once");
+      const page = withFloat[0];
+      const float = page.floats.find((f) => f.text.includes("Floatbox heron"));
+      assert.equal(page.index, 2, `the box is on page ${page.index}; Word prints it on page 2`);
+      const anchorPage = pages.find((p) => p.paragraphs.some((q) => q.text.startsWith("II. Anchor Heading")));
+      assert.equal(anchorPage.index, 2, `the anchor heading is on page ${anchorPage.index}; Word puts it on page 2`);
+      assert.ok(float.pageLevel, "the box belongs to the page, not to a column");
+      assert.ok(Math.abs(float.top) <= 1, `the box starts ${float.top}px below the top margin`);
+      assert.ok(Math.abs(float.width - 514 * POINT) <= 1, `the box is ${float.width}px wide; 514 pt spans both columns`);
+      assert.ok(Math.abs(float.height - 73.2 * POINT) <= 1, `the box is ${float.height}px tall; Word's is 73.2 pt`);
+      for (const paragraph of page.paragraphs) {
+        for (const rect of paragraph.rects) {
+          assert.ok(rect.top >= float.bottom + 12 * POINT - 1,
+            `"${paragraph.text}" starts at ${rect.top}px, inside the box or the 12 pt below it (box ends at ${float.bottom}px)`);
+        }
+      }
+    });
+  });
+
+  // Word prints the figure box on page 3, from 718.6 to 747.25 pt, its foot
+  // on the bottom margin (748 pt), and the columns' text above it ends at
+  // 694.1 pt, at least 12 pt above the box.
+  test("a text box floated to the foot of the margin sits at the foot of its anchor's page, below the text", async () => {
+    await withHost({}, async (host) => {
+      await openFloats(host);
+      const pages = await floatLayout(host);
+      const withFloat = pages.filter((page) => page.floats.some((f) => f.text.includes("Figurebox wren")));
+      assert.equal(withFloat.length, 1, "the box is shown once");
+      const page = withFloat[0];
+      const float = page.floats.find((f) => f.text.includes("Figurebox wren"));
+      assert.equal(page.index, 3, `the box is on page ${page.index}; Word prints it on page 3`);
+      assert.ok(float.pageLevel, "the box belongs to the page, not to a column");
+      assert.ok(Math.abs(float.bottom - page.bottom) <= 1, `the box ends at ${float.bottom}px; the bottom margin is at ${page.bottom}px`);
+      // Word's 28.65 pt runs between the centres of the box's 0.75 pt line.
+      assert.ok(Math.abs(float.height - 28.65 * POINT) <= 2 * POINT, `the box is ${float.height}px tall; Word's is 28.65 pt`);
+      const floatTop = float.bottom - float.height;
+      for (const paragraph of page.paragraphs) {
+        for (const rect of paragraph.rects) {
+          assert.ok(rect.bottom <= floatTop - 12 * POINT + 1,
+            `"${paragraph.text}" ends at ${rect.bottom}px, inside the box or the 12 pt above it (box starts at ${floatTop}px)`);
+        }
+      }
+    });
+  });
+
+  test("the text in a floating box does not take its anchor heading's small capitals", async () => {
+    await withHost({}, async (host) => {
+      await openFloats(host);
+      const caps = await host.page.evaluate(() => {
+        const cell = Array.from(document.querySelectorAll("#docBody td")).find((td) => td.textContent.includes("Floatbox heron"));
+        return cell ? getComputedStyle(cell.querySelector("span") || cell).fontVariantCaps : null;
+      });
+      assert.equal(caps, "normal");
+    });
+  });
+
+  test("a footnote reference's mark adds no height to its line", async () => {
+    await withHost({}, async (host) => {
+      await openFloats(host);
+      const pages = await floatLayout(host);
+      const heading = pages[0].paragraphs.find((p) => p.text.startsWith("I. Introduction"));
+      const top = heading.rects[0].top / POINT;
+      assert.ok(Math.abs(top - 115.2) <= 1.5, `"I. Introduction" starts ${top} pt from the top of the page; Word's starts at 115.2 pt`);
+    });
+  });
+
+  async function referenceLayout(host) {
+    return host.page.evaluate(() => {
+      const pages = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"));
+      const out = [];
+      pages.forEach((page, index) => {
+        const box = page.getBoundingClientRect();
+        const scale = box.width / page.offsetWidth;
+        page.querySelectorAll("article").forEach((article) => {
+          const a = article.getBoundingClientRect();
+          article.querySelectorAll("p").forEach((p) => {
+            const match = /^\[(\d+)\]/.exec(p.textContent);
+            const tab = p.querySelector("span.ld-tab");
+            if (!match || !tab) {
+              return;
+            }
+            const range = document.createRange();
+            range.selectNodeContents(p);
+            const numberRange = document.createRange();
+            const first = p.querySelector("span").firstChild;
+            numberRange.setStart(first, 0);
+            numberRange.setEnd(first, first.textContent.length);
+            const after = document.createRange();
+            after.setStartAfter(tab);
+            after.setEnd(p, p.childNodes.length);
+            const lines = Array.from(after.getClientRects()).filter((r) => r.width > 0);
+            const lineLefts = [];
+            for (const r of lines) {
+              if (!lineLefts.some((l) => Math.abs(l.top - r.top) < 2)) {
+                lineLefts.push({ top: r.top, left: r.left });
+              }
+            }
+            lineLefts.sort((x, y) => x.top - y.top);
+            const text = Array.from(range.getClientRects());
+            out.push({
+              page: index + 1, n: Number(match[1]),
+              numberLeft: (numberRange.getBoundingClientRect().left - box.left) / scale,
+              starts: lineLefts.map((l) => (l.left - box.left) / scale),
+              right: Math.max(...text.map((r) => r.right - box.left)) / scale,
+              articleRight: (a.right - box.left) / scale,
+              articleLeft: (a.left - box.left) / scale,
+              column: (text[0].left - a.left) > a.width / 2 ? "R" : "L"
+            });
+          });
+        });
+      });
+      return out;
+    });
+  }
+
+  test("a reference's text starts at its hanging indent, after the tab and on later lines, in two columns", async () => {
+    await withHost({}, async (host) => {
+      const { references } = await makeFloatsDocx();
+      await openFloats(host);
+      const first = await referenceLayout(host);
+      assert.equal(first.length, references, "every reference is shown once");
+      for (const entry of first) {
+        assert.ok(entry.starts.length >= 2, `[${entry.n}] runs to two lines, as in Word`);
+        for (const start of entry.starts) {
+          const indent = (start - entry.numberLeft) / POINT;
+          assert.ok(Math.abs(indent - 20) <= 1, `[${entry.n}] text starts ${indent} pt after its number; the hanging indent is 20 pt`);
+        }
+        // The text's rectangles take in the space that ends a justified line.
+        assert.ok(entry.right <= entry.articleRight + 3 * POINT, `[${entry.n}] reaches ${entry.right}px; the text area ends at ${entry.articleRight}px`);
+      }
+      const lastPage = Math.max(...first.map((entry) => entry.page));
+      assert.equal(lastPage, 4, `the references end on page ${lastPage}; Word ends them on page 4`);
+      // docx-preview's own tab pass ran 500 ms after rendering and moved the
+      // text again; the layout must not change after the reader settles.
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      assert.deepEqual(await referenceLayout(host), first, "the references do not move after rendering");
+    });
+  });
+
+  // Word sets the picture 2.9 pt from the column's left edge, on one line:
+  // centred on the 125 pt stop. Before the tab has its width, the picture
+  // does not fit beside it and wraps; the tab is sized from the picture's
+  // whole width, not from what was left on the tab's line.
+  test("a picture after a centred tab is centred on the stop, on one line", async () => {
+    await withHost({}, async (host) => {
+      await openFloats(host);
+      const placed = await host.page.evaluate(() => {
+        const image = Array.from(document.querySelectorAll("#docBody article img"))[0];
+        const p = image.closest("p");
+        const page = p.closest("section.docx");
+        const scale = page.getBoundingClientRect().width / page.offsetWidth;
+        const column = p.getBoundingClientRect();
+        const box = image.getBoundingClientRect();
+        const tab = p.querySelector("span.ld-tab").getBoundingClientRect();
+        return { left: (box.left - column.left) / scale, sameLine: box.top < tab.bottom && box.bottom > tab.top };
+      });
+      assert.ok(placed.sameLine, "the picture is on the tab's line");
+      assert.ok(Math.abs(placed.left / POINT - 2.9) <= 1.5, `the picture starts ${placed.left / POINT} pt into its column; Word's starts 2.9 pt in`);
+    });
+  });
+
+  test("every page shows its page number at the right margin, also where a section names no header", async () => {
+    await withHost({}, async (host) => {
+      const rendered = await openFloats(host);
+      const headers = await host.page.evaluate(() => {
+        const pages = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"));
+        return pages.map((page) => {
+          const header = Array.from(page.children).find((c) => c.nodeName === "HEADER");
+          if (!header) {
+            return null;
+          }
+          const p = header.querySelector("p");
+          const range = document.createRange();
+          range.selectNodeContents(p);
+          const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0);
+          const box = page.getBoundingClientRect();
+          const scale = box.width / page.offsetWidth;
+          const style = getComputedStyle(page);
+          return {
+            text: header.textContent.trim(),
+            right: (Math.max(...rects.map((r) => r.right)) - box.left) / scale,
+            margin: page.offsetWidth - parseFloat(style.paddingRight)
+          };
+        });
+      });
+      assert.equal(headers.length, rendered.pages);
+      assert.deepEqual(headers.map((header) => header && header.text), headers.map((_, index) => String(index + 1)),
+        "each page's header holds its page number");
+      headers.forEach((header, index) => {
+        assert.ok(Math.abs(header.right - header.margin) <= 2, `page ${index + 1}: the number ends at ${header.right}px; the right margin is at ${header.margin}px`);
+      });
+    });
+  });
+
+  test("a footnote with the author's own mark shows no number", async () => {
+    await withHost({}, async (host) => {
+      await openFloats(host);
+      const marks = await host.page.evaluate(() => {
+        const visible = (node) => node && getComputedStyle(node).display !== "none" && node.getClientRects().length > 0;
+        const author = Array.from(document.querySelectorAll("#docBody article p")).find((p) => p.textContent.includes("A. Author and B. Writer") && !/^\[/.test(p.textContent));
+        const note = Array.from(document.querySelectorAll("#docBody li")).find((li) => li.textContent.includes("Affiliation note wren"));
+        return {
+          shownNumbers: Array.from(author.querySelectorAll("sup")).filter(visible).map((s) => s.textContent),
+          marker: note ? getComputedStyle(note).listStyleType : null
+        };
+      });
+      assert.deepEqual(marks.shownNumbers, [], "no number at the reference");
+      assert.equal(marks.marker, "none", "no number before the note");
+    });
+  });
+
+  test("reading view sets the floating box between paragraphs, not over them", async () => {
+    await withHost({ view: "reading" }, async (host) => {
+      await openFloats(host);
+      const overlaps = await host.page.evaluate(() => {
+        const cell = Array.from(document.querySelectorAll("#docBody td")).find((td) => td.textContent.includes("Floatbox heron"));
+        const box = cell ? cell.closest(".ld-float") || cell.closest("svg") || cell.closest("table") : null;
+        if (!box) {
+          return ["no box"];
+        }
+        const b = box.getBoundingClientRect();
+        return Array.from(document.querySelectorAll("#docBody p")).filter((p) => !box.contains(p)).flatMap((p) =>
+          Array.from(p.getClientRects()).filter((r) => r.height > 0 && r.bottom > b.top + 1 && r.top < b.bottom - 1 && r.right > b.left && r.left < b.right)
+            .map(() => p.textContent.trim().slice(0, 24)));
+      });
+      assert.deepEqual(overlaps, []);
     });
   });
 });
