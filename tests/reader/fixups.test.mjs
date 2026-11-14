@@ -888,3 +888,140 @@ test("Theme colours keep text readable and turn light fills dark on a dark page"
     }
   }
 });
+
+// A VML text box as Word writes one: v:shape with a style, v:textbox, and
+// w10:wrap. docx-preview's model of it is a vmlPicture whose foreignObject
+// holds the text box paragraphs.
+function vmlTextBox({ style, wrap = "topAndBottom", textbox = {}, shape = {} } = {}) {
+  const pict = el("pict", [
+    el("shapetype", [], { id: "_x0000_t202" }),
+    el("shape", [
+      el("textbox", [el("txbxContent", [el("p")])], textbox),
+      ...(wrap ? [el("wrap", [], { type: wrap })] : [])
+    ], { style, ...shape })
+  ]);
+  const content = [{ type: "paragraph", children: [] }];
+  const picture = { type: "vmlPicture", children: [{ type: "vmlElement", tagName: "g", children: [{ type: "vmlElement", tagName: "foreignObject", children: content }] }] };
+  return { pict, picture, content };
+}
+
+function floatFixture(options) {
+  const box = vmlTextBox(options);
+  const xmlBody = el("body", [el("p"), el("p", [el("r", [box.pict]), el("r")])]);
+  const modelBody = { children: [{ type: "paragraph", children: [] }, { type: "paragraph", children: [{ type: "run", children: [box.picture] }] }] };
+  return { ...box, count: Fixups.floatTextBoxes(modelBody, xmlBody) };
+}
+
+const FLOAT_STYLE = "position:absolute;margin-left:0;margin-top:0;width:514pt;height:282.35pt;z-index:3;" +
+  "mso-wrap-distance-top:0;mso-wrap-distance-bottom:12pt;mso-position-horizontal:center;" +
+  "mso-position-horizontal-relative:margin;mso-position-vertical:absolute;mso-position-vertical-relative:margin";
+
+test("A text box Word wraps top and bottom against the margin becomes a block at the top of the page", () => {
+  const { picture, content, count } = floatFixture({
+    style: FLOAT_STYLE, textbox: { style: "mso-fit-shape-to-text:t", inset: "0,0,0,0" }, shape: { filled: "f", stroked: "f" }
+  });
+  assert.equal(count, 1);
+  assert.equal(picture.children.length, 1);
+  const box = picture.children[0];
+  assert.equal(box.type, "drawing");
+  assert.equal(box.className, `${Fixups.FLOAT_CLASS} ${Fixups.FLOAT_CLASS}-top`);
+  assert.equal(box.children, content, "the text box paragraphs move into the block");
+  assert.deepEqual(box.cssStyle, {
+    width: "514pt",
+    "box-sizing": "border-box",
+    padding: "0pt 0pt 0pt 0pt",
+    "margin-top": "0pt",
+    "margin-bottom": "12pt",
+    "min-height": "282.35pt",
+    "margin-left": "auto",
+    "margin-right": "auto"
+  });
+});
+
+test("A floated text box keeps VML's default inset, line, and fill, and goes to the foot when placed at the bottom", () => {
+  const style = FLOAT_STYLE.replace("mso-position-vertical:absolute", "mso-position-vertical:bottom")
+    .replace("mso-position-horizontal:center", "mso-position-horizontal:right");
+  const { picture } = floatFixture({ style, shape: { strokeweight: "1pt", fillcolor: "#eeeeee" } });
+  const box = picture.children[0];
+  assert.equal(box.className, `${Fixups.FLOAT_CLASS} ${Fixups.FLOAT_CLASS}-bottom`);
+  assert.equal(box.cssStyle.padding, "3.6pt 7.2pt 3.6pt 7.2pt");
+  assert.equal(box.cssStyle.border, "1pt solid black");
+  assert.equal(box.cssStyle["background-color"], "#eeeeee");
+  assert.equal(box.cssStyle["margin-left"], "auto");
+  assert.equal(box.cssStyle["margin-right"], "0pt");
+});
+
+test("A text box placed against its paragraph stays where its paragraph is", () => {
+  const style = FLOAT_STYLE.replace("mso-position-vertical-relative:margin", "mso-position-vertical-relative:paragraph");
+  const { picture } = floatFixture({ style });
+  assert.equal(picture.children[0].className, `${Fixups.FLOAT_CLASS} ${Fixups.FLOAT_CLASS}-inline`);
+});
+
+test("Text boxes Word does not wrap top and bottom, or that sit in the line, are left to docx-preview", () => {
+  for (const options of [
+    { style: FLOAT_STYLE, wrap: "square" },
+    { style: FLOAT_STYLE, wrap: null },
+    { style: FLOAT_STYLE.replace("position:absolute;", "") },
+    { style: FLOAT_STYLE.replace("width:514pt;", "") }
+  ]) {
+    const { picture, count } = floatFixture(options);
+    assert.equal(count, 0, JSON.stringify(options));
+    assert.equal(picture.children[0].type, "vmlElement", "the picture is unchanged");
+  }
+});
+
+test("Text boxes are left alone when the model and the XML do not pair", () => {
+  const box = vmlTextBox({ style: FLOAT_STYLE });
+  const xmlBody = el("body", [el("p", [el("r", [box.pict])])]);
+  const modelBody = { children: [{ type: "paragraph", children: [] }, { type: "paragraph", children: [box.picture] }] };
+  assert.equal(Fixups.floatTextBoxes(modelBody, xmlBody), 0);
+  assert.equal(Fixups.floatTextBoxes(modelBody, null), 0);
+});
+
+test("A section that names no header or footer of a kind takes the previous section's", () => {
+  const first = { headerRefs: [{ id: "rId7", type: "default" }], footerRefs: [{ id: "rId8", type: "default" }, { id: "rId9", type: "first" }] };
+  const middle = { headerRefs: [], footerRefs: [{ id: "rId10", type: "default" }] };
+  const last = { headerRefs: [{ id: "rId11", type: "even" }] };
+  const body = { children: [{ type: "paragraph", sectionProps: first }, { type: "paragraph" }, { type: "paragraph", sectionProps: middle }], props: last };
+  assert.equal(Fixups.inheritHeaderFooters(body), 5);
+  assert.deepEqual(middle.headerRefs, [{ id: "rId7", type: "default" }]);
+  assert.deepEqual(middle.footerRefs, [{ id: "rId10", type: "default" }, { id: "rId9", type: "first" }]);
+  assert.deepEqual(last.headerRefs, [{ id: "rId11", type: "even" }, { id: "rId7", type: "default" }]);
+  assert.deepEqual(last.footerRefs, [{ id: "rId10", type: "default" }, { id: "rId9", type: "first" }]);
+  assert.equal(Fixups.inheritHeaderFooters(null), 0);
+});
+
+test("Tabs become runs the reader sizes, and paragraphs carry their stops from the style chain", () => {
+  const styles = [
+    { id: "Normal", target: "p", paragraphProps: { tabs: [{ style: "left", position: "36pt" }, { style: "decimal", position: "200pt" }] } },
+    { id: "Reference", target: "p", basedOn: "Normal", paragraphProps: { tabs: [{ style: "clear", position: "36pt" }, { style: "right", position: "468pt", leader: "dot" }] } }
+  ];
+  const tab = () => ({ type: "tab" });
+  const reference = { type: "paragraph", styleName: "Reference", tabs: [{ style: "center", position: "100.5pt", leader: "hyphen" }], children: [{ type: "run", children: [{ type: "text", text: "[1]" }, tab()] }] };
+  const boxParagraph = { type: "paragraph", children: [{ type: "run", children: [tab()] }] };
+  const anchor = { type: "paragraph", children: [{ type: "run", children: [{ type: "vmlPicture", children: [boxParagraph] }] }] };
+  const plain = { type: "paragraph", children: [{ type: "run", children: [{ type: "text", text: "no tab" }] }] };
+  assert.equal(Fixups.markTabs([reference, anchor, plain], styles), 2);
+  const run = reference.children[0].children[1];
+  assert.deepEqual(run, { type: "run", className: Fixups.TAB_CLASS, children: [{ type: "text", text: "\u2003" }] });
+  assert.match(reference.className, /(^|\s)ld-ts-c2010h_d4000_r9360o(\s|$)/);
+  assert.equal(anchor.className, undefined, "a text box's tab is its own paragraph's");
+  assert.equal(boxParagraph.className, undefined, "a paragraph with no stops gets no stop class");
+  assert.equal(plain.className, undefined);
+  assert.deepEqual(Fixups.parseTabStops(reference.className), [
+    { kind: "c", position: 100.5, leader: "h" },
+    { kind: "d", position: 200, leader: "" },
+    { kind: "r", position: 468, leader: "o" }
+  ]);
+  assert.deepEqual(Fixups.parseTabStops("docx_normal ld-l3"), []);
+});
+
+test("Footnotes whose reference has the author's own mark are listed", () => {
+  const reference = (id, attributes) => el("r", [el("footnoteReference", [], { id, ...attributes })]);
+  const body = el("body", [
+    el("p", [reference("1", { customMarkFollows: "1" }), reference("2"), reference("3", { customMarkFollows: "0" })]),
+    el("tbl", [el("tr", [el("tc", [el("p", [reference("4", { customMarkFollows: "true" })])])])])
+  ]);
+  assert.deepEqual(Fixups.customMarkNotes(body), ["1", "4"]);
+  assert.deepEqual(Fixups.customMarkNotes(null), []);
+});

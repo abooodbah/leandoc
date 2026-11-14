@@ -495,7 +495,9 @@
       ignoreFonts: true,
       breakPages: !reading,
       ignoreLastRenderedPageBreak: false,
-      experimental: true,
+      // LeanDoc sizes tabs itself (setTabStops); docx-preview's experimental
+      // tabs changed widths half a second after the pages were split.
+      experimental: false,
       trimXmlDeclaration: true,
       renderHeaders: !reading,
       renderFooters: !reading,
@@ -704,6 +706,8 @@
       var entry = {
         doc: parsed,
         hyphenate: prepared.autoHyphenation,
+        tabInterval: prepared.defaultTabStop,
+        customMarks: prepared.customMarkNotes || [],
         titleSections: prepared.titleSections || [],
         colors: { palette: prepared.palette || [], theme: prepared.themeColors || {} },
         saved: keep ? saveModel(parsed) : null
@@ -745,6 +749,8 @@
           return null;
         }
         documentColors = model.colors;
+        documentTabInterval = model.tabInterval > 0 ? model.tabInterval : 36;
+        documentCustomMarks = model.customMarks || [];
         updatePageColorStyle();
         return attachDocument(nodes, view, serial, model.hyphenate).then(function (attached) {
           if (attached) {
@@ -1563,6 +1569,148 @@
     });
   }
 
+  // Text boxes Word floats (Fixups.floatTextBoxes). Each leaves an empty
+  // mark where it was anchored and becomes a block of its own before its
+  // anchor's paragraph (liftFloats), where the reading view shows it and its
+  // lines are matched. In a section with columns it spans them all
+  // (reader.css). The page view then takes a box that Word positions on the
+  // page off the text (takePageFloats) and puts it at the top or the foot of
+  // the first page whose text area holds its mark, across the columns, so
+  // the text of every column flows below or above it (placeFloats).
+  var FLOAT_BOX = "__ldFloat";
+  var FLOAT_MARK = "__ldFloatMark";
+
+  // A footnote with a mark of the author's own (Fixups.customMarkNotes)
+  // shows that mark, not docx-preview's number, at the reference and in
+  // the note.
+  var documentCustomMarks = [];
+
+  function hideCustomMarks(container) {
+    if (!container.querySelector) {
+      return;
+    }
+    documentCustomMarks.forEach(function (id) {
+      var anchor = container.querySelector("[id='" + Fixups.NOTE_REFERENCE_ANCHOR + id + "']");
+      var number = anchor ? anchor.nextElementSibling : null;
+      if (number && number.nodeName === "SUP") {
+        number.classList.add("ld-custom-mark");
+      }
+      var note = container.querySelector("[id='" + Fixups.NOTE_ANCHOR + id + "']");
+      var item = note ? note.closest("li") : null;
+      if (item) {
+        item.classList.add("ld-custom-mark");
+      }
+    });
+  }
+
+  function liftFloats(container) {
+    if (!container.querySelectorAll) {
+      return;
+    }
+    container.querySelectorAll("." + Fixups.FLOAT_CLASS).forEach(function (box) {
+      var holder = box.parentNode;
+      var paragraph = holder && holder.closest ? holder.closest("p") : null;
+      if (!paragraph || !paragraph.parentNode) {
+        return;
+      }
+      // docx-preview's picture container holds only the box.
+      if (holder === paragraph || holder.nodeName !== "DIV" || holder.childNodes.length !== 1) {
+        holder = box;
+      }
+      var mark = document.createElement("span");
+      mark.className = "ld-float-mark";
+      mark[FLOAT_BOX] = box;
+      box[FLOAT_MARK] = mark;
+      holder.parentNode.replaceChild(mark, holder);
+      paragraph.parentNode.insertBefore(box, paragraph);
+    });
+  }
+
+  function isPageFloat(node) {
+    return hasClass(node, Fixups.FLOAT_CLASS + "-top") || hasClass(node, Fixups.FLOAT_CLASS + "-bottom");
+  }
+
+  function takePageFloats(pages) {
+    var boxes = [];
+    pages.forEach(function (page) {
+      page.querySelectorAll("." + Fixups.FLOAT_CLASS).forEach(function (box) {
+        if (box[FLOAT_MARK] && isPageFloat(box)) {
+          box.parentNode.removeChild(box);
+          boxes.push(box);
+        }
+      });
+    });
+    return boxes;
+  }
+
+  // A box no page took (a page past the budget, or one without a height)
+  // goes back before its anchor's paragraph.
+  function restoreFloats(boxes) {
+    boxes.forEach(function (box) {
+      var paragraph = box.parentNode ? null : box[FLOAT_MARK].closest("p");
+      if (paragraph && paragraph.parentNode) {
+        paragraph.parentNode.insertBefore(box, paragraph);
+      }
+    });
+  }
+
+  function pageFloats(page, place) {
+    return Array.prototype.filter.call(page.children, function (child) {
+      return hasClass(child, Fixups.FLOAT_CLASS + "-" + place);
+    });
+  }
+
+  function floatsHeight(page, place) {
+    var height = 0;
+    pageFloats(page, place).forEach(function (box) {
+      var style = window.getComputedStyle(box);
+      height += box.getBoundingClientRect().height + (parseFloat(style.marginTop) || 0) +
+        (parseFloat(style.marginBottom) || 0);
+    });
+    return height;
+  }
+
+  // Puts a box at the top of the page's text area, after the boxes already
+  // there, or at its foot, above the notes.
+  function insertPageFloat(page, box) {
+    var articles = childrenNamed(page, "ARTICLE");
+    if (hasClass(box, Fixups.FLOAT_CLASS + "-top")) {
+      page.insertBefore(box, articles[0] || null);
+      return;
+    }
+    var after = articles.length ? articles[articles.length - 1] : null;
+    var bottoms = pageFloats(page, "bottom");
+    if (bottoms.length) {
+      after = bottoms[bottoms.length - 1];
+    }
+    page.insertBefore(box, after ? after.nextSibling : null);
+  }
+
+  // Whether an empty mark lies past the text area. Its box has no width, so
+  // at the left edge of the first column it would read as left of the text.
+  function markIsOver(mark, over) {
+    var rect = mark.getClientRects()[0];
+    return !rect || over({ top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.left + 1 });
+  }
+
+  // Places the boxes whose marks lie in the page's text area; true when one
+  // was placed and the page must be laid out again.
+  function placeFloats(page, articles, layout) {
+    var placed = false;
+    articles.forEach(function (article, index) {
+      var over = layout.tests[index];
+      article.querySelectorAll(".ld-float-mark").forEach(function (mark) {
+        var box = mark[FLOAT_BOX];
+        if (!box || box.parentNode || (over && markIsOver(mark, over))) {
+          return;
+        }
+        insertPageFloat(page, box);
+        placed = true;
+      });
+    });
+    return placed;
+  }
+
   // Splits one page at its bottom margin and returns the new page after it,
   // or null when everything already fits or nothing more can move.
   function splitPage(page, notes) {
@@ -1581,13 +1729,16 @@
     var layout = null;
     for (;;) {
       for (var round = 0; round < 4; round += 1) {
-        layout = layOutPage(articles, styles, bottom - notesHeight(page));
+        layout = layOutPage(articles, styles, bottom - notesHeight(page) - floatsHeight(page, "bottom"));
         var ids = referencedNotes(page, notes, layout.tests);
         if (sameIds(ids, placed)) {
           break;
         }
         placed = ids;
         placeNotes(page, notes, ids);
+      }
+      if (placeFloats(page, articles, layout)) {
+        continue;
       }
       // The page's last block can end inside its own spacing after: the page
       // is full, but no block lies past it. The waiting blocks come next and
@@ -1674,10 +1825,10 @@
         page.removeChild(source);
       }
     }
-    // Endnotes follow the text to its last page.
+    // Endnotes follow the text to its last page; placed text boxes stay.
     Array.prototype.slice.call(page.children).forEach(function (child) {
       if (child.nodeName !== "HEADER" && child.nodeName !== "ARTICLE" && child.nodeName !== "FOOTER" &&
-          !child.classList.contains("ld-footnotes")) {
+          !child.classList.contains("ld-footnotes") && !isPageFloat(child)) {
         next.appendChild(child);
       }
     });
@@ -1806,6 +1957,7 @@
     var result = [];
     var budget = PAGINATION_LIMIT;
     var notes = collectFootnotes(pages);
+    var floats = takePageFloats(pages);
     pages.forEach(function (page) {
       var articles = childrenNamed(page, "ARTICLE");
       if (articles.length) {
@@ -1838,6 +1990,7 @@
                 flushPending(page);
                 placeNotes(page, notes, referencedNotes(page, notes, null));
               });
+              restoreFloats(floats);
               resolve(result);
               return;
             }
@@ -2237,7 +2390,225 @@
     matchStandInWidths(container);
     fitParagraphsToRuns(container);
     setSingleLines(container);
+    setTabStops(container);
     shrinkJustifiedSpaces(container);
+  }
+
+  // Word's tab stops (Fixups.markTabs). A tab goes to the first stop past
+  // it: one of the paragraph's own, the stop a hanging indent makes at the
+  // left indent, or after the paragraph's last stop a default one every
+  // documentTabInterval points. Stops are measured from the left edge of
+  // the paragraph's column or cell. A right or centred stop ends or centres
+  // the text after the tab on the stop. Each round sizes one tab of every
+  // paragraph, the first tabs first: all positions are read, then all widths
+  // written, so the document is laid out once a round, not once a tab.
+  var documentTabInterval = 36;
+  var TAB_LEADERS = { o: ".", m: "\u00b7", h: "-", u: "_" };
+  var TAB_WIDTH_CLASS = /(^|\s)ld-l\d+(?=\s|$)/g;
+
+  function tabParagraph(paragraph) {
+    var style = getComputedStyle(paragraph);
+    var box = paragraph.getBoundingClientRect();
+    var width = parseFloat(style.width);
+    if (style.direction === "rtl" || !(box.width > 0) || !(width > 0)) {
+      return null;
+    }
+    // Rectangles are zoomed, computed lengths are not.
+    var scale = box.width / width;
+    var marginLeft = parseFloat(style.marginLeft) || 0;
+    var indent = marginLeft * 0.75;
+    var stops = Fixups.parseTabStops(paragraph.className);
+    var last = 0;
+    stops.forEach(function (stop) {
+      last = Math.max(last, stop.position);
+    });
+    if ((parseFloat(style.textIndent) || 0) < 0) {
+      stops.push({ kind: "l", position: indent, leader: "" });
+    }
+    stops.sort(function (a, b) {
+      return a.position - b.position;
+    });
+    return { origin: box.left - marginLeft * scale, perPoint: scale * 4 / 3, stops: stops, last: last };
+  }
+
+  function nextTabStop(info, x) {
+    for (var index = 0; index < info.stops.length; index += 1) {
+      if (info.stops[index].position > x + 0.01) {
+        return info.stops[index];
+      }
+    }
+    var interval = documentTabInterval;
+    var position = (Math.floor(Math.max(info.last, 0) / interval) + 1) * interval;
+    while (position <= x + 0.01) {
+      position += interval;
+    }
+    return { kind: "l", position: position, leader: "" };
+  }
+
+  function widthOnLine(range, line) {
+    var left = Infinity;
+    var right = -Infinity;
+    Array.prototype.forEach.call(range.getClientRects(), function (rect) {
+      if (rect.width > 0 && rect.bottom > line.top + 1 && rect.top < line.bottom - 1) {
+        left = Math.min(left, rect.left);
+        right = Math.max(right, rect.right);
+      }
+    });
+    return right > left ? right - left : 0;
+  }
+
+  // The width of a range's text laid on one line: the widths of the lines it
+  // takes, added. Text after a centred or right tab that wraps would fit on
+  // the line with a narrower tab, as Word sets it.
+  function widthAcrossLines(range) {
+    var lines = [];
+    Array.prototype.forEach.call(range.getClientRects(), function (rect) {
+      if (!(rect.width > 0)) {
+        return;
+      }
+      var line = null;
+      for (var index = 0; index < lines.length && !line; index += 1) {
+        if (rect.top < lines[index].bottom - 1 && rect.bottom > lines[index].top + 1) {
+          line = lines[index];
+        }
+      }
+      if (line) {
+        line.left = Math.min(line.left, rect.left);
+        line.right = Math.max(line.right, rect.right);
+      } else {
+        lines.push({ top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right });
+      }
+    });
+    return lines.reduce(function (sum, line) {
+      return sum + line.right - line.left;
+    }, 0);
+  }
+
+  // The width of the text after a tab up to the next tab, as if on one
+  // line. A page field still holds its markers and keyword until the page is
+  // numbered (Fixups.PAGE_FIELD_START, numberPageFields); they are not
+  // printed, so their width is left out, and the field's own text is
+  // reported so the tab can follow the number each page prints.
+  function textAfterTab(tab, next, paragraph, line) {
+    var range = document.createRange();
+    range.setStartAfter(tab);
+    if (next) {
+      range.setEndBefore(next);
+    } else {
+      range.setEnd(paragraph, paragraph.childNodes.length);
+    }
+    var result = { width: widthAcrossLines(range), fieldChars: 0, fieldWidth: 0 };
+    if (paragraph.textContent.indexOf(Fixups.PAGE_FIELD_START) < 0) {
+      return result;
+    }
+    var part = document.createRange();
+    var measure = function (node, start, end) {
+      part.setStart(node, start);
+      part.setEnd(node, end);
+      return widthOnLine(part, line);
+    };
+    var walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+    var node;
+    while ((node = walker.nextNode())) {
+      if (!range.intersectsNode(node)) {
+        continue;
+      }
+      var text = node.nodeValue;
+      var start = text.indexOf(Fixups.PAGE_FIELD_START);
+      while (start >= 0) {
+        var colon = text.indexOf(":", start);
+        var end = colon < 0 ? -1 : text.indexOf(Fixups.PAGE_FIELD_END, colon);
+        if (end < 0) {
+          break;
+        }
+        result.width -= measure(node, start, colon + 1) + measure(node, end, end + 1);
+        result.fieldChars += end - colon - 1;
+        result.fieldWidth += measure(node, colon + 1, end);
+        start = text.indexOf(Fixups.PAGE_FIELD_START, end);
+      }
+    }
+    result.width = Math.max(0, result.width);
+    return result;
+  }
+
+  var TAB_FIELD = "data-ld-tab-field";
+
+  // A right or centred tab before a page number was sized for the number
+  // Word saved; each page prints its own, which may have more or fewer
+  // digits. Digits are equally wide in the fonts documents use, so the tab
+  // gives up the width of the digits added, or half of it when centred,
+  // without measuring the page again.
+  function refitFieldTabs(paragraph, added) {
+    paragraph.querySelectorAll("span[" + TAB_FIELD + "]").forEach(function (tab) {
+      var parts = tab.getAttribute(TAB_FIELD).split(" ");
+      var width = Number(parts[1]) - added * Number(parts[2]) * (parts[0] === "c" ? 0.5 : 1);
+      tab.className = tab.className.replace(TAB_WIDTH_CLASS, "") + " " +
+        lineClass("width", Math.max(0, Math.round(width * 100) / 100) + "pt");
+    });
+  }
+
+  function setTabStops(container) {
+    if (!container.querySelectorAll) {
+      return;
+    }
+    var items = [];
+    var byParagraph = new Map();
+    container.querySelectorAll("span." + Fixups.TAB_CLASS).forEach(function (tab) {
+      var paragraph = tab.closest("p");
+      if (!paragraph) {
+        return;
+      }
+      var item = byParagraph.get(paragraph);
+      if (!item) {
+        item = { paragraph: paragraph, tabs: [], info: undefined };
+        byParagraph.set(paragraph, item);
+        items.push(item);
+      }
+      item.tabs.push(tab);
+    });
+    for (var round = 0; items.length; round += 1) {
+      var sizes = [];
+      items.forEach(function (item) {
+        if (item.info === undefined) {
+          item.info = tabParagraph(item.paragraph);
+        }
+        if (!item.info) {
+          return;
+        }
+        var tab = item.tabs[round];
+        var line = tab.getBoundingClientRect();
+        var x = (line.left - item.info.origin) / item.info.perPoint;
+        var stop = nextTabStop(item.info, x);
+        var width = stop.position - x;
+        var field = "";
+        if (stop.kind !== "l") {
+          var after = textAfterTab(tab, item.tabs[round + 1] || null, item.paragraph, line);
+          var afterWidth = after.width / item.info.perPoint;
+          width -= stop.kind === "c" ? afterWidth / 2 : afterWidth;
+          if (after.fieldChars > 0 && stop.kind !== "d") {
+            field = stop.kind + " " + Math.max(0, Math.round(width * 100) / 100) + " " +
+              Math.round(after.fieldWidth / item.info.perPoint / after.fieldChars * 1000) / 1000;
+          }
+        }
+        sizes.push({ tab: tab, width: Math.max(0, Math.round(width * 100) / 100), leader: stop.leader, field: field });
+      });
+      sizes.forEach(function (size) {
+        var tab = size.tab;
+        tab.className = tab.className.replace(TAB_WIDTH_CLASS, "") + " " + lineClass("width", size.width + "pt");
+        if (size.field) {
+          tab.setAttribute(TAB_FIELD, size.field);
+        } else {
+          tab.removeAttribute(TAB_FIELD);
+        }
+        if (size.leader && TAB_LEADERS[size.leader]) {
+          tab.classList.add("ld-tab-leader");
+          tab.textContent = new Array(Math.ceil(size.width / 2) + 2).join(TAB_LEADERS[size.leader]);
+        }
+      });
+      items = items.filter(function (item) {
+        return item.info && item.tabs.length > round + 1;
+      });
+    }
   }
 
   // The header and footer of a title-page section's later pages. docx-preview
@@ -2398,6 +2769,8 @@
       (node.nodeName === "STYLE" ? styles : body).push(node);
     });
     body.forEach(fixMathTokens);
+    body.forEach(liftFloats);
+    body.forEach(hideCustomMarks);
     var wrapper = body.filter(function (node) {
       return node.classList && node.classList.contains("docx-wrapper");
     })[0];
@@ -2591,11 +2964,20 @@
   function numberPageFields(page, pageNumber, pageCount) {
     var walker = document.createTreeWalker(page, NodeFilter.SHOW_TEXT);
     var node;
+    var filled = [];
     while ((node = walker.nextNode())) {
       if (node.nodeValue.indexOf(Fixups.PAGE_FIELD_START) >= 0) {
-        node.nodeValue = Fixups.fillPageFields(node.nodeValue, pageNumber, pageCount);
+        filled.push(node);
       }
     }
+    filled.forEach(function (text) {
+      var saved = text.nodeValue.replace(/\ue000[^:\ue001]*:/g, "").replace(/\ue001/g, "").length;
+      text.nodeValue = Fixups.fillPageFields(text.nodeValue, pageNumber, pageCount);
+      var paragraph = text.parentNode && text.parentNode.closest ? text.parentNode.closest("p") : null;
+      if (paragraph && text.nodeValue.length !== saved) {
+        refitFieldTabs(paragraph, text.nodeValue.length - saved);
+      }
+    });
   }
 
   // Prepares newly attached pages: lazy layout, page numbers, document ids

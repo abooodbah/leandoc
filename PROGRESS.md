@@ -1,6 +1,6 @@
 # Progress
 
-Updated: 2026-11-05
+Updated: 2026-11-14
 
 ## LeanDoc 0.2.0: plan
 
@@ -108,6 +108,26 @@ Decisions taken here (the owner can change them):
   `theme`. Windows `HKCU\Software\LeanDoc`, Linux
   `$XDG_CONFIG_HOME/leandoc/settings.ini` group `[Reader]`, macOS
   `NSUserDefaults` (`LeanDocTheme`, `LeanDocPageColor`).
+
+## Word layout: floating boxes, tabs, running headers (after 0.2.0)
+
+- Branch fidelity-floating-and-columns, one pull request, tests committed
+  before the change. A two-column IEEE paper showed its tables and figures
+  over the text, a heading printed over a table, and the references in three
+  columns with a wide gap after each number. Fixed: VML text boxes that Word
+  wraps top and bottom go to the top or foot of their anchor's page across
+  the columns; LeanDoc sizes every tab itself before pagination, with the
+  hanging indent as a stop; a section without a header of its own takes the
+  previous one; the header's page number sits at the right margin; a
+  footnote with the author's own mark shows no number; the footnote
+  reference's bookmark adds no height. Test document:
+  tests/reader/make-floats-docx.mjs, expected values from Word 16.
+- Measured against main on one Windows laptop (perf-probe, three rounds,
+  medians): 300 pages 697 to 690 ms, 1,000 pages 2,101 to 2,143 ms, the
+  19-page paper 1,062 to 1,121 ms; memory within the run-to-run spread.
+  Page counts against Word on the 24 local corpus files: 16 of 24 on both;
+  page starts 211 of 576 on main, 210 here (one heading-tab case, listed in
+  the pull request's known gaps).
 
 ## Efficiency review (0.2.0)
 

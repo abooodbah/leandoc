@@ -885,6 +885,30 @@
     }
   }
 
+  // Footnotes whose reference says a mark of the author's own follows it
+  // (w:customMarkFollows): Word prints that mark, not a number, before the
+  // note and in it. The reader hides the number docx-preview gives them
+  // (reader.js hideCustomMarks).
+  function customMarkNotes(xmlBody) {
+    var ids = [];
+    (function visit(element) {
+      var children = (element && element.children) || [];
+      for (var index = 0; index < children.length; index += 1) {
+        var child = children[index];
+        if (child.localName === "footnoteReference") {
+          var follows = getAttr(child, "customMarkFollows");
+          var id = getAttr(child, "id");
+          if (follows !== null && !/^(0|false|off)$/i.test(follows) && id !== null && ids.indexOf(id) < 0) {
+            ids.push(id);
+          }
+        } else {
+          visit(child);
+        }
+      }
+    }(xmlBody));
+    return ids;
+  }
+
   function markNotes(part) {
     (part && Array.isArray(part.notes) ? part.notes : []).forEach(function (note) {
       if (note && note.id !== undefined && Array.isArray(note.children)) {
@@ -1100,6 +1124,319 @@
       });
     });
     return reserved;
+  }
+
+  // A VML text box that Word places on the page with text above and below
+  // it (w10:wrap type="topAndBottom"), as an IEEE paper places a figure or
+  // table across both columns at the top of a page. docx-preview drew it as
+  // an absolutely positioned SVG at its anchor's line: in a two-column paper
+  // the tables printed over the text of both columns, and their cells took
+  // the anchoring heading's small capitals. Such a box becomes a plain block
+  // that the page view places at the top or the foot of the page that holds
+  // its anchor, across every column (reader.js placeFloats), and the reading
+  // view shows before its anchor's paragraph.
+  var FLOAT_CLASS = "ld-float";
+
+  function vmlStyleValue(style, name) {
+    var match = new RegExp("(?:^|;)\\s*" + name + "\\s*:\\s*([^;]*)", "i").exec(style || "");
+    return match ? match[1].trim().toLowerCase() : "";
+  }
+
+  // v:textbox inset: left, top, right, bottom. A bare number is in EMU; a
+  // missing value keeps VML's default of 0.1 in at the sides and 0.05 in at
+  // the top and bottom.
+  function vmlPoints(value, fallback) {
+    var match = /^\s*(-?\d*\.?\d+)\s*(pt|in|px|cm|mm|pc)?\s*$/i.exec(value || "");
+    if (!match) {
+      return fallback;
+    }
+    return match[2] ? parseFloat(match[1]) * VML_UNITS[match[2].toLowerCase()] : parseFloat(match[1]) / 12700;
+  }
+
+  function vmlInset(value) {
+    var inset = [7.2, 3.6, 7.2, 3.6];
+    String(value || "").split(",").forEach(function (part, index) {
+      if (index < 4) {
+        inset[index] = vmlPoints(part, inset[index]);
+      }
+    });
+    return inset;
+  }
+
+  var VML_COLOR = /^(#[0-9a-f]{6}|#[0-9a-f]{3}|black|white|red|green|blue|yellow|gray|silver)$/i;
+
+  function vmlColor(value, fallback) {
+    var first = String(value || "").trim().split(/\s+/)[0];
+    return VML_COLOR.test(first) ? first.toLowerCase() : fallback;
+  }
+
+  function isOff(value) {
+    return /^(f|false|0|off)$/i.test(String(value || ""));
+  }
+
+  // How a VML shape floats, or null when it is not a text box Word wraps
+  // top and bottom. "top" and "bottom" boxes are positioned against the
+  // page or its margins; any other box sits in the text at its anchor.
+  function floatPlacement(shape) {
+    var style = shape ? getAttr(shape, "style") || "" : "";
+    if (!/position\s*:\s*absolute/i.test(style)) {
+      return null;
+    }
+    var wrap = childNamed(shape, "wrap");
+    var textbox = childNamed(shape, "textbox");
+    if (!wrap || getAttr(wrap, "type") !== "topAndBottom" || !textbox || !childNamed(textbox, "txbxContent")) {
+      return null;
+    }
+    var width = vmlLength(style, "width");
+    if (!(width > 0)) {
+      return null;
+    }
+    var relative = vmlStyleValue(style, "mso-position-vertical-relative") || "text";
+    var vertical = vmlStyleValue(style, "mso-position-vertical");
+    var place = /^(margin|page|top-margin-area|bottom-margin-area)$/.test(relative)
+      ? (vertical === "bottom" || relative === "bottom-margin-area" ? "bottom" : "top")
+      : "inline";
+    var inset = vmlInset(getAttr(textbox, "inset"));
+    var css = {
+      width: width + "pt",
+      "box-sizing": "border-box",
+      padding: inset[1] + "pt " + inset[2] + "pt " + inset[3] + "pt " + inset[0] + "pt",
+      "margin-top": vmlLength(style, "mso-wrap-distance-top") + "pt",
+      "margin-bottom": vmlLength(style, "mso-wrap-distance-bottom") + "pt"
+    };
+    // The height Word saved is the height it laid the box out at, also for a
+    // box that fits its text (mso-fit-shape-to-text): Word refits on save.
+    // The box keeps at least that height so the text below starts where
+    // Word's does, and grows if the reader's text runs taller.
+    css["min-height"] = vmlLength(style, "height") + "pt";
+    var horizontal = vmlStyleValue(style, "mso-position-horizontal");
+    if (horizontal === "center") {
+      css["margin-left"] = "auto";
+      css["margin-right"] = "auto";
+    } else if (horizontal === "right" || horizontal === "outside") {
+      css["margin-left"] = "auto";
+      css["margin-right"] = "0pt";
+    } else if (horizontal === "left" || horizontal === "inside") {
+      css["margin-left"] = "0pt";
+    } else {
+      css["margin-left"] = vmlLength(style, "margin-left") + "pt";
+    }
+    // A shape is stroked and filled unless it says otherwise: a 0.75 pt
+    // black line and a white fill.
+    var stroke = childNamed(shape, "stroke");
+    if (!isOff(getAttr(shape, "stroked")) && !(stroke && isOff(getAttr(stroke, "on")))) {
+      css.border = vmlPoints(getAttr(shape, "strokeweight"), 0.75) + "pt solid " +
+        vmlColor(getAttr(shape, "strokecolor"), "black");
+    }
+    var fill = childNamed(shape, "fill");
+    if (!isOff(getAttr(shape, "filled")) && !(fill && isOff(getAttr(fill, "on")))) {
+      css["background-color"] = vmlColor(getAttr(shape, "fillcolor"), "white");
+    }
+    return { place: place, css: css };
+  }
+
+  function vmlShape(pict) {
+    var children = (pict && pict.children) || [];
+    for (var index = 0; index < children.length; index += 1) {
+      if (/^(shape|rect|roundrect)$/.test(children[index].localName)) {
+        return children[index];
+      }
+    }
+    return null;
+  }
+
+  function textBoxContent(picture) {
+    var content = null;
+    eachModelElement(picture.children || [], function (element) {
+      if (!content && element.tagName === "foreignObject" && Array.isArray(element.children)) {
+        content = element.children;
+      }
+    });
+    return content;
+  }
+
+  function floatTextBoxes(modelBody, xmlBody) {
+    var modelParagraphs = [];
+    var xmlParagraphs = [];
+    modelBlocks(modelBody ? modelBody.children : [], modelParagraphs, []);
+    if (xmlBody) {
+      xmlBlocks(xmlBody, false, xmlParagraphs, []);
+    }
+    if (!xmlBody || xmlParagraphs.length !== modelParagraphs.length) {
+      return 0;
+    }
+    var floated = 0;
+    modelParagraphs.forEach(function (paragraph, index) {
+      var pictures = [];
+      eachModelElement(paragraph.children || [], function (element) {
+        if (element.type === "vmlPicture") {
+          pictures.push(element);
+        }
+      });
+      if (!pictures.length) {
+        return;
+      }
+      var sources = paragraphPictures(xmlParagraphs[index], []);
+      if (sources.length !== pictures.length) {
+        return;
+      }
+      pictures.forEach(function (picture, position) {
+        var placement = floatPlacement(vmlShape(sources[position]));
+        var content = placement ? textBoxContent(picture) : null;
+        if (!content || !content.length) {
+          return;
+        }
+        picture.children = [{
+          type: "drawing",
+          className: FLOAT_CLASS + " " + FLOAT_CLASS + "-" + placement.place,
+          cssStyle: placement.css,
+          children: content
+        }];
+        floated += 1;
+      });
+    });
+    return floated;
+  }
+
+  // Word gives a section that names no header or footer of a kind the one
+  // of the section before it. docx-preview showed none, and a paper whose
+  // page numbers are in the first section's header lost them after page 1.
+  function inheritHeaderFooters(body) {
+    if (!body) {
+      return 0;
+    }
+    var sections = (body.children || []).filter(function (block) {
+      return block && block.type === "paragraph" && block.sectionProps;
+    }).map(function (block) {
+      return block.sectionProps;
+    });
+    if (body.props) {
+      sections.push(body.props);
+    }
+    var previous = { headerRefs: [], footerRefs: [] };
+    var inherited = 0;
+    sections.forEach(function (props) {
+      ["headerRefs", "footerRefs"].forEach(function (key) {
+        var own = (props[key] || []).filter(Boolean);
+        var refs = own.slice();
+        previous[key].forEach(function (ref) {
+          var named = own.some(function (mine) {
+            return (mine.type || "default") === (ref.type || "default");
+          });
+          if (!named) {
+            refs.push(ref);
+            inherited += 1;
+          }
+        });
+        if (refs.length !== own.length) {
+          props[key] = refs;
+        }
+        previous[key] = refs;
+      });
+    });
+    return inherited;
+  }
+
+  // Tabs. docx-preview set each tab's width half a second after it rendered,
+  // from its own rule: it counted the paragraph's indent twice and knew
+  // nothing of the stop Word makes at a hanging indent. The widths changed
+  // after the page view had split the pages, so the IEEE reference list of
+  // a paper ("[4]", a tab, then the text at the hanging indent) gained a
+  // wide gap after each number and ran into a third column past the page.
+  // Each tab becomes a span the reader sizes before it lays out the pages
+  // (reader.js setTabStops), and each paragraph with stops of its own lists
+  // them in a class: TAB_STOPS, then kind, position in twips and leader per
+  // stop, as in "ld-ts-r10280" or "ld-ts-l400_r9360o".
+  var TAB_CLASS = "ld-tab";
+  var TAB_STOPS = "ld-ts-";
+  var TAB_KINDS = { left: "l", start: "l", num: "l", right: "r", end: "r", center: "c", decimal: "d" };
+  var TAB_LEADERS = { dot: "o", middleDot: "m", hyphen: "h", underscore: "u", heavy: "u" };
+
+  function mergeTabStops(stops, tabs) {
+    (tabs || []).forEach(function (tab) {
+      var position = tab ? parseFloat(tab.position) : NaN;
+      if (!isFinite(position)) {
+        return;
+      }
+      var twips = Math.round(position * 20);
+      stops = stops.filter(function (stop) {
+        return stop.twips !== twips;
+      });
+      var kind = TAB_KINDS[tab.style || "left"];
+      if (kind) {
+        stops.push({ twips: twips, kind: kind, leader: TAB_LEADERS[tab.leader] || "" });
+      }
+    });
+    return stops;
+  }
+
+  function tabStopsToken(stops) {
+    return stops.length ? TAB_STOPS + stops.slice().sort(function (a, b) {
+      return a.twips - b.twips;
+    }).map(function (stop) {
+      return stop.kind + stop.twips + stop.leader;
+    }).join("_") : "";
+  }
+
+  function parseTabStops(className) {
+    var match = new RegExp("(?:^|\\s)" + TAB_STOPS + "(\\S+)").exec(className || "");
+    if (!match) {
+      return [];
+    }
+    return match[1].split("_").map(function (part) {
+      var stop = /^([lrcd])(-?\d+)([omhu]?)$/.exec(part);
+      return stop ? { kind: stop[1], position: parseInt(stop[2], 10) / 20, leader: stop[3] } : null;
+    }).filter(Boolean);
+  }
+
+  function markTabs(roots, styles) {
+    var byId = {};
+    (styles || []).forEach(function (style) {
+      if (style && style.id && style.target === "p") {
+        byId[style.id] = style;
+      }
+    });
+    var chains = {};
+    function styleStops(id) {
+      if (!id || !byId[id]) {
+        return [];
+      }
+      if (!chains[id]) {
+        chains[id] = [];
+        var style = byId[id];
+        var base = style.basedOn && style.basedOn !== id ? styleStops(style.basedOn) : [];
+        chains[id] = mergeTabStops(base, style.paragraphProps && style.paragraphProps.tabs);
+      }
+      return chains[id];
+    }
+    var marked = 0;
+    // A paragraph's own runs, not those of a text box paragraph inside it.
+    function replaceTabs(parent) {
+      var found = false;
+      (parent.children || []).forEach(function (child, index) {
+        if (!child || typeof child !== "object") {
+          return;
+        }
+        if (child.type === "tab") {
+          parent.children[index] = { type: "run", className: TAB_CLASS, children: [{ type: "text", text: "\u2003" }] };
+          found = true;
+          marked += 1;
+        } else if (!/^(paragraph|table|drawing|vmlPicture|vmlElement)$/.test(child.type || "")) {
+          found = replaceTabs(child) || found;
+        }
+      });
+      return found;
+    }
+    eachModelElement(roots, function (element) {
+      if (element.type !== "paragraph" || !replaceTabs(element)) {
+        return;
+      }
+      var token = tabStopsToken(mergeTabStops(styleStops(element.styleName), element.tabs));
+      if (token) {
+        addClass(element, token);
+      }
+    });
+    return marked;
   }
 
   // A section that sets no page size or margins (pandoc writes neither)
@@ -1765,7 +2102,7 @@
       noteReferences: 0, pageFields: 0, autoHyphenation: false, sectionBreakParagraphs: 0, fittedTables: 0,
       fixedTables: 0, markSizes: 0, contextualSpacing: 0, savedPageStarts: 0, droppedPageStarts: 0,
       widowControlOff: 0, keepLines: 0, keepNext: 0, defaultPageSetups: 0, reservedPictures: 0,
-      fontStandIns: 0 };
+      fontStandIns: 0, floats: 0, inheritedHeaders: 0, tabs: 0, defaultTabStop: 36, customMarkNotes: [] };
     if (!doc) {
       return stats;
     }
@@ -1972,14 +2309,22 @@
     stats.widowControlOff = rules.widowOff;
     stats.keepLines = rules.keepLines;
     stats.keepNext = rules.keepNext;
+    stats.floats = floatTextBoxes(modelBody, xmlBody);
     stats.reservedPictures = reserveVmlSpace(modelBody, xmlBody);
     var saved = markSavedPageStarts(modelBody, styles);
     stats.savedPageStarts = saved.marked;
     stats.droppedPageStarts = saved.dropped;
     markNotes(doc.footnotesPart);
+    stats.customMarkNotes = customMarkNotes(xmlBody);
     stats.sectionBreakParagraphs = hideSectionBreakParagraphs(doc.documentPart && doc.documentPart.body);
     stats.defaultPageSetups = fillDocumentPageSetup(doc.documentPart && doc.documentPart.body);
+    stats.inheritedHeaders = inheritHeaderFooters(doc.documentPart && doc.documentPart.body);
     stats.titleSections = markTitleSections(doc.documentPart && doc.documentPart.body);
+    stats.tabs = markTabs(roots, styles);
+    var interval = parseFloat(doc.settingsPart && doc.settingsPart.settings && doc.settingsPart.settings.defaultTabStop);
+    if (interval > 0) {
+      stats.defaultTabStop = interval;
+    }
 
     // keepOrigin kept the XML only for the pairing above.
     (doc.parts || []).forEach(function (part) {
@@ -2025,6 +2370,7 @@
     classifyHref: classifyHref,
     fillPageFields: fillPageFields,
     PAGE_FIELD_START: PAGE_FIELD_START,
+    PAGE_FIELD_END: PAGE_FIELD_END,
     NOTE_REFERENCE_ANCHOR: NOTE_REFERENCE_ANCHOR,
     NOTE_ANCHOR: NOTE_ANCHOR,
     SAVED_PAGE_START: SAVED_PAGE_START,
@@ -2043,6 +2389,13 @@
     colorPalette: colorPalette,
     darkPageColor: darkPageColor,
     PAGE_COLOR_PREFIX: PAGE_COLOR_PREFIX,
+    FLOAT_CLASS: FLOAT_CLASS,
+    floatTextBoxes: floatTextBoxes,
+    inheritHeaderFooters: inheritHeaderFooters,
+    customMarkNotes: customMarkNotes,
+    TAB_CLASS: TAB_CLASS,
+    markTabs: markTabs,
+    parseTabStops: parseTabStops,
     prepareModel: prepareModel
   });
 }));
