@@ -17,8 +17,8 @@ import {
 import { makeBigDocx } from "./make-big-docx.mjs";
 import { makeFloatsDocx } from "./make-floats-docx.mjs";
 import {
-  makeBreakLinesDocx, makeCancelledNumberingDocx, makeEmptyMarkNoteDocx, makeEquationDocx, makeNumberedDocx, makeSoftHyphenDocx,
-  makeTightHyphenDocx, makeWideLinesDocx
+  makeBreakLinesDocx, makeCancelledNumberingDocx, makeEmptyMarkNoteDocx, makeEquationDocx, makeNumberedDocx, makeSmallCapsDocx,
+  makeSoftHyphenDocx, makeTightHyphenDocx, makeWideLinesDocx
 } from "./make-numbered-docx.mjs";
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeWordMetricsDocx } from "./make-saved-pages-docx.mjs";
@@ -3504,6 +3504,92 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
         assert.ok(Math.abs(result.right - 373.89) <= 1, `"CACHE" ends at ${result.right} pt; Word's ends at 373.89 pt`);
       }
       assert.ok(Math.abs(result.pitch - 11.5) <= 0.3, `the next paragraph starts ${result.pitch} pt below; Word's starts 11.5 pt below`);
+    });
+  });
+
+  // makeSmallCapsDocx: small capitals in runs whose font is not the
+  // document's (Calibri 11) or the paragraph style's. Word's PDF of the
+  // fixture (Word 16) draws every small letter in its run's own font, at 80%
+  // of the run's size to the nearest half point; a run in capitals and small
+  // capitals all in full size capitals; "ß" as "ß". Positions are the x of
+  // each paragraph's closing "Sc", in points from the page's left edge.
+  async function smallCapsLayout(host) {
+    const { bytes, report } = await makeSmallCapsDocx();
+    await host.openDocument({ bytes, report, fileName: "small-caps.docx" });
+    return host.page.evaluate(() => {
+      const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+      const box = page.getBoundingClientRect();
+      const points = (value) => value / (box.width / page.offsetWidth) * 0.75;
+      const result = {};
+      document.querySelectorAll("#docBody article p").forEach((p) => {
+        const id = /^Sc(\d+)/i.exec(p.textContent);
+        if (!id) {
+          return;
+        }
+        const chars = [];
+        const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          for (let index = 0; index < node.data.length; index += 1) {
+            const range = document.createRange();
+            range.setStart(node, index);
+            range.setEnd(node, index + 1);
+            const rect = Array.from(range.getClientRects()).filter((r) => r.width > 0).pop();
+            if (rect) {
+              chars.push({ c: node.data[index], left: points(rect.left - box.left), top: points(rect.top - box.top) });
+            }
+          }
+        }
+        const lines = [];
+        chars.forEach((char) => {
+          let line = lines.find((each) => Math.abs(each.top - char.top) < 3);
+          if (!line) {
+            line = { top: char.top, text: "" };
+            lines.push(line);
+          }
+          line.text += char.c;
+        });
+        const text = chars.map((char) => char.c).join("");
+        const close = text.lastIndexOf("Sc");
+        result[id[1]] = {
+          closing: close > 0 ? chars[close].left : null,
+          first: chars[0].top,
+          ends: lines.map((line) => line.text.trim().split(/\s+/).pop().toUpperCase()),
+          innerText: p.innerText,
+          height: points(p.getBoundingClientRect().height),
+          spans: Array.from(p.querySelectorAll("span.ld-sc")).map((span) => {
+            const own = getComputedStyle(span);
+            const run = getComputedStyle(span.parentElement);
+            return { text: span.textContent, family: own.fontFamily, runFamily: run.fontFamily, weight: own.fontWeight, runWeight: run.fontWeight,
+              style: own.fontStyle, runStyle: run.fontStyle, size: parseFloat(own.fontSize) * 0.75, runSize: parseFloat(run.fontSize) * 0.75 };
+          })
+        };
+      });
+      return result;
+    });
+  }
+
+  test("small capitals keep their run's own font", async () => {
+    await withHost({}, async (host) => {
+      const layout = await smallCapsLayout(host);
+      ["1", "2", "3", "12"].forEach((id) => {
+        assert.ok(layout[id].spans.length > 0, `paragraph Sc${id} has small letters`);
+        layout[id].spans.forEach((span) => {
+          assert.equal(span.family, span.runFamily, `Sc${id} "${span.text}" is drawn in ${span.family}; its run's font is ${span.runFamily}`);
+          assert.equal(span.weight, span.runWeight, `Sc${id} "${span.text}" weight`);
+          assert.equal(span.style, span.runStyle, `Sc${id} "${span.text}" style`);
+        });
+      });
+      if (process.platform === "win32") {
+        // Word: Times New Roman bold 11.5 pt in a Calibri document, Arial
+        // 10 pt and Garamond 12 pt.
+        [["1", 348.79], ["2", 314.45], ["3", 346.03]].forEach(([id, word]) => {
+          assert.ok(Math.abs(layout[id].closing - word) <= 1, `Sc${id} closes at ${layout[id].closing} pt; Word's at ${word} pt`);
+        });
+        // The 90 Calibri words wrap to Word's 7 lines, each ending on
+        // Word's word.
+        assert.deepEqual(layout["12"].ends, ["STREAM", "CACHE", "KERNEL", "MESSAGE", "SWITCH", "THREAD", "SC"],
+          "the Calibri paragraph's lines end where Word's do");
+      }
     });
   });
 

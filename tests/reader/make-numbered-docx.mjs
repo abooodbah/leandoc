@@ -523,3 +523,63 @@ ${PLAIN_SECTION}
     "word/settings.xml": SETTINGS
   });
 }
+
+// Small capitals in a Calibri 11 document, each case in a paragraph that
+// opens with a marker "Sc" and its number in the case's font and closes
+// with " Sc": a Times New Roman bold run at 11.5 pt, an Arial 10 run, a
+// Garamond 12 run, a Times New Roman 10 run in capitals and small capitals,
+// runs at 8, 9, 12 and 14 pt, a word with "ß", a heading whose style sets
+// the small capitals, and 90 words in Calibri 11 small capitals in a
+// justified paragraph whose style sets Times New Roman. Each run's font is
+// not the one its paragraph or the document sets. Last, the heading again
+// at an exact 12 pt line, and a plain paragraph. All text is made up.
+export function makeSmallCapsDocx() {
+  const text = "Ledger quorum ABC lease, 42-K. Relay window";
+  const props = (font, halfPoints, extra = "") =>
+    `<w:rPr><w:rFonts w:ascii="${font}" w:hAnsi="${font}" w:cs="${font}"/>${extra}<w:sz w:val="${halfPoints}"/><w:szCs w:val="${halfPoints}"/></w:rPr>`;
+  const run = (value, rPr = "") => `<w:r>${rPr}<w:t xml:space="preserve">${value}</w:t></w:r>`;
+  const line = (number, font, halfPoints, value, extra, pPr = "") =>
+    `<w:p><w:pPr>${pPr}<w:spacing w:after="120"/></w:pPr>${run(`Sc${number} `, props(font, halfPoints))}` +
+    `${run(value, props(font, halfPoints, extra))}${run(" Sc", props(font, halfPoints))}</w:p>`;
+  const cases = [
+    ["Times New Roman", 23, text, "<w:b/><w:smallCaps/>"],
+    ["Arial", 20, text, "<w:smallCaps/>"],
+    ["Garamond", 24, text, "<w:smallCaps/>"],
+    ["Times New Roman", 20, text, "<w:caps/><w:smallCaps/>"],
+    ["Times New Roman", 16, text, "<w:smallCaps/>"],
+    ["Times New Roman", 18, text, "<w:smallCaps/>"],
+    ["Times New Roman", 24, text, "<w:smallCaps/>"],
+    ["Times New Roman", 28, text, "<w:smallCaps/>"],
+    ["Times New Roman", 20, "Strauße maß Ledger", "<w:smallCaps/>"]
+  ];
+  const paragraphs = cases.map(([font, halfPoints, value, extra], index) => line(index + 1, font, halfPoints, value, extra));
+  paragraphs.push(`<w:p><w:pPr><w:pStyle w:val="ScHeading"/></w:pPr>${run("Sc10 Ledger quorum of the relay window")}</w:p>`);
+  paragraphs.push(`<w:p><w:pPr><w:pStyle w:val="ScBody"/></w:pPr>${run(`Sc11 ${words(3, 30)}.`)}</w:p>`);
+  paragraphs.push(line(12, "Calibri", 22, words(5, 90), "<w:smallCaps/>", `<w:pStyle w:val="ScBody"/>`));
+  paragraphs.push(`<w:p><w:pPr><w:pStyle w:val="ScHeading"/><w:spacing w:before="160" w:after="80" w:line="240" w:lineRule="exact"/></w:pPr>` +
+    `${run("Sc13 Lease of the quorum window")}</w:p>`);
+  paragraphs.push(`<w:p><w:pPr><w:pStyle w:val="ScBody"/></w:pPr>${run(`Sc14 ${words(4, 12)}.`)}</w:p>`);
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${paragraphs.join("\n")}
+${PLAIN_SECTION}
+</w:body></w:document>`;
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="${W}">
+<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr></w:rPrDefault>
+<w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>
+<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>
+<w:style w:type="paragraph" w:styleId="ScHeading"><w:name w:val="Sc Heading"/><w:basedOn w:val="Normal"/>
+<w:pPr><w:keepNext/><w:spacing w:before="160" w:after="80"/><w:jc w:val="center"/></w:pPr>
+<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:smallCaps/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="ScBody"><w:name w:val="Sc Body"/><w:basedOn w:val="Normal"/>
+<w:pPr><w:jc w:val="both"/></w:pPr><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style>
+</w:styles>`;
+  return packageDocx({
+    "[Content_Types].xml": CONTENT_TYPES.replace(/<Override PartName="\/word\/(numbering|header1|footer1)\.xml"[^>]*\/>\n?/g, ""),
+    "_rels/.rels": ROOT_RELS,
+    "word/document.xml": documentXml,
+    "word/_rels/document.xml.rels": DOCUMENT_RELS.replace(/<Relationship Id="rId[345]"[^>]*\/>\n?/g, ""),
+    "word/styles.xml": styles,
+    "word/settings.xml": SETTINGS
+  });
+}
