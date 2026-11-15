@@ -5,7 +5,7 @@
 [execution plan](EXECUTION_PLAN.md)) and published from `main`; the Linux
 session, GitHub Actions runners for Windows, macOS, and Linux, and the reader
 in headless Chromium<br>
-**Current public release:** LeanDoc 0.2.0
+**Current public release:** LeanDoc 0.3.0
 
 This page records the result of every ID in the [test plan](TEST_PLAN.md),
 with the evidence rules of [ACCEPTANCE.md](ACCEPTANCE.md). The defects found
@@ -13,6 +13,43 @@ and how each was fixed are in the [test report](TEST_REPORT.md). Every
 figure below is a test-gate figure from a cloud session or a CI runner. None
 of them is a product claim: published figures come only from the owner's
 laptop run of `tests/owner/`.
+
+## v0.3.0 publication
+
+LeanDoc 0.3.0 is published on
+[GitHub Releases](https://github.com/abooodbah/leandoc/releases/tag/v0.3.0).
+The annotated tag `v0.3.0` is on `996cae988289548b71b7a5fd3c0823f43f739b98`,
+the merge commit of #39, created by "Tag a release"
+([run 43745017270](https://github.com/abooodbah/leandoc/actions/runs/43745017270)).
+Tag build
+[run 43745033156](https://github.com/abooodbah/leandoc/actions/runs/43745033156)
+published the release. One job in it, "Windows screenshots (UI-01, dark
+reading)", failed after three captures (the later launches sent no rendered
+message) and passed on a re-run of that job; the release job does not depend
+on it. The Store package workflow
+([run 43746333696](https://github.com/abooodbah/leandoc/actions/runs/43746333696))
+built `LeanDoc-v0.3.0-x64.msix` (1,067,040 bytes, SHA-256
+`155d561a4281cce61e5421350ffbf4be2cfcf6fecb549885914ea8fd2724f605`) with the
+Partner Center identity.
+
+| Asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `LeanDoc-v0.3.0-windows-x64.zip` | 995,150 | `12d7bf96259a1d51b2bd489fc242791a8e979e458e507b11e189362902137889` |
+| `LeanDoc-v0.3.0-linux-x86_64.deb` | 646,610 | `82aa4fc6a40dbfea459c4073899709d624df1e051597657e2f8b93d3d192eaf5` |
+| `LeanDoc-v0.3.0-macos-universal-preview.zip` | 833,939 | `1c1dfe06ff6032c44d4b79dff7ef53089e475388697156d43a9ce532570a0c9d` |
+
+Each has a `.sha256` sidecar, and the macOS preview a `.metadata.json`. The
+downloaded files matched their sidecars; the Windows ZIP's `LeanDoc.exe` is
+582,656 bytes.
+
+| Check | Result |
+| --- | --- |
+| Version bump | [#39](https://github.com/abooodbah/leandoc/pull/39) |
+| Pull requests in 0.3.0 | #37 (#35 and #36 changed documents and the site only) |
+| Reader suite on the final code | 219 tests: 218 pass, 1 todo (Word's justified line breaking), in CI on the tag build, Chromium 141 |
+| Page parity against Word | 57 real-world documents: same page count 34 of 57 (0.2.0: 30), page starts on Word's line 524 of 1,181 (0.2.0: 502) (#37) |
+| Open time and memory | Headless, one Windows laptop, against 0.2.0's reader: a two-column paper 6 to 11 percent slower, Strict OOXML files about 18 percent slower and 27 to 40 MiB more, the 300-page and 1,000-page reports within 3 percent (#37) |
+| Distribution | Scoop and Homebrew moved to 0.3.0, winget pull request microsoft/winget-pkgs#481008 opened, Chocolatey package pushed (in moderation), all on 2026-11-15. The Store update is not submitted yet. The release ZIP's installer was run on the maintainer's PC. |
 
 ## v0.2.0 publication
 
