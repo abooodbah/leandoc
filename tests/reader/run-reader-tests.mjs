@@ -22,6 +22,7 @@ import {
 } from "./make-numbered-docx.mjs";
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeWordMetricsDocx } from "./make-saved-pages-docx.mjs";
+import { makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
 let browser;
@@ -2599,6 +2600,201 @@ describe("page view follows the page starts Word saved", () => {
       assert.equal(rendered.pages, pages);
       assert.deepEqual(found.map((page) => page.length), Array(pages).fill(lines));
       assert.deepEqual(found.map((page) => page[0]), Array.from({ length: pages }, (_, index) => lineText(index + 1, 1)));
+    });
+  });
+});
+
+describe("text past a saved page start continues on that page across a section boundary", () => {
+  // Expected values come from Word itself: each document of
+  // tests/reader/make-section-flow-docx.mjs opened in Word 16 through COM,
+  // page starts read with GoTo and each paragraph's page and position with
+  // Range.Information. Lines are 18 pt (24 px); positions are in px from the
+  // page's top left corner.
+  async function layout(host) {
+    return host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx")).map((page) => {
+      const box = page.getBoundingClientRect();
+      const style = getComputedStyle(page);
+      const lines = Array.from(page.querySelectorAll(":scope > article > p")).filter((p) => p.textContent.trim()).map((p) => {
+        const rect = p.getBoundingClientRect();
+        return { text: p.textContent.trim(), left: rect.left - box.left, top: rect.top - box.top, bottom: rect.bottom - box.top };
+      });
+      return { width: box.width, limit: parseFloat(style.minHeight) - parseFloat(style.paddingBottom), lines };
+    }));
+  }
+
+  function near(actual, expected, label) {
+    assert.ok(Math.abs(actual - expected) <= 1, `${label}: ${actual} px, Word ${expected} px`);
+  }
+
+  const starts = (pages) => pages.map((page) => (page.lines[0] || {}).text);
+  const texts = (pages) => pages.flatMap((page) => page.lines.map((line) => line.text));
+  const counts = (pages) => pages.map((page) => page.lines.length);
+  const alpha = (from, to) => Array.from({ length: to - from + 1 }, (_, index) => `Alpha line ${from + index}.`);
+  const gamma = Array.from({ length: 20 }, (_, index) => `Gamma line ${index + 1}.`);
+  const figure = ["Figure block one.", "Figure body one.", "Figure caption one."];
+  const find = (page, text) => page.lines.find((line) => line.text === text);
+
+  function assertInside(pages) {
+    pages.forEach((page, index) => page.lines.forEach((line) => {
+      assert.ok(line.bottom <= page.limit + 0.5, `page ${index + 1}: "${line.text}" ends at ${line.bottom} px, the text area at ${page.limit} px`);
+    }));
+  }
+
+  // A two-column section of 74 lines, 2 more than page 1 holds, before a
+  // one-column figure section that carries the saved page start. Word gives
+  // 2 pages: page 2 starts with lines 73 and 74 side by side, balanced, and
+  // the figure follows 18 pt lower. The two lines made a page of their own,
+  // 3 pages, as in a 10-page paper that showed as 12.
+  test("two lines of a two-column section continue above the one-column figure section that starts the page", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeFigureSectionDocx({ extra: 2 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "figure-section.docx" });
+      const pages = await layout(host);
+      assert.equal(rendered.pages, 2, "Word gives 2 pages");
+      assert.deepEqual(starts(pages), ["Alpha line 1.", "Alpha line 73."]);
+      assert.deepEqual(texts(pages), [...alpha(1, 74), ...figure, ...gamma]);
+      assert.deepEqual(counts(pages), [72, 25]);
+      const [left, right, block, caption, text] = ["Alpha line 73.", "Alpha line 74.", "Figure block one.", "Figure caption one.", "Gamma line 1."]
+        .map((line) => find(pages[1], line));
+      near(left.top, 96, "line 73 top");
+      near(left.left, 96, "line 73 left");
+      near(right.top, 96, "line 74 top");
+      near(right.left, 432, "line 74 left");
+      near(block.top, 120, "figure top");
+      near(caption.top, 600, "caption top");
+      near(text.top, 624, "the text after the figure");
+      assertInside(pages);
+    });
+  });
+
+  // 4 lines past page 1: Word sets lines 73 and 74 in the left column of
+  // page 2, 75 and 76 in the right, and the figure 36 pt below the top
+  // margin. With the empty start of the figure's paragraph they take 3 of a
+  // page's 36 lines, under the tenth of a page the reader lets through here.
+  test("four lines of a two-column section continue above the figure section, two to a column", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeFigureSectionDocx({ extra: 4 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "figure-section-4.docx" });
+      const pages = await layout(host);
+      assert.equal(rendered.pages, 2, "Word gives 2 pages");
+      assert.deepEqual(starts(pages), ["Alpha line 1.", "Alpha line 73."]);
+      assert.deepEqual(texts(pages), [...alpha(1, 76), ...figure, ...gamma]);
+      const at = (line) => find(pages[1], line);
+      near(at("Alpha line 74.").top, 120, "line 74 top");
+      near(at("Alpha line 74.").left, 96, "line 74 left");
+      near(at("Alpha line 75.").top, 96, "line 75 top");
+      near(at("Alpha line 75.").left, 432, "line 75 left");
+      near(at("Figure block one.").top, 144, "figure top");
+      assertInside(pages);
+    });
+  });
+
+  // The limit is the reader's own; Word has none and gives 2 pages here too
+  // (lines 73 to 78 above the figure). 6 lines past page 1 take, with the
+  // empty start of the figure's paragraph, 4 of a page's 36 lines, more than
+  // a tenth: they keep a page of their own, as before.
+  test("six lines before the figure section, more than a tenth of a page, keep a page of their own", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeFigureSectionDocx({ extra: 6 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "figure-section-6.docx" });
+      const pages = await layout(host);
+      assert.equal(rendered.pages, 3, "the reader gives 3 pages; Word gives 2");
+      assert.deepEqual(starts(pages), ["Alpha line 1.", "Alpha line 73.", "Figure block one."]);
+      assert.deepEqual(counts(pages), [72, 6, 23]);
+      assert.deepEqual(texts(pages), [...alpha(1, 78), ...figure, ...gamma]);
+    });
+  });
+
+  // A title section with a 1-inch top margin, then two columns with a
+  // 1.5-inch top margin after a continuous break. Word gives 3 pages; page 2
+  // starts with line 61 at 108 pt, the top margin of the section at its top,
+  // and holds 68 lines. Lines 61 and 62 made a page of their own with the
+  // title's margin, 4 pages, as in a 31-page paper whose two top margins
+  // differ by 1 pt.
+  test("text continues on a page that starts in the same section with another top margin", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeMarginSectionsDocx();
+      const rendered = await host.openDocument({ bytes, report, fileName: "margin-sections.docx" });
+      const pages = await layout(host);
+      assert.equal(rendered.pages, 3, "Word gives 3 pages");
+      assert.deepEqual(starts(pages), ["Title line 1.", "Alpha line 61.", "Alpha line 129."]);
+      assert.deepEqual(texts(pages), [...Array.from({ length: 6 }, (_, index) => `Title line ${index + 1}.`), ...alpha(1, 140)]);
+      assert.deepEqual(counts(pages), [66, 68, 12]);
+      near(find(pages[0], "Alpha line 1.").top, 240, "line 1 top");
+      near(find(pages[1], "Alpha line 61.").top, 144, "line 61 top");
+      near(find(pages[1], "Alpha line 95.").top, 144, "line 95 top");
+      near(find(pages[1], "Alpha line 95.").left, 432, "line 95 left");
+      near(find(pages[2], "Alpha line 129.").top, 144, "line 129 top");
+      assertInside(pages);
+    });
+  });
+
+  // The figure section is continuous but on a landscape page, which Word
+  // starts on a new page: 3 pages. The empty start of the figure's
+  // paragraph, before the saved start, made a blank portrait page: 4 pages.
+  test("the empty start of a paragraph split at a saved start joins its landscape page", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeFigureSectionDocx({ extra: 0, figurePage: "landscape" });
+      const rendered = await host.openDocument({ bytes, report, fileName: "figure-landscape.docx" });
+      const pages = await layout(host);
+      assert.equal(rendered.pages, 3, "Word gives 3 pages");
+      assert.deepEqual(starts(pages), ["Alpha line 1.", "Figure block one.", "Gamma line 11."]);
+      assert.deepEqual(pages.map((page) => Math.round(page.width)), [816, 1056, 1056]);
+      assert.deepEqual(texts(pages), [...alpha(1, 72), ...figure, ...gamma]);
+    });
+  });
+
+  // 33 lines to a column and 200 lines before the figure: Word gives 4
+  // pages of 66, 66, and 66 lines, and lines 199 and 200 above the figure.
+  // The text past page 1 is 134 lines, all but 2 not laid out yet when it
+  // is measured; lines 199 and 200 made a fifth page.
+  test("a long two-column section fills its pages and its last two lines continue above the figure section", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeFigureSectionDocx({ extra: 134, columnLines: 33 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "figure-long.docx" });
+      const pages = await layout(host);
+      assert.equal(rendered.pages, 4, "Word gives 4 pages");
+      assert.deepEqual(starts(pages), ["Alpha line 1.", "Alpha line 67.", "Alpha line 133.", "Alpha line 199."]);
+      assert.deepEqual(counts(pages), [66, 66, 66, 25]);
+      assert.deepEqual(texts(pages), [...alpha(1, 200), ...figure, ...gamma]);
+      assertInside(pages);
+    });
+  });
+
+  // Controls: Word starts the figure's page itself, and lines 73 and 74
+  // keep a page of their own.
+  test("two lines before a section that starts a new page keep a page of their own", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeFigureSectionDocx({ extra: 2, figureSection: "nextPage" });
+      const rendered = await host.openDocument({ bytes, report, fileName: "figure-next-page.docx" });
+      const pages = await layout(host);
+      assert.equal(rendered.pages, 3, "Word gives 3 pages");
+      assert.deepEqual(starts(pages), ["Alpha line 1.", "Alpha line 73.", "Figure block one."]);
+      assert.deepEqual(counts(pages), [72, 2, 23]);
+    });
+  });
+
+  test("two lines before a continuous section on a landscape page keep a page of their own", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeFigureSectionDocx({ extra: 2, figurePage: "landscape" });
+      const rendered = await host.openDocument({ bytes, report, fileName: "figure-landscape-over.docx" });
+      const pages = await layout(host);
+      assert.equal(rendered.pages, 4, "Word gives 4 pages");
+      assert.deepEqual(starts(pages), ["Alpha line 1.", "Alpha line 73.", "Figure block one.", "Gamma line 11."]);
+      assert.deepEqual(counts(pages), [72, 2, 13, 10]);
+      assert.deepEqual(pages.map((page) => Math.round(page.width)), [816, 816, 1056, 1056]);
+    });
+  });
+
+  test("a figure section whose page start the text reaches exactly starts page 2", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeFigureSectionDocx({ extra: 0 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "figure-fit.docx" });
+      const pages = await layout(host);
+      assert.equal(rendered.pages, 2, "Word gives 2 pages");
+      assert.deepEqual(starts(pages), ["Alpha line 1.", "Figure block one."]);
+      near(find(pages[1], "Figure block one.").top, 96, "figure top");
+      near(find(pages[1], "Gamma line 1.").top, 600, "the text after the figure");
     });
   });
 });
