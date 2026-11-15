@@ -1261,6 +1261,13 @@ body {
   content: "-";
 }
 
+/* A hyphen that would push the line's last letters onto a line of their own
+   takes no room on the line: it is drawn where it would start, after the
+   last letter (reader.js markHyphen). */
+#docBody section.docx p[data-ld-hyphen="hang"]::after {
+  position: absolute;
+}
+
 #docBody section.docx p[data-ld-continued] {
   list-style-type: none !important;
 }

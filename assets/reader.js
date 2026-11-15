@@ -1222,13 +1222,18 @@
   // The first character or inline object of a paragraph that lies past the
   // text area, or null. Text in a column layout breaks between lines, so the
   // first character past the area starts a line.
+  // A character's own box is its last rectangle: the first character after
+  // a line broken at a hyphenation point also returns, first, the box of
+  // the hyphen Chrome prints at the end of the line before. Read from that
+  // box, the page split fell one letter late: "exp" | "eriments" where the
+  // line broke at "ex-", and the hyphen was printed after the wrong letter.
   function firstPointPast(paragraph, over) {
     var range = document.createRange();
     function charOver(node, offset) {
       range.setStart(node, offset);
       range.setEnd(node, offset + 1);
       var rects = range.getClientRects();
-      return rects.length > 0 && over(rects[0]);
+      return rects.length > 0 && over(rects[rects.length - 1]);
     }
     function visit(parent) {
       for (var child = parent.firstChild; child; child = child.nextSibling) {
@@ -1320,6 +1325,65 @@
   // Letters of the scripts Chrome and Word hyphenate.
   var HYPHENATED_LETTER = /[A-Za-z\u00c0-\u024f\u0370-\u03ff\u0400-\u04ff]/;
 
+  // Whether an element parts the text before it from the text after it:
+  // a line break, a tab, a picture or equation, or a box that is not inline.
+  function partsWords(element) {
+    return element.nodeName === "BR" || !!element.closest(ATOMIC_SELECTOR + ", ." + Fixups.TAB_CLASS) ||
+      window.getComputedStyle(element).display !== "inline";
+  }
+
+  // Whether a split point (a text node and offset) falls inside a word: the
+  // character after it is a letter, the one before it a letter or a soft
+  // hyphen, with only inline boxes between them; no line break, tab,
+  // picture or space. Range text leaves a <br> out, so two lines joined by
+  // one read as one word, and the first line's end took a hyphen. Returns
+  // where that word starts (node and offset) and whether a soft hyphen ends
+  // the part before the split, or null.
+  function wordAround(paragraph, node, offset) {
+    if (!node || node.nodeType !== Node.TEXT_NODE || !HYPHENATED_LETTER.test(node.nodeValue.charAt(offset))) {
+      return null;
+    }
+    var walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    var current = node;
+    var at = offset;
+    var start = null;
+    var soft = false;
+    for (;;) {
+      var text = current.nodeValue;
+      var index = at;
+      if (index > 0) {
+        if (!start) {
+          var before = text.charAt(index - 1);
+          soft = before === "\u00ad";
+          if (!soft && !HYPHENATED_LETTER.test(before)) {
+            return null;
+          }
+        }
+        while (index > 0 && !/\s/.test(text.charAt(index - 1))) {
+          index -= 1;
+        }
+        start = { node: current, offset: index, soft: soft };
+        if (index > 0) {
+          return start;
+        }
+      }
+      // The text node before this one, through the inline boxes around it.
+      walker.currentNode = current;
+      var previous = walker.previousNode();
+      while (previous && previous.nodeType === Node.ELEMENT_NODE) {
+        if (!previous.contains(current) && partsWords(previous)) {
+          return start;
+        }
+        previous = walker.previousNode();
+      }
+      if (!previous || previous.parentElement.closest(ATOMIC_SELECTOR + ", ." + Fixups.TAB_CLASS)) {
+        return start;
+      }
+      current = previous;
+      at = previous.nodeValue.length;
+    }
+  }
+
   function splitParagraph(paragraph, over) {
     var kept = keptPart(paragraph, over);
     if (!kept) {
@@ -1330,25 +1394,38 @@
     moving.setEnd(paragraph, paragraph.childNodes.length);
     // A page that starts inside a word: the line broke at a hyphenation
     // point, whose hyphen Chrome prints only where a line breaks. Word
-    // prints it at the foot of the page.
+    // prints it at the foot of the page. Only a split inside a word takes
+    // one, and only where a line can break inside a word: at a soft hyphen,
+    // or in a paragraph Chrome hyphenates (the document turns automatic
+    // hyphenation on). In a document that leaves it off, Word does not
+    // break a word at the foot of a page: the whole word goes on to the
+    // next page.
     // A part split again (settleSplit) hands its old end, and that end's
     // hyphen, to the new middle part.
-    var endHyphen = paragraph.hasAttribute("data-ld-hyphen");
-    var head = moving.toString().charAt(0);
-    var tail = kept.toString().slice(-1);
-    if (HYPHENATED_LETTER.test(head) && (tail === "\u00ad" || HYPHENATED_LETTER.test(tail))) {
-      paragraph.setAttribute("data-ld-hyphen", "");
-    } else {
-      paragraph.removeAttribute("data-ld-hyphen");
+    var endHyphen = paragraph.getAttribute("data-ld-hyphen");
+    var word = wordAround(paragraph, kept.endContainer, kept.endOffset);
+    var hyphen = false;
+    if (word) {
+      if (word.soft || window.getComputedStyle(paragraph).hyphens === "auto") {
+        hyphen = true;
+      } else {
+        kept.setEnd(word.node, word.offset);
+        if (!kept.toString().trim() && !kept.cloneContents().querySelector(ATOMIC_SELECTOR)) {
+          return null;
+        }
+        moving.setStart(kept.endContainer, kept.endOffset);
+      }
     }
+    paragraph.removeAttribute("data-ld-hyphen");
     var rest = paragraph.cloneNode(false);
     rest.removeAttribute("id");
-    if (endHyphen) {
-      rest.setAttribute("data-ld-hyphen", "");
-    } else {
-      rest.removeAttribute("data-ld-hyphen");
+    if (endHyphen !== null) {
+      rest.setAttribute("data-ld-hyphen", endHyphen);
     }
     rest.appendChild(moving.extractContents());
+    if (hyphen) {
+      markHyphen(paragraph);
+    }
     rest.setAttribute("data-ld-continued", "");
     rest.style.textIndent = "0";
     rest.style.marginTop = "0";
@@ -1361,6 +1438,19 @@
     }
     paragraph.parentNode.insertBefore(rest, paragraph.nextSibling);
     return rest;
+  }
+
+  // Marks the end of a part split inside a word for the hyphen Word prints
+  // there (reader.css). The hyphen takes the paragraph's size, which can be
+  // wider than the one the line was laid out with, and it must not push the
+  // line's last letters onto a line of their own past the page: when the
+  // part grows with it, the hyphen takes no room on the line.
+  function markHyphen(paragraph) {
+    var height = paragraph.getBoundingClientRect().height;
+    paragraph.setAttribute("data-ld-hyphen", "");
+    if (paragraph.getBoundingClientRect().height > height + 0.5) {
+      paragraph.setAttribute("data-ld-hyphen", "hang");
+    }
   }
 
   // Lays out the page's sections for a text area that ends at `limit` and
@@ -1905,13 +1995,13 @@
       return;
     }
     // The joined part ends where the continuation ended.
-    var endHyphen = head.hasAttribute("data-ld-hyphen");
+    var endHyphen = head.getAttribute("data-ld-hyphen");
     while (head.firstChild) {
       tail.appendChild(head.firstChild);
     }
     head.parentNode.removeChild(head);
-    if (endHyphen) {
-      tail.setAttribute("data-ld-hyphen", "");
+    if (endHyphen !== null) {
+      tail.setAttribute("data-ld-hyphen", endHyphen);
     } else {
       tail.removeAttribute("data-ld-hyphen");
     }
