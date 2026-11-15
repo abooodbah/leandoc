@@ -2711,13 +2711,28 @@
     return Math.round(points * 20);
   }
 
+  // A Strict namespace in a tag's attribute values (namespace declarations,
+  // relationship types, a drawing's uri) in its transitional form. Text
+  // between tags, and a relationship's Target, are kept as written: a
+  // document whose text spelled a Strict namespace showed the transitional
+  // one.
+  function transitionalNamespaces(tag) {
+    return tag.replace(/(\s([\w:.-]+)\s*=\s*)("[^"]*"|'[^']*')/g, function (whole, before, name, value) {
+      if (name === "Target") {
+        return whole;
+      }
+      STRICT_NAMESPACES.forEach(function (pair) {
+        value = value.split(pair[0]).join(pair[1]);
+      });
+      return before + value;
+    });
+  }
+
   function transitionalXml(text) {
     if (typeof text !== "string" || text.indexOf(STRICT_MARK) < 0) {
       return text;
     }
-    STRICT_NAMESPACES.forEach(function (pair) {
-      text = text.split(pair[0]).join(pair[1]);
-    });
+    text = text.replace(/<[^<>]*purl\.oclc\.org[^<>]*>/g, transitionalNamespaces);
     return text.replace(/<w:([A-Za-z]+)(\s[^<>]*?)(\/?)>/g, function (tag, element, attributes, close) {
       if (!/="-?\d*\.?\d+(?:pt|pc|pi|in|cm|mm|%)"/.test(attributes)) {
         return tag;
