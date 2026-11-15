@@ -3477,6 +3477,36 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
     });
   });
 
+  // The fixture's last paragraphs: nine lower case words in small capitals
+  // set on the run, then a plain paragraph. Word's PDF ends "CACHE" at
+  // 373.89 pt, and the plain paragraph's line starts 11.5 pt below the
+  // small capitals' line, a 10 pt Times New Roman line: the small letters
+  // do not make the line smaller.
+  test("small capitals set on a run take Word's width and keep the line's height", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeNumberedDocx({ centred: true, wrapped: true });
+      await host.openDocument({ bytes, report, fileName: "numbered.docx" });
+      const result = await host.page.evaluate(() => {
+        const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+        const box = page.getBoundingClientRect();
+        const points = (value) => value / (box.width / page.offsetWidth) * 0.75;
+        const paragraphs = Array.from(document.querySelectorAll("#docBody article p"));
+        const index = paragraphs.findIndex((p) => p.textContent.trim().startsWith("buffer fabric kernel"));
+        const caps = paragraphs[index];
+        const range = document.createRange();
+        range.selectNodeContents(caps);
+        const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0);
+        return { text: caps.textContent.trim(), right: points(Math.max(...rects.map((rect) => rect.right)) - box.left),
+          pitch: points(paragraphs[index + 1].getBoundingClientRect().top - caps.getBoundingClientRect().top) };
+      });
+      assert.match(result.text, /^buffer fabric kernel channel thread vector signal memory cache$/);
+      if (process.platform === "win32") {
+        assert.ok(Math.abs(result.right - 373.89) <= 1, `"CACHE" ends at ${result.right} pt; Word's ends at 373.89 pt`);
+      }
+      assert.ok(Math.abs(result.pitch - 11.5) <= 0.3, `the next paragraph starts ${result.pitch} pt below; Word's starts 11.5 pt below`);
+    });
+  });
+
   test("a contents line whose right stop is past the right indent stays on one line", async () => {
     await withHost({}, async (host) => {
       const layout = await numberedLayout(host);

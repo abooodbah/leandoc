@@ -145,6 +145,11 @@ export async function makeNumberedDocx({ offPage = false, morePages = 0, centred
         body.push(`<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r>${caps}<w:t>${title}</w:t></w:r></w:p>`);
         body.push(paragraph(`Wrapped para ${index + 1}. ${words(index + 3, 12)}.`));
       });
+      // Small capitals set on the run, not the style: a paragraph of lower
+      // case words only, then a plain one.
+      body.push(`<w:p><w:pPr><w:ind w:firstLine="0"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:smallCaps/></w:rPr>` +
+        `<w:t>${words(6, 9)}</w:t></w:r></w:p>`);
+      body.push(paragraph(`Run caps para. ${words(7, 12)}.`));
     }
   } else {
     body.push(`<w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr><w:r><w:t xml:space="preserve">Contents line heron about ${words(1, 9)}</w:t></w:r>` +
