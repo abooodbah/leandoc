@@ -3,6 +3,39 @@
 All notable LeanDoc changes are recorded here. The project follows semantic
 versioning.
 
+## [0.3.0] - 2026-11-15
+
+### Changed
+
+- Tables, figures, and text boxes that Word floats at the top or foot of a
+  page (wrapped top and bottom) are placed there, across the columns, and
+  the text no longer runs over them.
+- Two-column papers, such as IEEE papers, lay out in two columns. The
+  references stay in two columns with a hanging indent.
+- LeanDoc sizes tab stops itself, with the hanging indent as a stop, so
+  contents pages keep their dot leaders and right-aligned page numbers.
+- Numbered headings take Word's indents and stops, and a centred label is
+  centred as in Word.
+- A section without a header of its own takes the previous one, so page
+  numbers continue. A page number takes its field code's size and sits at
+  the right margin.
+- A footnote with the author's own mark shows that mark, not a number.
+- An equation wider than its column is cut after commas and before
+  operators, and wraps inside the column.
+- A page that starts inside a word ends with a hyphen.
+- Small capitals are drawn at Word's size, in the run's own font.
+- Files saved in Word's Strict OOXML format keep their styles, lists,
+  notes, and tab stops.
+
+On 57 real-world documents compared with Word, 34 have Word's page count
+(0.2.0: 30), and 524 of 1,181 pages start on Word's line (0.2.0: 502).
+
+The cost: some documents open more slowly. In headless runs on one laptop,
+a two-column paper took 6 to 11 percent longer than in 0.2.0, and Strict
+OOXML files about 18 percent longer and 27 to 40 MiB more memory, because
+they now get their styles. The 300-page and 1,000-page test reports were
+within 3 percent of 0.2.0.
+
 ## [0.2.0] - 2026-11-05
 
 ### Added
