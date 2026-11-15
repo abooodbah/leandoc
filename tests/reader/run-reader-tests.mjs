@@ -3638,9 +3638,14 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
   // fell at the first letter past the text area's right edge, inside a
   // word, and the part kept took a hyphen ("led-" | "ger"). Word breaks no
   // word there; the whole word goes on to the next page.
-  test("a document without automatic hyphenation breaks no word across pages", async () => {
+  // The same paragraphs holding numbers, in a document that hyphenates:
+  // Chrome hyphenates no number, so a split between two digits takes no
+  // hyphen, and the number goes on to the next page whole.
+  for (const numbers of [false, true]) {
+  test(numbers ? "a number is not broken across pages, in a document that hyphenates" :
+    "a document without automatic hyphenation breaks no word across pages", async () => {
     await withHost({}, async (host) => {
-      const { bytes, report } = await makeWideLinesDocx();
+      const { bytes, report } = await makeWideLinesDocx({ numbers });
       await host.openDocument({ bytes, report, fileName: "wide-lines.docx" });
       const splits = await host.page.evaluate(() => {
         const all = Array.from(document.querySelectorAll("#docBody article p"));
@@ -3650,7 +3655,7 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
           }
           const kept = all[index - 1];
           return {
-            inWord: /[a-z]$/i.test(kept.textContent) && /^[a-z]/i.test(rest.textContent),
+            inWord: /[a-z0-9]$/i.test(kept.textContent) && /^[a-z0-9]/i.test(rest.textContent),
             hyphen: kept.hasAttribute("data-ld-hyphen"),
             at: kept.textContent.slice(-8) + "|" + rest.textContent.slice(0, 8)
           };
@@ -3663,6 +3668,7 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
       });
     });
   });
+  }
 
   // A footnote reference that says a mark of the author's own follows, with
   // no mark after it, whose note starts with the note's own reference mark

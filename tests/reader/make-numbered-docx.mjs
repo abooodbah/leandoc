@@ -443,9 +443,16 @@ ${PLAIN_SECTION}
 // past the right margin, as Word lets them, in a document that leaves
 // automatic hyphenation off. They run past the first page. Word breaks the
 // page between two lines and breaks no word.
-export function makeWideLinesDocx() {
+// With `numbers`, the document turns automatic hyphenation on and the
+// paragraphs hold numbers of seven digits instead of words. Chrome
+// hyphenates no number; Word's PDF of this document starts each of its
+// pages 2 to 5 with a whole number.
+export function makeWideLinesDocx({ numbers = false } = {}) {
+  const text = (index) => numbers
+    ? Array.from({ length: 450 }, (_, at) => String(1000000 + ((index * 7919 + at * 104729) % 9000000))).join(" ")
+    : words(index + 4, 260);
   const paragraphs = Array.from({ length: 8 }, (_, index) => `<w:p><w:pPr><w:ind w:right="-2880"/></w:pPr>` +
-    `<w:r><w:t xml:space="preserve">Entry ${index + 1}. ${words(index + 4, 260)}.</w:t></w:r></w:p>`).join("");
+    `<w:r><w:t xml:space="preserve">Entry ${index + 1}. ${text(index)}.</w:t></w:r></w:p>`).join("");
   const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${paragraphs}
 ${PLAIN_SECTION}
@@ -456,7 +463,7 @@ ${PLAIN_SECTION}
     "word/document.xml": documentXml,
     "word/_rels/document.xml.rels": DOCUMENT_RELS.replace(/<Relationship Id="rId[345]"[^>]*\/>\n?/g, ""),
     "word/styles.xml": `${SMALL_STYLES_HEAD}\n</w:styles>`,
-    "word/settings.xml": SETTINGS
+    "word/settings.xml": numbers ? SETTINGS.replace("<w:defaultTabStop", "<w:autoHyphenation/><w:defaultTabStop") : SETTINGS
   });
 }
 
