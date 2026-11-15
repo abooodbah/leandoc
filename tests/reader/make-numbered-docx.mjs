@@ -114,7 +114,9 @@ function paragraph(text) {
 // With `centred`, the headings are set as the IEEE template sets them: the
 // Heading 1 style centres its paragraphs, and no heading starts with a tab
 // of its own, so the label's tab alone parts "I." from the text. Four
-// Heading 1s ("I." to "IV.") and two Heading 2s follow one another.
+// Heading 1s ("I." to "IV.") and two Heading 2s follow one another; then
+// "V.", whose paragraph has a 36 pt left indent of its own, and "VI.",
+// whose text has a tab of its own after its first word.
 export async function makeNumberedDocx({ offPage = false, morePages = 0, centred = false } = {}) {
   const body = [];
   if (centred) {
@@ -127,6 +129,10 @@ export async function makeNumberedDocx({ offPage = false, morePages = 0, centred
         body.push(heading("Beta Part", "Heading2", false));
       }
     });
+    body.push(`<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:ind w:left="720"/></w:pPr><w:r><w:t>Closing</w:t></w:r></w:p>`);
+    body.push(paragraph(`Closing para. ${words(8, 20)}.`));
+    body.push(`<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Notes</w:t></w:r><w:r><w:tab/><w:t>Annex</w:t></w:r></w:p>`);
+    body.push(paragraph(`Notes para. ${words(9, 20)}.`));
   } else {
     body.push(`<w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr><w:r><w:t xml:space="preserve">Contents line heron about ${words(1, 9)}</w:t></w:r>` +
       `<w:r><w:tab/><w:t>12</w:t></w:r></w:p>`);
@@ -393,9 +399,11 @@ ${PLAIN_SECTION}
 // With { columns: true }: 36 justified paragraphs in two columns. A page
 // whose kept lines wrap differently once split is split again higher up,
 // so a paragraph's first part is split a second time.
-export function makeSoftHyphenDocx({ columns = false } = {}) {
+// With `hard`, the parts are joined by hard hyphens instead, after which a
+// line breaks too.
+export function makeSoftHyphenDocx({ columns = false, hard = false } = {}) {
   const parts = ["counter", "revolution", "aries", "inter", "national", "ization", "photo", "synthe", "sizing"];
-  const word = (seed) => [0, 1, 2].map((step) => parts[(seed + step) % parts.length]).join("­");
+  const word = (seed) => [0, 1, 2].map((step) => parts[(seed + step) % parts.length]).join(hard ? "-" : "\u00ad");
   const body = [];
   for (let index = 0; index < (columns ? 36 : 12); index += 1) {
     const text = Array.from({ length: 60 }, (_, at) => word(index * 5 + at)).join(" ");
@@ -447,12 +455,18 @@ ${PLAIN_SECTION}
 // paragraphs hold numbers of seven digits instead of words. Chrome
 // hyphenates no number; Word's PDF of this document starts each of its
 // pages 2 to 5 with a whole number.
-export function makeWideLinesDocx({ numbers = false } = {}) {
+// With `runs`, each letter is a run of its own, so that a page that splits
+// a word splits it between two runs.
+export function makeWideLinesDocx({ numbers = false, runs = false } = {}) {
   const text = (index) => numbers
     ? Array.from({ length: 450 }, (_, at) => String(1000000 + ((index * 7919 + at * 104729) % 9000000))).join(" ")
     : words(index + 4, 260);
-  const paragraphs = Array.from({ length: 8 }, (_, index) => `<w:p><w:pPr><w:ind w:right="-2880"/></w:pPr>` +
-    `<w:r><w:t xml:space="preserve">Entry ${index + 1}. ${text(index)}.</w:t></w:r></w:p>`).join("");
+  const run = (value) => `<w:r><w:t xml:space="preserve">${value}</w:t></w:r>`;
+  const paragraphs = Array.from({ length: 8 }, (_, index) => {
+    const value = `Entry ${index + 1}. ${text(index)}.`;
+    return `<w:p><w:pPr><w:ind w:right="-2880"/></w:pPr>` +
+      (runs ? Array.from(value, run).join("") : run(value)) + `</w:p>`;
+  }).join("");
   const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${paragraphs}
 ${PLAIN_SECTION}

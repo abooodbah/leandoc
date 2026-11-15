@@ -3255,8 +3255,27 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
           const x = points(range.getClientRects()[0].left - box.left);
           const tab = p.querySelector(".ld-tab");
           const first = tab && (tab.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) ? tab : null;
+          // Where the heading's last text starts, when it is not its first
+          // (text after a tab of the heading's own).
+          let after = NaN;
+          const texts = [];
+          const all = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+          let text;
+          while ((text = all.nextNode())) {
+            if (/\S/.test(text.nodeValue) && !text.parentElement.closest(".ld-tab")) {
+              texts.push(text);
+            }
+          }
+          const lastText = texts[texts.length - 1];
+          if (lastText && lastText !== node) {
+            const next = document.createRange();
+            const at = lastText.nodeValue.search(/\S/);
+            next.setStart(lastText, at);
+            next.setEnd(lastText, at + 1);
+            after = points(next.getClientRects()[0].left - box.left);
+          }
           return { text: node.nodeValue.trim(), x, label, labelEnd: first ? points(first.getBoundingClientRect().left - box.left) : x,
-            labelWidth: (parseFloat(before.width) || NaN) * 0.75 };
+            labelWidth: (parseFloat(before.width) || NaN) * 0.75, after };
         }
         return { text: p.textContent.trim(), x: NaN, label, labelEnd: NaN };
       });
@@ -3319,6 +3338,10 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
   // whose tab collapsed: "I.Introduction". (A Heading 2's "A." is left
   // aligned and keeps docx-preview's label, as on main: its text starts
   // 2.2 pt left of Word's 86.42 pt, a known gap this test leaves out.)
+  // "V." has a 36 pt left indent of its own: Word centres it there (283.13
+  // to 292.82 pt) and its text starts at 324.07 pt. "VI." has a tab of its
+  // own after "Notes": Word's PDF puts "Annex" at 327.31 pt; that tab, on
+  // the label's line, is measured in the label's frame too.
   // Chrome's small capitals are narrower than Word's ("Results" by about
   // 3 pt, "IV." by 1.2 pt), and the centred line moves by half of that: the
   // start is held to 2 pt and the gap to 0.7 pt of Word's, and the gap to
@@ -3327,15 +3350,19 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
     await withHost({}, async (host) => {
       const layout = await numberedLayout(host, { centred: true });
       const word = { Introduction: { x: 280.85, gap: 7.83 }, Method: { x: 293.45, gap: 6.15 }, Results: { x: 293.45, gap: 4.47 },
-        Outlook: { x: 291.41, gap: 4.25 } };
+        Outlook: { x: 291.41, gap: 4.25 }, Closing: { x: 324.07, gap: 31.25 }, Notes: { x: 266.09, gap: 4.24 } };
       const headings = layout.headings.filter((heading) => !/Part$/.test(heading.text));
       assert.deepEqual(headings.map((heading) => heading.text), Object.keys(word));
+      const annex = layout.headings.find((heading) => heading.text === "Notes");
+      assert.ok(Math.abs(annex.after - 327.31) <= 1.5, `"Annex" starts at ${annex.after} pt; Word's starts at 327.31 pt`);
       for (const heading of headings) {
         const expected = word[heading.text];
         assert.ok(Math.abs(heading.x - expected.x) <= 2, `"${heading.text}" starts at ${heading.x} pt; Word's starts at ${expected.x} pt`);
         const gap = heading.x - heading.labelEnd;
         assert.ok(Math.abs(gap - expected.gap) <= 0.7, `"${heading.text}" starts ${gap} pt after its label; Word's starts ${expected.gap} pt after it`);
-        const rule = 10.8 - heading.labelWidth / 2;
+        // "V." is centred on its paragraph's 36 pt indent and its tab goes to
+        // the 36 pt default stop past the style's last.
+        const rule = (heading.text === "Closing" ? 72 - 36 : 10.8) - heading.labelWidth / 2;
         assert.ok(Math.abs(gap - rule) <= 0.15, `"${heading.text}" starts ${gap} pt after its ${heading.labelWidth} pt label; Word's rule gives ${rule} pt`);
       }
     });
@@ -3553,13 +3580,16 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
               rows.push({ row: Number(match[1]), page: index + 1, inside });
             }
           });
-          return { rows, hyphens: document.querySelectorAll("#docBody p[data-ld-hyphen]").length };
+          const second = pages[1] && pages[1].querySelector("article");
+          return { rows, hyphens: document.querySelectorAll("#docBody p[data-ld-hyphen]").length,
+            secondPage: second ? second.textContent.trim() : "" };
         });
         assert.equal(layout.hyphens, 0, "no part is marked for a hyphen");
         assert.deepEqual(layout.rows.map((entry) => entry.row), Array.from({ length: 79 }, (_, index) => index + 1));
         layout.rows.forEach((entry) => assert.ok(entry.inside, `"Row ${entry.row}" is drawn outside page ${entry.page}`));
         const last = layout.rows.filter((entry) => entry.page === 1).pop();
         assert.equal(last && last.row, 56, `page 1 ends with "Row ${last && last.row}"; Word's ends with "Row 56"`);
+        assert.match(layout.secondPage, /^Row 57 closes on a plain word/, `page 2 starts with "${layout.secondPage.slice(0, 30)}"`);
       });
     });
   }
@@ -3586,6 +3616,29 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
       const inWord = splits.filter((split) => split.inWord);
       assert.ok(inWord.length > 0, `a page starts inside a word (${splits.length} splits)`);
       inWord.forEach((split) => assert.ok(split.soft, `the page breaks a word after a letter, not its soft hyphen ("${split.at}")`));
+    });
+  });
+
+  // A line also breaks after a hard hyphen. A page that starts there keeps
+  // the word's parts where its line put them, and adds no hyphen of its own.
+  test("a page that starts after a hard hyphen keeps the line's break", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeSoftHyphenDocx({ hard: true });
+      await host.openDocument({ bytes, report, fileName: "hard-hyphens.docx" });
+      const splits = await host.page.evaluate(() => {
+        const all = Array.from(document.querySelectorAll("#docBody article p"));
+        return all.map((rest, index) => {
+          if (!rest.hasAttribute("data-ld-continued") || index === 0) {
+            return null;
+          }
+          const kept = all[index - 1];
+          return { afterHyphen: /-$/.test(kept.textContent), marked: kept.hasAttribute("data-ld-hyphen"),
+            at: kept.textContent.slice(-8) + "|" + rest.textContent.slice(0, 8) };
+        }).filter(Boolean);
+      });
+      const after = splits.filter((split) => split.afterHyphen);
+      assert.ok(after.length > 0, `a page starts after a hard hyphen (${splits.map((split) => split.at).join(", ")})`);
+      splits.forEach((split) => assert.ok(!split.marked, `the part before "${split.at}" is marked for a hyphen`));
     });
   });
 
@@ -3640,12 +3693,17 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
   // word there; the whole word goes on to the next page.
   // The same paragraphs holding numbers, in a document that hyphenates:
   // Chrome hyphenates no number, so a split between two digits takes no
-  // hyphen, and the number goes on to the next page whole.
-  for (const numbers of [false, true]) {
-  test(numbers ? "a number is not broken across pages, in a document that hyphenates" :
-    "a document without automatic hyphenation breaks no word across pages", async () => {
+  // hyphen, and the number goes on to the next page whole. And the same
+  // words with each letter a run of its own: the word that moves on starts
+  // some runs back.
+  for (const [name, options] of [
+    ["a document without automatic hyphenation breaks no word across pages", {}],
+    ["a number is not broken across pages, in a document that hyphenates", { numbers: true }],
+    ["a word made of many runs is not broken across pages", { runs: true }]
+  ]) {
+  test(name, async () => {
     await withHost({}, async (host) => {
-      const { bytes, report } = await makeWideLinesDocx({ numbers });
+      const { bytes, report } = await makeWideLinesDocx(options);
       await host.openDocument({ bytes, report, fileName: "wide-lines.docx" });
       const splits = await host.page.evaluate(() => {
         const all = Array.from(document.querySelectorAll("#docBody article p"));
