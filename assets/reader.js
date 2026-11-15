@@ -1324,6 +1324,9 @@
 
   // Letters of the scripts Chrome and Word hyphenate.
   var HYPHENATED_LETTER = /[A-Za-z\u00c0-\u024f\u0370-\u03ff\u0400-\u04ff]/;
+  // Those letters and the digits: a line breaks between two of them only at
+  // a hyphenation point, and Chrome hyphenates no number.
+  var WORD_CHARACTER = /[0-9A-Za-z\u00c0-\u024f\u0370-\u03ff\u0400-\u04ff]/;
 
   // Whether an element parts the text before it from the text after it:
   // a line break, a tab, a picture or equation, or a box that is not inline.
@@ -1333,21 +1336,24 @@
   }
 
   // Whether a split point (a text node and offset) falls inside a word: the
-  // character after it is a letter, the one before it a letter or a soft
-  // hyphen, with only inline boxes between them; no line break, tab,
-  // picture or space. Range text leaves a <br> out, so two lines joined by
+  // character after it is a letter or digit, the one before it a letter,
+  // a digit or a soft hyphen, with only inline boxes between them; no line
+  // break, tab, picture or space. Range text leaves a <br> out, so two lines joined by
   // one read as one word, and the first line's end took a hyphen. Returns
-  // where that word starts (node and offset) and whether a soft hyphen ends
-  // the part before the split, or null.
+  // where that word starts (node and offset), whether a soft hyphen ends
+  // the part before the split and whether letters meet there (a point a
+  // hyphenation can break at), or null.
   function wordAround(paragraph, node, offset) {
-    if (!node || node.nodeType !== Node.TEXT_NODE || !HYPHENATED_LETTER.test(node.nodeValue.charAt(offset))) {
+    if (!node || node.nodeType !== Node.TEXT_NODE || !WORD_CHARACTER.test(node.nodeValue.charAt(offset))) {
       return null;
     }
+    var after = node.nodeValue.charAt(offset);
     var walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
     var current = node;
     var at = offset;
     var start = null;
     var soft = false;
+    var letters = false;
     for (;;) {
       var text = current.nodeValue;
       var index = at;
@@ -1355,14 +1361,15 @@
         if (!start) {
           var before = text.charAt(index - 1);
           soft = before === "\u00ad";
-          if (!soft && !HYPHENATED_LETTER.test(before)) {
+          if (!soft && !WORD_CHARACTER.test(before)) {
             return null;
           }
+          letters = HYPHENATED_LETTER.test(before) && HYPHENATED_LETTER.test(after);
         }
         while (index > 0 && !/\s/.test(text.charAt(index - 1))) {
           index -= 1;
         }
-        start = { node: current, offset: index, soft: soft };
+        start = { node: current, offset: index, soft: soft, letters: letters };
         if (index > 0) {
           return start;
         }
@@ -1406,7 +1413,7 @@
     var word = wordAround(paragraph, kept.endContainer, kept.endOffset);
     var hyphen = false;
     if (word) {
-      if (word.soft || window.getComputedStyle(paragraph).hyphens === "auto") {
+      if (word.soft || word.letters && window.getComputedStyle(paragraph).hyphens === "auto") {
         hyphen = true;
       } else {
         kept.setEnd(word.node, word.offset);
