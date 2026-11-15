@@ -2879,6 +2879,9 @@
     matchStandInWidths(container);
     fitParagraphsToRuns(container);
     setSingleLines(container);
+    // After the runs' sizes are read (fitParagraphsToRuns), so the smaller
+    // capitals do not set a paragraph's size; before any line is measured.
+    matchSmallCaps(container);
     alignLabels(container);
     // Before the tabs: setTabStops reads the layout this pass reads, so a
     // page with no wide equation is not laid out again. Read after the last
@@ -2886,6 +2889,76 @@
     wrapWideMaths(container);
     setTabStops(container);
     shrinkJustifiedSpaces(container);
+  }
+
+  // Word draws small capitals (w:smallCaps) at 80% of the run's size, and
+  // its spaces too; Chrome draws them at 70% and keeps the spaces whole. A
+  // centred IEEE heading's first line was 3.7 pt narrower than Word's, took
+  // one word more and moved its label 12 pt left. Each run of lower case
+  // letters and spaces in small-capital text becomes a span of capitals at
+  // 80% (the text itself is kept, for copying and search). Digits,
+  // punctuation and capitals stay at full size, as in Word's PDF.
+  var SMALL_CAPS_CLASS = "ld-sc";
+  var smallCapsSelectors = new WeakMap();
+
+  function smallCapsSelector() {
+    var selectors = ['[style*="small-caps"]'];
+    Array.prototype.forEach.call(document.styleSheets, function (sheet) {
+      var found = smallCapsSelectors.get(sheet);
+      if (!found) {
+        found = [];
+        var rules = null;
+        try {
+          rules = sheet.cssRules;
+        } catch (error) {
+          rules = null;
+        }
+        Array.prototype.forEach.call(rules || [], function (rule) {
+          if (rule.selectorText && rule.style && /small-caps/.test(rule.style.fontVariant || rule.style.fontVariantCaps || "") &&
+              rule.selectorText.indexOf("." + SMALL_CAPS_CLASS) < 0) {
+            found.push(rule.selectorText);
+          }
+        });
+        smallCapsSelectors.set(sheet, found);
+      }
+      selectors = selectors.concat(found);
+    });
+    return selectors.join(",");
+  }
+
+  function matchSmallCaps(container) {
+    if (!container.querySelectorAll) {
+      return;
+    }
+    var elements = [];
+    container.querySelectorAll(smallCapsSelector()).forEach(function (element) {
+      if (hasOwnText(element) && getComputedStyle(element).fontVariantCaps === "small-caps") {
+        elements.push(element);
+      }
+    });
+    elements.forEach(function (element) {
+      Array.prototype.slice.call(element.childNodes).forEach(function (node) {
+        if (node.nodeType !== 3 || !/[^\S\u00a0]|\p{Ll}/u.test(node.data)) {
+          return;
+        }
+        var parts = node.data.split(/((?:[^\S\u00a0]|\p{Ll})+)/u);
+        var fragment = document.createDocumentFragment();
+        parts.forEach(function (part, index) {
+          if (!part) {
+            return;
+          }
+          if (index % 2) {
+            var small = document.createElement("span");
+            small.className = SMALL_CAPS_CLASS;
+            small.textContent = part;
+            fragment.appendChild(small);
+          } else {
+            fragment.appendChild(document.createTextNode(part));
+          }
+        });
+        element.replaceChild(fragment, node);
+      });
+    });
   }
 
   // A numbering label Word centres (or right-aligns) on the indent

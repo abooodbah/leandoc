@@ -1762,6 +1762,15 @@ body {
   }
 }
 
+/* Small capitals as Word draws them: capitals at 80% of the run's size
+   (reader.js matchSmallCaps). */
+#docBody span.ld-sc {
+  font-size: 80%;
+  font-kerning: none;
+  font-variant-caps: normal;
+  text-transform: uppercase;
+}
+
 /* A numbering label centred or right-aligned on its indent (reader.js
    alignLabels sets the shift). */
 #docBody p.ld-lj-center::before,
