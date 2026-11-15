@@ -3233,7 +3233,8 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
       const box = page.getBoundingClientRect();
       const scale = box.width / page.offsetWidth;
       const points = (value) => value / scale * 0.75;
-      const headings = Array.from(page.querySelectorAll("article p")).filter((p) => /heading/i.test(p.className)).map((p) => {
+      // Every page's headings: the pages share their left edge.
+      const headings = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx article p")).filter((p) => /heading/i.test(p.className)).map((p) => {
         // The label is the paragraph's ::before box, which no range reaches:
         // its left edge is where the first line starts plus its own margin.
         const style = getComputedStyle(p);
@@ -3255,30 +3256,69 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
           const x = points(range.getClientRects()[0].left - box.left);
           const tab = p.querySelector(".ld-tab");
           const first = tab && (tab.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) ? tab : null;
-          // Where the heading's last text starts, when it is not its first
-          // (text after a tab of the heading's own).
+          // Where the text after the heading's last tab of its own starts
+          // (a word's letters can be in more than one node).
           let after = NaN;
           let afterTab = NaN;
           const texts = [];
           const all = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
           let text;
           while ((text = all.nextNode())) {
-            if (/\S/.test(text.nodeValue) && !text.parentElement.closest(".ld-tab")) {
+            if (!text.parentElement.closest(".ld-tab")) {
               texts.push(text);
             }
           }
-          const lastText = texts[texts.length - 1];
-          if (lastText && lastText !== node) {
+          const following = (a, b) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+          const tabs = Array.from(p.querySelectorAll(".ld-tab")).filter((item) => item !== first && following(node, item) &&
+            texts.some((item2) => /\S/.test(item2.nodeValue) && following(item, item2)));
+          if (tabs.length) {
+            const lastTab = tabs[tabs.length - 1];
+            const lastText = texts.find((item) => /\S/.test(item.nodeValue) && following(lastTab, item));
             const next = document.createRange();
             const at = lastText.nodeValue.search(/\S/);
             next.setStart(lastText, at);
             next.setEnd(lastText, at + 1);
             after = points(next.getClientRects()[0].left - box.left);
-            const tabs = Array.from(p.querySelectorAll(".ld-tab")).filter((item) => item.compareDocumentPosition(lastText) & Node.DOCUMENT_POSITION_FOLLOWING);
-            afterTab = tabs.length ? points(tabs[tabs.length - 1].getBoundingClientRect().left - box.left) : NaN;
+            afterTab = points(lastTab.getBoundingClientRect().left - box.left);
           }
-          return { text: node.nodeValue.trim(), x, label, labelEnd: first ? points(first.getBoundingClientRect().left - box.left) : x,
-            labelWidth: (parseFloat(before.width) || NaN) * 0.75, after, afterTab };
+          // The heading's words and the lines they are on: a word's line is
+          // the row its first box is in (boxes of smaller letters sit lower
+          // on the same row).
+          const words = [];
+          let current = null;
+          texts.forEach((item) => {
+            for (let index = 0; index < item.nodeValue.length; index += 1) {
+              if (/\s/.test(item.nodeValue[index])) {
+                current = null;
+              } else {
+                if (!current) {
+                  current = { text: "", start: [item, index] };
+                  words.push(current);
+                }
+                current.text += item.nodeValue[index];
+                current.end = [item, index + 1];
+              }
+            }
+          });
+          const rows = [];
+          const lines = [];
+          words.forEach((word) => {
+            const range = document.createRange();
+            range.setStart(...word.start);
+            range.setEnd(...word.end);
+            const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0);
+            let row = rows.findIndex((item) => rects[0].top < item.bottom && rects[0].bottom > item.top);
+            if (row < 0) {
+              rows.push({ top: rects[0].top, bottom: rects[0].bottom });
+              lines.push([]);
+              row = rows.length - 1;
+            }
+            lines[row].push({ text: word.text, left: points(rects[0].left - box.left), right: points(rects[rects.length - 1].right - box.left) });
+          });
+          const own = p.cloneNode(true);
+          own.querySelectorAll(".ld-tab").forEach((item) => item.replaceWith("\t"));
+          return { text: own.textContent.trim().split("\t")[0].trim(), x, label, labelEnd: first ? points(first.getBoundingClientRect().left - box.left) : x,
+            labelWidth: (parseFloat(before.width) || NaN) * 0.75, after, afterTab, lines };
         }
         return { text: p.textContent.trim(), x: NaN, label, labelEnd: NaN };
       });
@@ -3388,6 +3428,51 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
         // the 36 pt default stop past the style's last.
         const rule = (heading.text === "Closing" ? 72 - 36 : 10.8) - heading.labelWidth / 2;
         assert.ok(Math.abs(gap - rule) <= 0.15, `"${heading.text}" starts ${gap} pt after its ${heading.labelWidth} pt label; Word's rule gives ${rule} pt`);
+      }
+    });
+  });
+
+  // Word's PDF of the fixture (centred: true, wrapped: true): headings VII.
+  // to XVII. are plain text, XVIII. to XXVI. small capitals as the IEEE
+  // template sets them. Word centres each line on the indent as if the
+  // label started there, and the label then reaches half its width left,
+  // past the column's 72 pt edge when the line is full (X., XI.). Small
+  // capitals are 80% capitals in Word, spaces included; Chrome drew them at
+  // 70%, so XXII. to XXV. held "Wi..." on their first line where Word's
+  // break before it, and their labels started up to 19 pt left of Word's.
+  // XII.'s "Tii" ends 0.4% short of the column here, where Word's does not
+  // fit: a near tie of plain text, left out.
+  test("a wrapped centred heading breaks where Word's does, with its label where Word's is", async () => {
+    await withHost({}, async (host) => {
+      const layout = await numberedLayout(host, { centred: true, wrapped: true });
+      const wrapped = layout.headings.slice(layout.headings.findIndex((heading) => heading.text === "Notes") + 1);
+      const word = [[73.10, "Anchor"], [72.38, "Packet"], [76.22, "Ledger"], [69.62, "T"], [66.74, "Ti"], [70.70, "Message", "near tie"],
+        [69.02, "Message"], [68.78, "Message"], [70.34, "Message"], [68.78, "Message"], [76.82, "Ledger"],
+        [63.38, "W" + "i".repeat(10)], [74.42, "W" + "i".repeat(11)], [74.66, "W" + "i".repeat(12)], [71.78, "W" + "i".repeat(13)],
+        [84.02, "Latency"], [82.34, "Latency"], [81.98, "Latency"], [83.66, "Latency"], [203.93, "Notes"]];
+      assert.equal(wrapped.length, word.length, `${wrapped.length} headings after "Notes"; the fixture has ${word.length}`);
+      wrapped.forEach((heading, index) => {
+        const [label, last, skip] = word[index];
+        if (skip) {
+          return;
+        }
+        const first = heading.lines[0].map((item) => item.text);
+        assert.equal(first[first.length - 1], last, `heading ${index + 7}'s first line ends "${first.slice(-2).join(" ")}"; Word's ends "${last}"`);
+        // Where the text is drawn in Times New Roman, as on Windows (see the
+        // test above); Liberation Serif has its widths but not its kerning.
+        // The label as drawn ends where its tab starts.
+        const drawn = heading.labelEnd - heading.labelWidth;
+        if (process.platform === "win32") {
+          assert.ok(Math.abs(drawn - label) <= 2, `the label of heading ${index + 7} starts at ${drawn} pt; Word's starts at ${label} pt`);
+        }
+      });
+      // Digits and punctuation stay whole: Word starts "2-B," at 274.97 pt
+      // and ends "Notes" at 394.40 pt. The text keeps its letters' case.
+      const phase = wrapped[wrapped.length - 1].lines[0];
+      assert.equal(phase.map((item) => item.text).join(" "), "Phase 2-B, Rev. 3.1 (Draft) Notes");
+      if (process.platform === "win32") {
+        assert.ok(Math.abs(phase[1].left - 274.97) <= 1, `"2-B," starts at ${phase[1].left} pt; Word's starts at 274.97 pt`);
+        assert.ok(Math.abs(phase[phase.length - 1].right - 394.40) <= 1, `"Notes" ends at ${phase[phase.length - 1].right} pt; Word's ends at 394.40 pt`);
       }
     });
   });

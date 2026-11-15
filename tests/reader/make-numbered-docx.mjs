@@ -117,7 +117,13 @@ function paragraph(text) {
 // Heading 1s ("I." to "IV.") and two Heading 2s follow one another; then
 // "V.", whose paragraph has a 36 pt left indent of its own, and "VI.",
 // whose text has a tab of its own after its first word.
-export async function makeNumberedDocx({ offPage = false, morePages = 0, centred = false } = {}) {
+const titleCase = (text) => text.split(" ").map((word) => word[0].toUpperCase() + word.slice(1)).join(" ");
+const PLAIN_WRAPPED = [titleCase(words(1, 15)), titleCase(words(2, 16)), titleCase(words(4, 15))]
+  .concat([0, 1, 2, 3, 4, 5, 6, 7].map((count) => titleCase(words(3, 14)) + " T" + "i".repeat(count)));
+const CAPS_WRAPPED = [0, 1, 2, 3, 4, 5, 6, 7].map((count) => titleCase(words(5, 11)) + " W" + "i".repeat(10 + count))
+  .concat(["Phase 2-B, Rev. 3.1 (Draft) Notes"]);
+
+export async function makeNumberedDocx({ offPage = false, morePages = 0, centred = false, wrapped = false } = {}) {
   const body = [];
   if (centred) {
     ["Introduction", "Method", "Results", "Outlook"].forEach((title, index) => {
@@ -133,6 +139,13 @@ export async function makeNumberedDocx({ offPage = false, morePages = 0, centred
     body.push(paragraph(`Closing para. ${words(8, 20)}.`));
     body.push(`<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Notes</w:t></w:r><w:r><w:tab/><w:t>Annex</w:t></w:r></w:p>`);
     body.push(paragraph(`Notes para. ${words(9, 20)}.`));
+    if (wrapped) {
+      PLAIN_WRAPPED.concat(CAPS_WRAPPED).forEach((title, index) => {
+        const caps = index < PLAIN_WRAPPED.length ? "<w:rPr><w:smallCaps w:val=\"0\"/></w:rPr>" : "";
+        body.push(`<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r>${caps}<w:t>${title}</w:t></w:r></w:p>`);
+        body.push(paragraph(`Wrapped para ${index + 1}. ${words(index + 3, 12)}.`));
+      });
+    }
   } else {
     body.push(`<w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr><w:r><w:t xml:space="preserve">Contents line heron about ${words(1, 9)}</w:t></w:r>` +
       `<w:r><w:tab/><w:t>12</w:t></w:r></w:p>`);
