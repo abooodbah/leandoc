@@ -3258,6 +3258,7 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
           // Where the heading's last text starts, when it is not its first
           // (text after a tab of the heading's own).
           let after = NaN;
+          let afterTab = NaN;
           const texts = [];
           const all = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
           let text;
@@ -3273,9 +3274,11 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
             next.setStart(lastText, at);
             next.setEnd(lastText, at + 1);
             after = points(next.getClientRects()[0].left - box.left);
+            const tabs = Array.from(p.querySelectorAll(".ld-tab")).filter((item) => item.compareDocumentPosition(lastText) & Node.DOCUMENT_POSITION_FOLLOWING);
+            afterTab = tabs.length ? points(tabs[tabs.length - 1].getBoundingClientRect().left - box.left) : NaN;
           }
           return { text: node.nodeValue.trim(), x, label, labelEnd: first ? points(first.getBoundingClientRect().left - box.left) : x,
-            labelWidth: (parseFloat(before.width) || NaN) * 0.75, after };
+            labelWidth: (parseFloat(before.width) || NaN) * 0.75, after, afterTab };
         }
         return { text: p.textContent.trim(), x: NaN, label, labelEnd: NaN };
       });
@@ -3346,6 +3349,13 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
   // 3 pt, "IV." by 1.2 pt), and the centred line moves by half of that: the
   // start is held to 2 pt and the gap to 0.7 pt of Word's, and the gap to
   // 0.15 pt of Word's rule, 10.8 pt less half the label as drawn here.
+  // The starts are Word's only where the text is drawn in Times New Roman,
+  // as on Windows. Linux draws it in Liberation Serif, whose small capitals
+  // Chrome makes about 14% narrower ("Introduction" 69.4 px to 80.4 px), so
+  // there the centred lines move by up to 4 pt and "Notes" ends before the
+  // 36 pt stop, where Word's and Windows' end past it. On every platform
+  // "Annex" is held to Word's rule: the first stop past the end of "Notes",
+  // counted in the label's frame (the label centred on the indent).
   test("a centred heading label keeps Word's gap before the heading's text", async () => {
     await withHost({}, async (host) => {
       const layout = await numberedLayout(host, { centred: true });
@@ -3353,11 +3363,25 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
         Outlook: { x: 291.41, gap: 4.25 }, Closing: { x: 324.07, gap: 31.25 }, Notes: { x: 266.09, gap: 4.24 } };
       const headings = layout.headings.filter((heading) => !/Part$/.test(heading.text));
       assert.deepEqual(headings.map((heading) => heading.text), Object.keys(word));
+      const wordFont = process.platform === "win32";
       const annex = layout.headings.find((heading) => heading.text === "Notes");
-      assert.ok(Math.abs(annex.after - 327.31) <= 1.5, `"Annex" starts at ${annex.after} pt; Word's starts at 327.31 pt`);
+      // The label's frame: "label" is where the label starts when centred on
+      // the indent, so the indent is half the label past it, and the label
+      // as drawn starts labelWidth before its end.
+      const shift = annex.labelEnd - annex.labelWidth - annex.label;
+      const indent = annex.label + annex.labelWidth / 2;
+      const notesEnd = annex.afterTab - shift - indent;
+      const stop = [10.8, 28.8].find((value) => value > notesEnd + 0.01) ?? 36 * (Math.floor(notesEnd / 36 + 0.0003) + 1);
+      assert.ok(Math.abs(annex.after - shift - indent - stop) <= 0.15,
+        `"Annex" starts ${annex.after - shift - indent} pt into the label's frame; "Notes" ends at ${notesEnd} pt, so Word's rule gives the ${stop} pt stop`);
+      if (wordFont) {
+        assert.ok(Math.abs(annex.after - 327.31) <= 1.5, `"Annex" starts at ${annex.after} pt; Word's starts at 327.31 pt`);
+      }
       for (const heading of headings) {
         const expected = word[heading.text];
-        assert.ok(Math.abs(heading.x - expected.x) <= 2, `"${heading.text}" starts at ${heading.x} pt; Word's starts at ${expected.x} pt`);
+        if (wordFont) {
+          assert.ok(Math.abs(heading.x - expected.x) <= 2, `"${heading.text}" starts at ${heading.x} pt; Word's starts at ${expected.x} pt`);
+        }
         const gap = heading.x - heading.labelEnd;
         assert.ok(Math.abs(gap - expected.gap) <= 0.7, `"${heading.text}" starts ${gap} pt after its label; Word's starts ${expected.gap} pt after it`);
         // "V." is centred on its paragraph's 36 pt indent and its tab goes to
