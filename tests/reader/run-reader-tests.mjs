@@ -22,7 +22,7 @@ import {
 } from "./make-numbered-docx.mjs";
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeWordMetricsDocx } from "./make-saved-pages-docx.mjs";
-import { WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
+import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
 let browser;
@@ -2818,6 +2818,196 @@ describe("text past a saved page start continues on that page across a section b
       assert.equal(table.page, 2);
       near(table.left, 432, "table left");
       near(table.top, 144, "table top");
+    });
+  });
+
+  // Where the document's picture lies, in px from the top left corner of its
+  // page, with the left and right edges of that page's text area.
+  async function picture(host) {
+    return host.page.evaluate(() => {
+      const image = document.querySelector("#docBody article img");
+      const page = image.closest("section.docx");
+      const box = page.getBoundingClientRect();
+      const rect = image.getBoundingClientRect();
+      const style = getComputedStyle(page);
+      return {
+        page: Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx")).indexOf(page) + 1,
+        left: rect.left - box.left,
+        right: rect.right - box.left,
+        top: rect.top - box.top,
+        textLeft: parseFloat(style.paddingLeft),
+        textRight: box.width - parseFloat(style.paddingRight)
+      };
+    });
+  }
+
+  function assertPictureInside(found) {
+    assert.ok(found.left >= found.textLeft - 0.5 && found.right <= found.textRight + 0.5,
+      `the picture lies from ${found.left} px to ${found.right} px, the text area from ${found.textLeft} px to ${found.textRight} px`);
+  }
+
+  const titles = Array.from({ length: 6 }, (_, index) => `Title line ${index + 1}.`);
+
+  // A picture as wide as both columns, anchored to a line after line 92 of
+  // the two-margin document, with text wrapped square around it and aligned
+  // to the left margin (wp:anchor). Word gives 2 pages and sets it from the
+  // left margin. docx-preview floats it in the column of its anchor. After
+  // lines 63 to 92 it starts at the foot of the first column and reaches
+  // across the second. With lines 61 and 62 continued above them it starts
+  // the second column and runs 240 px past the page's edge. So a document
+  // with such a picture keeps the page breaks it had, as one with such a
+  // table does: 3 pages, the picture inside the text area.
+  test("a floating picture wider than a column stays inside the text area after two lines that run past a page", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeMarginSectionsDocx({ lines: 100, picture: { after: 92, width: 468 } });
+      const rendered = await host.openDocument({ bytes, report, fileName: "wide-picture.docx" });
+      const pages = await layout(host);
+      const found = await picture(host);
+      assertPictureInside(found);
+      near(found.left, 96, "picture left");
+      assert.equal(rendered.pages, 3, "the reader gives 3 pages; Word gives 2");
+      assert.deepEqual(starts(pages), ["Title line 1.", "Alpha line 61.", "Alpha line 63."]);
+      assert.deepEqual(texts(pages), [...titles, ...alpha(1, 92), PICTURE_ANCHOR, ...alpha(93, 100)]);
+    });
+  });
+
+  // A column is 216 pt wide and the gap between the two 36 pt, so half of
+  // the text's width is 234 pt. A floating picture 225 pt wide is wider than
+  // a column: from the second column it ends 12 px past the text area.
+  test("a floating picture wider than a column by less than half the gap between the columns counts as wider", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeMarginSectionsDocx({ lines: 100, picture: { after: 92, width: 225 } });
+      const rendered = await host.openDocument({ bytes, report, fileName: "wide-picture-225.docx" });
+      const pages = await layout(host);
+      const found = await picture(host);
+      assertPictureInside(found);
+      assert.equal(rendered.pages, 3, "the reader gives 3 pages; Word gives 2");
+      assert.deepEqual(starts(pages), ["Title line 1.", "Alpha line 61.", "Alpha line 63."]);
+    });
+  });
+
+  // A floating picture exactly as wide as a column fits in either column,
+  // so it holds nothing back: lines 61 and 62 continue, and Word's 2 pages
+  // come out. The picture starts the second column and ends at the edge of
+  // the text area.
+  test("a floating picture as wide as a column holds nothing back", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeMarginSectionsDocx({ lines: 100, picture: { after: 92, width: 216 } });
+      const rendered = await host.openDocument({ bytes, report, fileName: "column-picture.docx" });
+      const pages = await layout(host);
+      const found = await picture(host);
+      assert.equal(rendered.pages, 2, "Word gives 2 pages");
+      assert.deepEqual(starts(pages), ["Title line 1.", "Alpha line 61."]);
+      assert.equal(found.page, 2);
+      near(found.left, 432, "picture left");
+      near(found.right, 720, "picture right");
+      assert.deepEqual(texts(pages), [...titles, ...alpha(1, 92), PICTURE_ANCHOR, ...alpha(93, 100)]);
+    });
+  });
+
+  // The same wide picture aligned to the right margin, after line 126 of
+  // 140. docx-preview floats it to the right of its anchor's column: from
+  // the second column it reaches back across the first, and from the first
+  // it starts 240 px left of the page. It ends the second column of the
+  // third page. With lines 61 and 62 continued, the pages after them hold
+  // two lines more, and the picture starts the first column of the next
+  // page. The document keeps its 4 pages; Word gives 3.
+  test("a floating picture wider than a column that is aligned to the right stays inside the text area", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeMarginSectionsDocx({ lines: 140, picture: { after: 126, width: 468, align: "right" } });
+      const rendered = await host.openDocument({ bytes, report, fileName: "wide-picture-right.docx" });
+      const pages = await layout(host);
+      const found = await picture(host);
+      assertPictureInside(found);
+      assert.equal(rendered.pages, 4, "the reader gives 4 pages; Word gives 3");
+      assert.deepEqual(starts(pages), ["Title line 1.", "Alpha line 61.", "Alpha line 63.", "Alpha line 127."]);
+      assert.deepEqual(counts(pages), [66, 2, 65, 14]);
+    });
+  });
+
+  // A picture that text stays above and below, or that lies over the text,
+  // is not a float in docx-preview, but it is drawn from its anchor's column
+  // the same way, and Word sets it from the margin. After lines 90 and 92 it
+  // starts in the first column as long as lines 61 and 62 keep their page,
+  // and in the second, 240 px past the page's edge, when they continue.
+  for (const [wrap, after] of [["topAndBottom", 90], ["none", 92]]) {
+    test(`a picture wider than a column with wrapping "${wrap}" stays inside the text area after two lines that run past a page`, async () => {
+      await withHost({}, async (host) => {
+        const { bytes, report } = await makeMarginSectionsDocx({ lines: 100, picture: { after, width: 468, wrap } });
+        const rendered = await host.openDocument({ bytes, report, fileName: `wide-picture-${wrap}.docx` });
+        const pages = await layout(host);
+        const found = await picture(host);
+        assertPictureInside(found);
+        assert.equal(rendered.pages, 3, "the reader gives 3 pages; Word gives 2");
+        assert.deepEqual(starts(pages), ["Title line 1.", "Alpha line 61.", "Alpha line 63."]);
+      });
+    });
+  }
+
+  // A word dropped over three lines at 65 pt (w:framePr w:dropCap="drop"),
+  // after line 90. Word gives 2 pages and keeps the word in its anchor's
+  // column: it starts the second column and the next line starts 108 pt
+  // lower, two of its 54 pt lines. docx-preview floats the word's paragraph
+  // left, on one line, 443 px wide where a column is 288 px. From the first
+  // column it reaches across the second, and from the second it runs 59 px
+  // past the page's edge. So this document keeps its page breaks too.
+  test("a dropped word wider than a column stays inside the text area after two lines that run past a page", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeMarginSectionsDocx({ lines: 100, dropCapAfter: 90 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "dropped-word.docx" });
+      const pages = await layout(host);
+      const found = await host.page.evaluate((text) => {
+        const paragraph = Array.from(document.querySelectorAll("#docBody article > p")).find((p) => p.textContent.trim() === text);
+        const page = paragraph.closest("section.docx");
+        const box = page.getBoundingClientRect();
+        const rect = paragraph.getBoundingClientRect();
+        const style = getComputedStyle(page);
+        return { left: rect.left - box.left, right: rect.right - box.left, textLeft: parseFloat(style.paddingLeft), textRight: box.width - parseFloat(style.paddingRight) };
+      }, DROPPED_WORD);
+      assert.ok(found.left >= found.textLeft - 0.5 && found.right <= found.textRight + 0.5,
+        `the dropped word lies from ${found.left} px to ${found.right} px, the text area from ${found.textLeft} px to ${found.textRight} px`);
+      assert.equal(rendered.pages, 3, "the reader gives 3 pages; Word gives 2");
+      assert.deepEqual(starts(pages), ["Title line 1.", "Alpha line 61.", "Alpha line 63."]);
+    });
+  });
+
+  // The same picture in the text's flow, in a paragraph of its own
+  // (wp:inline). Word gives 2 pages and sets it at the top of the second
+  // column (324 pt, 108 pt), where it runs past the page as it does in the
+  // reader. Like a table in the text's flow, it holds nothing back.
+  test("a picture wider than a column that is in the text's flow goes where Word puts it", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeMarginSectionsDocx({ lines: 100, picture: { after: 92, width: 468, wrap: "inline" } });
+      const rendered = await host.openDocument({ bytes, report, fileName: "wide-picture-in-flow.docx" });
+      const pages = await layout(host);
+      const found = await picture(host);
+      assert.equal(rendered.pages, 2, "Word gives 2 pages");
+      assert.deepEqual(starts(pages), ["Title line 1.", "Alpha line 61."]);
+      assert.equal(found.page, 2);
+      near(found.left, 432, "picture left");
+      near(found.top, 144, "picture top");
+    });
+  });
+
+  // A one-column section has one place for a picture, however wide it is,
+  // so a picture wider than its text holds nothing back. The figure's
+  // section holds a floating picture 500 pt wide (its text is 468 pt wide)
+  // and a block 72 pt shorter: Word gives 2 pages with lines 73 and 74 above
+  // the figure, the picture from the left margin, and the caption at 450 pt.
+  test("a floating picture wider than the text of a one-column section holds nothing back", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeFigureSectionDocx({ extra: 2, figurePicture: 500 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "figure-section-picture.docx" });
+      const pages = await layout(host);
+      const found = await picture(host);
+      assert.equal(rendered.pages, 2, "Word gives 2 pages");
+      assert.deepEqual(starts(pages), ["Alpha line 1.", "Alpha line 73."]);
+      assert.deepEqual(counts(pages), [72, 26]);
+      assert.equal(found.page, 2);
+      near(found.left, 96, "picture left");
+      near(find(pages[1], "Figure block one.").top, 120, "figure top");
+      near(find(pages[1], "Figure caption one.").top, 600, "caption top");
+      near(find(pages[1], "Gamma line 1.").top, 624, "the text after the figure");
     });
   });
 
