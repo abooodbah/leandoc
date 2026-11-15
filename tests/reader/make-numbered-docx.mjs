@@ -416,3 +416,71 @@ ${section}
     "word/settings.xml": SETTINGS
   });
 }
+
+// One paragraph of 79 short lines joined by line breaks (w:br), long enough
+// to cross a page; `justified` sets it justified. Each line ends with a
+// letter and the next starts with one. Word keeps every line, each on its
+// own, and breaks the page between two of them.
+export function makeBreakLinesDocx({ justified = false } = {}) {
+  const lines = Array.from({ length: 79 }, (_, index) => `Row ${index + 1} closes on a plain word`);
+  const runs = lines.map((line, index) => `${index ? "<w:br/>" : ""}<w:t xml:space="preserve">${line}</w:t>`).join("");
+  const props = justified ? `<w:pPr><w:jc w:val="both"/></w:pPr>` : "";
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${W}" xmlns:r="${R}"><w:body><w:p>${props}<w:r>${runs}</w:r></w:p>
+${PLAIN_SECTION}
+</w:body></w:document>`;
+  return packageDocx({
+    "[Content_Types].xml": CONTENT_TYPES.replace(/<Override PartName="\/word\/(numbering|header1|footer1)\.xml"[^>]*\/>\n?/g, ""),
+    "_rels/.rels": ROOT_RELS,
+    "word/document.xml": documentXml,
+    "word/_rels/document.xml.rels": DOCUMENT_RELS.replace(/<Relationship Id="rId[345]"[^>]*\/>\n?/g, ""),
+    "word/styles.xml": `${SMALL_STYLES_HEAD}\n</w:styles>`,
+    "word/settings.xml": SETTINGS
+  });
+}
+
+// Paragraphs whose right indent is -144 pt, so that their lines run 144 pt
+// past the right margin, as Word lets them, in a document that leaves
+// automatic hyphenation off. They run past the first page. Word breaks the
+// page between two lines and breaks no word.
+export function makeWideLinesDocx() {
+  const paragraphs = Array.from({ length: 8 }, (_, index) => `<w:p><w:pPr><w:ind w:right="-2880"/></w:pPr>` +
+    `<w:r><w:t xml:space="preserve">Entry ${index + 1}. ${words(index + 4, 260)}.</w:t></w:r></w:p>`).join("");
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${paragraphs}
+${PLAIN_SECTION}
+</w:body></w:document>`;
+  return packageDocx({
+    "[Content_Types].xml": CONTENT_TYPES.replace(/<Override PartName="\/word\/(numbering|header1|footer1)\.xml"[^>]*\/>\n?/g, ""),
+    "_rels/.rels": ROOT_RELS,
+    "word/document.xml": documentXml,
+    "word/_rels/document.xml.rels": DOCUMENT_RELS.replace(/<Relationship Id="rId[345]"[^>]*\/>\n?/g, ""),
+    "word/styles.xml": `${SMALL_STYLES_HEAD}\n</w:styles>`,
+    "word/settings.xml": SETTINGS
+  });
+}
+
+// One paragraph, at exact 6 pt lines, that opens with a word in 10 pt and
+// goes on with a single long word of the letter "i" in 5 pt with a soft
+// hyphen after each, long enough to cross a page. Each line of that word
+// breaks at the last soft hyphen that fits, so less room than one "i" and
+// its hyphen is left on it. The hyphen the reader adds where the page
+// breaks the word takes the paragraph's 10 pt, wider than the 5 pt hyphen
+// the line was laid out with, and does not fit the line it ends.
+export function makeTightHyphenDocx() {
+  const word = Array.from({ length: 60000 }, () => "i").join("\u00ad");
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>
+<w:p><w:pPr><w:spacing w:line="120" w:lineRule="exact"/></w:pPr><w:r><w:t xml:space="preserve">Tight </w:t></w:r>` +
+    `<w:r><w:rPr><w:sz w:val="10"/></w:rPr><w:t>${word}</w:t></w:r></w:p>
+${PLAIN_SECTION}
+</w:body></w:document>`;
+  return packageDocx({
+    "[Content_Types].xml": CONTENT_TYPES.replace(/<Override PartName="\/word\/(numbering|header1|footer1)\.xml"[^>]*\/>\n?/g, ""),
+    "_rels/.rels": ROOT_RELS,
+    "word/document.xml": documentXml,
+    "word/_rels/document.xml.rels": DOCUMENT_RELS.replace(/<Relationship Id="rId[345]"[^>]*\/>\n?/g, ""),
+    "word/styles.xml": `${SMALL_STYLES_HEAD}\n</w:styles>`,
+    "word/settings.xml": SETTINGS
+  });
+}

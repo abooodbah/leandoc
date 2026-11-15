@@ -16,7 +16,10 @@ import {
 } from "./fake-host.mjs";
 import { makeBigDocx } from "./make-big-docx.mjs";
 import { makeFloatsDocx } from "./make-floats-docx.mjs";
-import { makeCancelledNumberingDocx, makeEmptyMarkNoteDocx, makeEquationDocx, makeNumberedDocx, makeSoftHyphenDocx } from "./make-numbered-docx.mjs";
+import {
+  makeBreakLinesDocx, makeCancelledNumberingDocx, makeEmptyMarkNoteDocx, makeEquationDocx, makeNumberedDocx, makeSoftHyphenDocx,
+  makeTightHyphenDocx, makeWideLinesDocx
+} from "./make-numbered-docx.mjs";
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeWordMetricsDocx } from "./make-saved-pages-docx.mjs";
 
@@ -3517,6 +3520,147 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
       assert.ok(splits.some((split) => !split.inWord), `a page starts between words (${splits.length} splits)`);
       splits.forEach((split, index) => assert.equal(split.hyphen, split.inWord,
         `split ${index + 1} (ends "${split.ends}") ${split.inWord ? "inside a word shows no" : "between words shows a"} hyphen`));
+    });
+  });
+
+  // Lines joined by line breaks: one paragraph of 79 lines that crosses a
+  // page. Word's PDF of the fixture: page 1 ends with "Row 56", page 2
+  // starts with "Row 57", every line whole. The split fell between the
+  // last letter of one line and the first of the next, which read as a word
+  // broken in two (range text leaves the <br> out); its hyphen took a line
+  // of its own and pushed "Row 56" past the page's right edge, out of view.
+  for (const justified of [false, true]) {
+    test(`a page break between lines joined by line breaks adds no hyphen and loses no line${justified ? " (justified)" : ""}`, async () => {
+      await withHost({}, async (host) => {
+        const { bytes, report } = await makeBreakLinesDocx({ justified });
+        await host.openDocument({ bytes, report, fileName: "break-lines.docx" });
+        const layout = await host.page.evaluate(() => {
+          const pages = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"));
+          const rows = [];
+          pages.forEach((page, index) => {
+            const box = page.getBoundingClientRect();
+            const walker = document.createTreeWalker(page.querySelector("article"), NodeFilter.SHOW_TEXT);
+            let node;
+            while ((node = walker.nextNode())) {
+              const match = /Row (\d+)/.exec(node.nodeValue);
+              if (!match) {
+                continue;
+              }
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              const inside = Array.from(range.getClientRects()).every((rect) =>
+                rect.left >= box.left - 0.5 && rect.right <= box.right + 0.5 && rect.top >= box.top - 0.5 && rect.bottom <= box.bottom + 0.5);
+              rows.push({ row: Number(match[1]), page: index + 1, inside });
+            }
+          });
+          return { rows, hyphens: document.querySelectorAll("#docBody p[data-ld-hyphen]").length };
+        });
+        assert.equal(layout.hyphens, 0, "no part is marked for a hyphen");
+        assert.deepEqual(layout.rows.map((entry) => entry.row), Array.from({ length: 79 }, (_, index) => index + 1));
+        layout.rows.forEach((entry) => assert.ok(entry.inside, `"Row ${entry.row}" is drawn outside page ${entry.page}`));
+        const last = layout.rows.filter((entry) => entry.page === 1).pop();
+        assert.equal(last && last.row, 56, `page 1 ends with "Row ${last && last.row}"; Word's ends with "Row 56"`);
+      });
+    });
+  }
+
+  // The first letter after a line broken at a hyphenation point also
+  // returns, first, the box of the hyphen at the end of the line before;
+  // read from that box, the page split fell one letter late, after the
+  // soft hyphen ("counterr-" | "evolution"). A page breaks a word where its
+  // line broke: right after a soft hyphen.
+  test("a word broken across pages breaks at its soft hyphen", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeSoftHyphenDocx();
+      await host.openDocument({ bytes, report, fileName: "soft-hyphens.docx" });
+      const splits = await host.page.evaluate(() => {
+        const all = Array.from(document.querySelectorAll("#docBody article p"));
+        return all.map((rest, index) => {
+          if (!rest.hasAttribute("data-ld-continued") || index === 0) {
+            return null;
+          }
+          const kept = all[index - 1].textContent;
+          return { inWord: /[a-z­]$/i.test(kept) && /^[a-z]/i.test(rest.textContent), soft: /­$/.test(kept), at: kept.slice(-8) + "|" + rest.textContent.slice(0, 8) };
+        }).filter(Boolean);
+      });
+      const inWord = splits.filter((split) => split.inWord);
+      assert.ok(inWord.length > 0, `a page starts inside a word (${splits.length} splits)`);
+      inWord.forEach((split) => assert.ok(split.soft, `the page breaks a word after a letter, not its soft hyphen ("${split.at}")`));
+    });
+  });
+
+  // A part that ends inside a word ends with a hyphen, which can be wider
+  // than the one its line was laid out with (it takes the paragraph's
+  // size). On a line with no room for it, it pushed the last letters onto
+  // a line of their own past the page; it takes no room there instead.
+  test("a hyphen added at the foot of a page keeps the page's last line in place", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeTightHyphenDocx();
+      await host.openDocument({ bytes, report, fileName: "tight-hyphen.docx" });
+      // Where each of a page's last three letters is drawn: inside the page,
+      // on the text area's last line (exact 6 pt lines: within 12 px of the
+      // area's foot).
+      const parts = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx")).map((page) => {
+        const box = page.getBoundingClientRect();
+        const style = getComputedStyle(page);
+        const limit = box.top + parseFloat(style.minHeight) - parseFloat(style.paddingBottom);
+        const paragraphs = page.querySelectorAll("article p");
+        const kept = paragraphs[paragraphs.length - 1];
+        const walker = document.createTreeWalker(kept, NodeFilter.SHOW_TEXT);
+        let node;
+        let last = null;
+        while ((node = walker.nextNode())) {
+          last = node;
+        }
+        const letters = [];
+        for (let offset = last.nodeValue.length - 1; offset >= 0 && letters.length < 3; offset -= 1) {
+          if (last.nodeValue[offset] !== "i") {
+            continue;
+          }
+          const range = document.createRange();
+          range.setStart(last, offset);
+          range.setEnd(last, offset + 1);
+          const rects = range.getClientRects();
+          const rect = rects[rects.length - 1];
+          letters.push(rect.left >= box.left && rect.right <= box.right && rect.bottom <= limit + 0.5 && rect.bottom > limit - 12);
+        }
+        return { hyphen: kept.hasAttribute("data-ld-hyphen") && /-/.test(getComputedStyle(kept, "::after").content), letters };
+      }));
+      const hyphenated = parts.filter((part) => part.hyphen);
+      assert.ok(hyphenated.length > 0, `a page ends inside the word with a hyphen (${parts.length} pages)`);
+      hyphenated.forEach((part, index) => assert.deepEqual(part.letters, [true, true, true],
+        `page ${index + 1}'s last letters are not all on its last line`));
+    });
+  });
+
+  // A document that leaves automatic hyphenation off, whose paragraphs run
+  // 144 pt past the right margin (a negative right indent). The page split
+  // fell at the first letter past the text area's right edge, inside a
+  // word, and the part kept took a hyphen ("led-" | "ger"). Word breaks no
+  // word there; the whole word goes on to the next page.
+  test("a document without automatic hyphenation breaks no word across pages", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeWideLinesDocx();
+      await host.openDocument({ bytes, report, fileName: "wide-lines.docx" });
+      const splits = await host.page.evaluate(() => {
+        const all = Array.from(document.querySelectorAll("#docBody article p"));
+        return all.map((rest, index) => {
+          if (!rest.hasAttribute("data-ld-continued") || index === 0) {
+            return null;
+          }
+          const kept = all[index - 1];
+          return {
+            inWord: /[a-z]$/i.test(kept.textContent) && /^[a-z]/i.test(rest.textContent),
+            hyphen: kept.hasAttribute("data-ld-hyphen"),
+            at: kept.textContent.slice(-8) + "|" + rest.textContent.slice(0, 8)
+          };
+        }).filter(Boolean);
+      });
+      assert.ok(splits.length > 0, "a paragraph is split across pages");
+      splits.forEach((split) => {
+        assert.ok(!split.inWord, `the page splits a word ("${split.at}")`);
+        assert.ok(!split.hyphen, `the part before "${split.at}" is marked for a hyphen`);
+      });
     });
   });
 
