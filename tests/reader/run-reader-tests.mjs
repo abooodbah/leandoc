@@ -2781,6 +2781,22 @@ describe("text past a saved page start continues on that page across a section b
     });
   });
 
+  // The document with the floating table and 140 lines. Its pages stay as
+  // they were before text could continue across a section boundary: lines
+  // 61 and 62 on a page of their own, and lines 127 to 130, which run past
+  // the third page, continued on the fourth, since both are pages of one
+  // section with the same margins. The reader gives 4 pages; Word gives 3.
+  test("a document with a floating table wider than a column still continues text of one section between pages of the same margins", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeMarginSectionsDocx({ lines: 140, wideTableAfter: 92 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "wide-table-140.docx" });
+      const pages = await layout(host);
+      assert.equal(rendered.pages, 4, "the reader gives 4 pages; Word gives 3");
+      assert.deepEqual(starts(pages), ["Title line 1.", "Alpha line 61.", "Alpha line 63.", "Alpha line 127."]);
+      assert.deepEqual(counts(pages), [66, 2, 64, 14]);
+    });
+  });
+
   // The same table in the text's flow, not floating (no w:tblpPr). Word
   // gives 2 pages and sets it at the top of the second column (324 pt,
   // 108 pt), where it runs past the page as it does in the reader. Such a
