@@ -1762,9 +1762,13 @@ body {
   }
 }
 
-/* Small capitals as Word draws them: capitals at 80% of the run's size
-   (reader.js matchSmallCaps). */
+/* Small capitals as Word draws them: capitals at 80% of the run's size,
+   to the nearest half point (reader.js matchSmallCaps sets the size). The
+   span is inside the run's own span, so it takes everything else from it:
+   the document's and the paragraph style's rules for "span" (font, size,
+   weight, colour) would otherwise reach it and beat the run's own font. */
 #docBody span.ld-sc {
+  all: unset;
   font-size: 80%;
   font-kerning: none;
   font-variant-caps: normal;
