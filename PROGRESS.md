@@ -1,6 +1,6 @@
 # Progress
 
-Updated: 2026-11-05
+Updated: 2026-11-14
 
 ## LeanDoc 0.2.0: plan
 
@@ -108,6 +108,55 @@ Decisions taken here (the owner can change them):
   `theme`. Windows `HKCU\Software\LeanDoc`, Linux
   `$XDG_CONFIG_HOME/leandoc/settings.ini` group `[Reader]`, macOS
   `NSUserDefaults` (`LeanDocTheme`, `LeanDocPageColor`).
+
+## Word layout: floating boxes, tabs, running headers (after 0.2.0)
+
+- Branch fidelity-floating-and-columns, one pull request, tests committed
+  before the change. A two-column IEEE paper showed its tables and figures
+  over the text, a heading printed over a table, and the references in three
+  columns with a wide gap after each number. Fixed: VML text boxes that Word
+  wraps top and bottom go to the top or foot of their anchor's page across
+  the columns; LeanDoc sizes every tab itself before pagination, with the
+  hanging indent as a stop; a section without a header of its own takes the
+  previous one; the header's page number sits at the right margin; a
+  footnote with the author's own mark shows no number; the footnote
+  reference's bookmark adds no height. Test document:
+  tests/reader/make-floats-docx.mjs, expected values from Word 16.
+- Second round, after review against Word on the paper and four more
+  private documents: text that a split paragraph pushes past the page
+  moves to the next page, and nothing prints past the paper's edge; a box
+  moves to the next page with its anchor; a fit-to-text box takes its
+  text's height; numbered headings take Word's indents, stops and centred
+  labels; a PAGE result takes its field code's size unless the code keeps
+  its own; a right stop past the right indent keeps its line whole. Test
+  document for the numbering: tests/reader/make-numbered-docx.mjs.
+- Third round, after a second review: a document of more than 60
+  sections sizes the tabs of its first pages again once the reader pane
+  is shown, so they get widths (a contents page had lost its leaders);
+  an equation wider than its column, or one that widens its table past
+  the column, is cut after commas and before operators into equations
+  that wrap inside the column; an equation's tokens no longer wrap inside
+  themselves. Test document: makeEquationDocx in
+  tests/reader/make-numbered-docx.mjs, expected values from Word 16.
+- Fourth round, after a third review: a paragraph that cancels its list
+  style's numbering (w:numId 0) drops the style's left and first-line
+  indents, as Word does, and keeps its own; a Strict OOXML document is
+  read in the transitional form docx-preview knows, so it keeps its styles,
+  list numbering, notes and tab stops; a note whose reference promises a mark of the
+  author's own but has none keeps its number in the note when the note
+  holds its reference mark; equations in a batched document's first pages
+  are measured once the pane is shown; a page that starts inside a word
+  ends with a hyphen. Two body-wide walks use the parser's own index.
+- Measured against main on one Windows laptop (perf-probe, five rounds,
+  medians), third round: 300 pages 684 to 712 ms, 1,000 pages 2,056 to
+  2,097 ms, the 19-page paper 1,037 to 1,108 ms and 215 to 221 MiB (the
+  paper's four boxes lay their pages out again); the reports' memory as on
+  main. Against the second round's code, the third round's changes moved
+  the reports by +9 and -20 ms and the paper by -14 ms, memory within
+  2 MiB, inside the spread of the runs. Page counts against Word on 27
+  local documents: 17 of 27 on main, 19 here; page starts 221 of 624 on
+  both. On ten more private documents: 7 of 10 on both, page starts 109 of
+  165 on main and 111 here.
 
 ## Efficiency review (0.2.0)
 

@@ -15,6 +15,11 @@ import {
   stageAssets
 } from "./fake-host.mjs";
 import { makeBigDocx } from "./make-big-docx.mjs";
+import { makeFloatsDocx } from "./make-floats-docx.mjs";
+import {
+  makeBreakLinesDocx, makeCancelledNumberingDocx, makeEmptyMarkNoteDocx, makeEquationDocx, makeNumberedDocx, makeSmallCapsDocx,
+  makeSoftHyphenDocx, makeTightHyphenDocx, makeWideLinesDocx
+} from "./make-numbered-docx.mjs";
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeWordMetricsDocx } from "./make-saved-pages-docx.mjs";
 
@@ -2251,6 +2256,155 @@ describe("page view follows Word's tables and equations", () => {
       assert.deepEqual(labels, Array.from({ length: longRows }, (_, index) => `Row ${index + 1}`));
     });
   });
+
+  // Four display equations wider than their column. The first two are sets
+  // of names separated by commas, the second in a borderless table beside
+  // its number; the third is a sum and the fourth a quotient. Word breaks
+  // the sets after commas into four lines each, the sum before its plus
+  // signs into three, and the quotient before "=", "/" and "-" into four,
+  // all inside the left column (72 to 288 pt): the first set from 75.7 to
+  // 284.3 pt, the second from 72.5 to 287.6 pt with "(1)" ending at
+  // 290.1 pt, the sum from 79.5 to 283.2 pt, the quotient from 98.3 to
+  // 261.8 pt. What follows each starts below it, the right column's
+  // text beside them is untouched, and the spaces around a break stay. Chrome's
+  // MathML does not wrap: the first set ran to 409 pt, and the second widened
+  // its table across the gap, both over the right column's text. A short
+  // numbered equation in the right column, in a table of fixed widths that
+  // reaches past the column, fits its cell and stays on one line from
+  // 324.85 pt; Word prints its "(2)" past the column, to 575.4 pt.
+  async function equationLayout(host, options = {}) {
+    const { bytes, report } = await makeEquationDocx(options);
+    await host.openDocument({ bytes, report, fileName: "equation-columns.docx" });
+    return host.page.evaluate(() => {
+        const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+        const box = page.getBoundingClientRect();
+        const scale = box.width / page.offsetWidth;
+        const points = (value) => value / scale * 0.75;
+        const groups = new Map();
+        page.querySelectorAll("math").forEach((math) => {
+          const paragraph = math.closest("p");
+          const tokens = Array.from(math.querySelectorAll("ms, mi, mn, mo, mtext")).filter((token) => token.textContent.trim());
+          groups.set(paragraph, (groups.get(paragraph) || []).concat(tokens));
+        });
+        const tail = Array.from(page.querySelectorAll("p")).find((p) => p.textContent.startsWith("Left tail para"));
+        const range = document.createRange();
+        range.selectNodeContents(tail);
+        const rightLines = Array.from(range.getClientRects()).filter((line) => points(line.left - box.left) > 300);
+        const number = Array.from(page.querySelectorAll("p")).find((p) => p.textContent.trim() === "(1)");
+        range.selectNodeContents(number);
+        const numberRight = points(range.getBoundingClientRect().right - box.left);
+        // The gap before the first glyph `after`, from the glyph printed
+        // before it, or null when a break falls between them.
+        const gap = (tokens, after) => {
+          const glyphs = [];
+          tokens.forEach((token) => {
+            const text = token.firstChild;
+            for (let index = 0; text && index < text.length; index += 1) {
+              if (text.data.charAt(index).trim()) {
+                range.setStart(text, index);
+                range.setEnd(text, index + 1);
+                glyphs.push({ character: text.data.charAt(index), rect: range.getBoundingClientRect() });
+              }
+            }
+          });
+          const at = glyphs.findIndex((glyph, index) => index && glyph.character === after);
+          const left = glyphs[at - 1].rect;
+          const right = glyphs[at].rect;
+          return Math.abs(left.top - right.top) > 2 ? null : points(right.left - left.right);
+        };
+        return {
+          rightLines: rightLines.length,
+          number: numberRight,
+          equations: Array.from(groups, ([paragraph, tokens]) => {
+            // Across, where the text is drawn: a token longer than the line
+            // was cut at the paragraph's edge, and its box ended there.
+            // A line starts at its first letter, not at a space before it.
+            const rects = tokens.map((token) => {
+              const text = document.createRange();
+              text.selectNodeContents(token);
+              const drawn = text.getBoundingClientRect();
+              const own = token.getBoundingClientRect();
+              text.setStart(token.firstChild, token.firstChild.data.search(/[^ ]/));
+              return { left: text.getBoundingClientRect().left, right: Math.max(drawn.right, own.right), top: own.top, bottom: own.bottom };
+            });
+            const top = Math.min(...rects.map((rect) => rect.top));
+            const bottom = Math.max(...rects.map((rect) => rect.bottom));
+            const block = paragraph.closest("table") || paragraph;
+            // Where each line starts: a subscript sits a few points below
+            // its line's top, the next line a whole line below.
+            const starts = [];
+            rects.slice().sort((one, other) => one.top - other.top).forEach((rect) => {
+              const last = starts[starts.length - 1];
+              if (last && rect.top - last.top < 8 / 0.75 * scale) {
+                last.left = Math.min(last.left, rect.left);
+              } else {
+                starts.push({ top: rect.top, left: rect.left });
+              }
+            });
+            return {
+              maths: paragraph.querySelectorAll("math").length,
+              starts: starts.map((start) => points(start.left - box.left)),
+              left: points(Math.min(...rects.map((rect) => rect.left)) - box.left),
+              right: points(Math.max(...rects.map((rect) => rect.right)) - box.left),
+              height: points(bottom - top),
+              size: parseFloat(getComputedStyle(paragraph.querySelector("math")).fontSize) * 0.75,
+              // The long paragraph runs on in the right column: its first fragment.
+              nextGap: points(block.nextElementSibling.getClientRects()[0].top - bottom),
+              hits: rightLines.filter((line) => rects.some((rect) =>
+                rect.left < line.right - 1 && rect.right > line.left + 1 && rect.top < line.bottom - 1 && rect.bottom > line.top + 1)).length,
+              equalsGap: gap(tokens, "="),
+              betaGap: gap(tokens, "B")
+            };
+          })
+        };
+    });
+  }
+
+  test("a display equation wider than its column wraps inside the column", async () => {
+    await withHost({}, async (host) => {
+      const layout = await equationLayout(host);
+      assert.equal(layout.equations.length, 5, "the five equations render");
+      assert.ok(layout.rightLines > 10, `the right column holds ${layout.rightLines} lines of the long paragraph`);
+      const short = layout.equations.pop();
+      assert.ok(short.left > 320 && short.right <= 541, `the short equation spans ${short.left} to ${short.right} pt; the right column runs from 324 to 540 pt`);
+      assert.ok(short.height < short.size * 1.6, `the short equation is ${short.height} pt tall at ${short.size} pt type; Word sets it on one line`);
+      assert.equal(short.maths, 1, "the short equation, which fits its cell, is left whole");
+      layout.equations.forEach((equation, index) => {
+        const name = `equation ${index + 1}`;
+        assert.ok(equation.right <= 289, `${name} reaches ${equation.right} pt; the left column ends at 288 pt`);
+        assert.equal(equation.hits, 0, `${name} is drawn over ${equation.hits} lines of the right column`);
+        assert.ok(equation.height > equation.size * 2, `${name} is ${equation.height} pt tall at ${equation.size} pt type; Word sets it on three or four lines`);
+        assert.ok(equation.nextGap >= -0.5, `what follows ${name} starts ${equation.nextGap} pt below it`);
+        // Word prints a space before "=" and before "Beta", after a comma or
+        // a plus sign.
+        assert.ok(equation.equalsGap === null || equation.equalsGap > 1.5, `${name}: "=" is ${equation.equalsGap} pt from the name before it`);
+        assert.ok(index === 3 || equation.betaGap === null || equation.betaGap > 1.5, `${name}: "Beta" is ${equation.betaGap} pt from the sign before it`);
+      });
+      // Word starts every line of a set at the same place: 75.7 pt for the
+      // first, 72.5 pt for the second. (It indents the sum's later lines.)
+      layout.equations.slice(0, 2).forEach((equation, index) => {
+        assert.ok(Math.max(...equation.starts) - Math.min(...equation.starts) <= 1, `equation ${index + 1}'s lines start at ${equation.starts.join(", ")} pt`);
+      });
+      assert.ok(layout.number <= 291, `the equation number ends at ${layout.number} pt; Word's ends at 290.1 pt`);
+    });
+  });
+
+  // In a document of more than 60 sections the first pages are matched while
+  // the reader pane is hidden, where every box is 0 wide: each equation in a
+  // column section looked wider than its column and was cut, the short one
+  // that fits its cell too.
+  test("an equation that fits is left whole in a document long enough to open in batches", async () => {
+    await withHost({}, async (host) => {
+      const layout = await equationLayout(host, { morePages: 70 });
+      assert.equal(layout.equations.length, 5, "the five equations render");
+      const short = layout.equations.pop();
+      assert.equal(short.maths, 1, "the short equation, which fits its cell, is left whole");
+      layout.equations.forEach((equation, index) => {
+        assert.ok(equation.maths > 1, `equation ${index + 1} is cut into lines`);
+        assert.ok(equation.right <= 289, `equation ${index + 1} reaches ${equation.right} pt; the left column ends at 288 pt`);
+      });
+    });
+  });
 });
 
 describe("page view splits long documents without freezing the window", () => {
@@ -2363,8 +2517,9 @@ describe("page view splits long documents without freezing the window", () => {
       // Waiting rows were once put back all at once on the page where the
       // table stopped, clipped by the page: 26 pages. Moving whole rows only
       // gave 27. Word breaks rows across pages and gives 22; LeanDoc does
-      // too and gives 23.
-      assert.equal(rendered.pages, 23);
+      // too, and gave 23 while a one-line paragraph of runs smaller than its
+      // style stayed as tall as the style's size. It now gives Word's 22.
+      assert.equal(rendered.pages, 22);
       console.log(`# 1,500-row table: ${rendered.pages} pages, reader ${rendered.ms} ms, longest task ${result.longest} ms`);
     });
   });
@@ -2697,6 +2852,1180 @@ describe("page view follows Word's page starts and stand-in fonts", () => {
         seen = await state();
       }
       assert.ok(seen.done, `the last page is matched once near: ${JSON.stringify(seen)}`);
+    });
+  });
+});
+
+describe("page view follows Word's floating boxes, tab stops, and running headers", () => {
+  // Expected values come from Word itself: tests/reader/make-floats-docx.mjs
+  // exported to PDF by Word 16 gives 4 pages. The text box anchored in the
+  // "II. Anchor Heading" paragraph prints at the top margin of page 2 across
+  // both columns, 73.2 pt tall, with 12 pt and then the columns' text below
+  // it; the heading is on page 2 as well. "I. Introduction" starts 115.2 pt
+  // from the top of page 1. Every page's header ends at the right margin with
+  // its page number. Each reference's text starts at its hanging indent
+  // (20 pt), on the first line after the tab and on the lines after it.
+  const POINT = 4 / 3;
+
+  async function openFloats(host, options = {}) {
+    const { bytes, report } = await makeFloatsDocx();
+    return host.openDocument({ bytes, report, fileName: "floats.docx", ...options });
+  }
+
+  async function floatLayout(host) {
+    return host.page.evaluate(() => {
+      const pages = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"));
+      return pages.map((page, index) => {
+        const box = page.getBoundingClientRect();
+        const scale = box.width / page.offsetWidth;
+        const style = getComputedStyle(page);
+        const contentTop = box.top + parseFloat(style.paddingTop) * scale;
+        const floats = Array.from(page.querySelectorAll(".ld-float")).map((node) => {
+          const r = node.getBoundingClientRect();
+          return {
+            pageLevel: node.parentElement === page,
+            top: (r.top - contentTop) / scale, bottom: (r.bottom - box.top) / scale,
+            left: (r.left - box.left) / scale, right: (r.right - box.left) / scale,
+            width: r.width / scale, height: r.height / scale,
+            text: node.textContent
+          };
+        });
+        const paragraphs = Array.from(page.querySelectorAll("article p")).filter((p) => !p.closest(".ld-float") && /\S/.test(p.textContent))
+          .map((p) => {
+            const rects = Array.from(p.getClientRects()).filter((r) => r.height > 0);
+            return {
+              text: p.textContent.trim().slice(0, 24),
+              rects: rects.map((r) => ({ top: (r.top - box.top) / scale, bottom: (r.bottom - box.top) / scale, left: (r.left - box.left) / scale, right: (r.right - box.left) / scale }))
+            };
+          });
+        const contentBottom = (box.top + (page.offsetHeight - parseFloat(style.paddingBottom)) * scale - box.top) / scale;
+        return { index: index + 1, width: page.offsetWidth, floats, paragraphs, top: (contentTop - box.top) / scale, bottom: contentBottom };
+      });
+    });
+  }
+
+  test("a text box floated at the top margin sits at the top of its anchor's page, across the columns, over no text", async () => {
+    await withHost({}, async (host) => {
+      const rendered = await openFloats(host);
+      assert.equal(rendered.pages, 4, `pages: ${rendered.pages}; Word gives 4`);
+      const pages = await floatLayout(host);
+      const withFloat = pages.filter((page) => page.floats.some((f) => f.text.includes("Floatbox heron")));
+      assert.equal(withFloat.length, 1, "the box is shown once");
+      const page = withFloat[0];
+      const float = page.floats.find((f) => f.text.includes("Floatbox heron"));
+      assert.equal(page.index, 2, `the box is on page ${page.index}; Word prints it on page 2`);
+      const anchorPage = pages.find((p) => p.paragraphs.some((q) => q.text.startsWith("II. Anchor Heading")));
+      assert.equal(anchorPage.index, 2, `the anchor heading is on page ${anchorPage.index}; Word puts it on page 2`);
+      assert.ok(float.pageLevel, "the box belongs to the page, not to a column");
+      assert.ok(Math.abs(float.top) <= 1, `the box starts ${float.top}px below the top margin`);
+      assert.ok(Math.abs(float.width - 514 * POINT) <= 1, `the box is ${float.width}px wide; 514 pt spans both columns`);
+      // Chrome draws each of the table's five 0.5 pt rules a pixel wide:
+      // the reader's box is 1.3 pt taller than Word's.
+      assert.ok(Math.abs(float.height - 73.2 * POINT) <= 2 * POINT, `the box is ${float.height}px tall; Word's is 73.2 pt`);
+      for (const paragraph of page.paragraphs) {
+        for (const rect of paragraph.rects) {
+          assert.ok(rect.top >= float.bottom + 12 * POINT - 1,
+            `"${paragraph.text}" starts at ${rect.top}px, inside the box or the 12 pt below it (box ends at ${float.bottom}px)`);
+        }
+      }
+    });
+  });
+
+  // Word prints the figure box on page 3, from 718.6 to 747.25 pt, its foot
+  // on the bottom margin (748 pt), and the columns' text above it ends at
+  // 694.1 pt, at least 12 pt above the box.
+  test("a text box floated to the foot of the margin sits at the foot of its anchor's page, below the text", async () => {
+    await withHost({}, async (host) => {
+      await openFloats(host);
+      const pages = await floatLayout(host);
+      const withFloat = pages.filter((page) => page.floats.some((f) => f.text.includes("Figurebox wren")));
+      assert.equal(withFloat.length, 1, "the box is shown once");
+      const page = withFloat[0];
+      const float = page.floats.find((f) => f.text.includes("Figurebox wren"));
+      assert.equal(page.index, 3, `the box is on page ${page.index}; Word prints it on page 3`);
+      assert.ok(float.pageLevel, "the box belongs to the page, not to a column");
+      assert.ok(Math.abs(float.bottom - page.bottom) <= 1, `the box ends at ${float.bottom}px; the bottom margin is at ${page.bottom}px`);
+      // Word's 28.65 pt runs between the centres of the box's 0.75 pt line.
+      assert.ok(Math.abs(float.height - 28.65 * POINT) <= 2 * POINT, `the box is ${float.height}px tall; Word's is 28.65 pt`);
+      const floatTop = float.bottom - float.height;
+      for (const paragraph of page.paragraphs) {
+        for (const rect of paragraph.rects) {
+          assert.ok(rect.bottom <= floatTop - 12 * POINT + 1,
+            `"${paragraph.text}" ends at ${rect.bottom}px, inside the box or the 12 pt above it (box starts at ${floatTop}px)`);
+        }
+      }
+    });
+  });
+
+  test("the text in a floating box does not take its anchor heading's small capitals", async () => {
+    await withHost({}, async (host) => {
+      await openFloats(host);
+      const caps = await host.page.evaluate(() => {
+        const cell = Array.from(document.querySelectorAll("#docBody td")).find((td) => td.textContent.includes("Floatbox heron"));
+        return cell ? getComputedStyle(cell.querySelector("span") || cell).fontVariantCaps : null;
+      });
+      assert.equal(caps, "normal");
+    });
+  });
+
+  test("a footnote reference's mark adds no height to its line", async () => {
+    await withHost({}, async (host) => {
+      await openFloats(host);
+      const pages = await floatLayout(host);
+      const heading = pages[0].paragraphs.find((p) => p.text.startsWith("I. Introduction"));
+      const top = heading.rects[0].top / POINT;
+      assert.ok(Math.abs(top - 115.2) <= 1.5, `"I. Introduction" starts ${top} pt from the top of the page; Word's starts at 115.2 pt`);
+    });
+  });
+
+  async function referenceLayout(host) {
+    return host.page.evaluate(() => {
+      const pages = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"));
+      const out = [];
+      pages.forEach((page, index) => {
+        const box = page.getBoundingClientRect();
+        const scale = box.width / page.offsetWidth;
+        page.querySelectorAll("article").forEach((article) => {
+          const a = article.getBoundingClientRect();
+          article.querySelectorAll("p").forEach((p) => {
+            const match = /^\[(\d+)\]/.exec(p.textContent);
+            const tab = p.querySelector("span.ld-tab");
+            if (!match || !tab) {
+              return;
+            }
+            const range = document.createRange();
+            range.selectNodeContents(p);
+            const numberRange = document.createRange();
+            const first = p.querySelector("span").firstChild;
+            numberRange.setStart(first, 0);
+            numberRange.setEnd(first, first.textContent.length);
+            const after = document.createRange();
+            after.setStartAfter(tab);
+            after.setEnd(p, p.childNodes.length);
+            const lines = Array.from(after.getClientRects()).filter((r) => r.width > 0);
+            const lineLefts = [];
+            for (const r of lines) {
+              if (!lineLefts.some((l) => Math.abs(l.top - r.top) < 2)) {
+                lineLefts.push({ top: r.top, left: r.left });
+              }
+            }
+            lineLefts.sort((x, y) => x.top - y.top);
+            const text = Array.from(range.getClientRects());
+            out.push({
+              page: index + 1, n: Number(match[1]),
+              numberLeft: (numberRange.getBoundingClientRect().left - box.left) / scale,
+              starts: lineLefts.map((l) => (l.left - box.left) / scale),
+              right: Math.max(...text.map((r) => r.right - box.left)) / scale,
+              articleRight: (a.right - box.left) / scale,
+              articleLeft: (a.left - box.left) / scale,
+              column: (text[0].left - a.left) > a.width / 2 ? "R" : "L"
+            });
+          });
+        });
+      });
+      return out;
+    });
+  }
+
+  test("a reference's text starts at its hanging indent, after the tab and on later lines, in two columns", async () => {
+    await withHost({}, async (host) => {
+      const { references } = await makeFloatsDocx();
+      await openFloats(host);
+      const first = await referenceLayout(host);
+      assert.equal(first.length, references, "every reference is shown once");
+      for (const entry of first) {
+        assert.ok(entry.starts.length >= 2, `[${entry.n}] runs to two lines, as in Word`);
+        for (const start of entry.starts) {
+          const indent = (start - entry.numberLeft) / POINT;
+          assert.ok(Math.abs(indent - 20) <= 1, `[${entry.n}] text starts ${indent} pt after its number; the hanging indent is 20 pt`);
+        }
+        // The text's rectangles take in the space that ends a justified line.
+        assert.ok(entry.right <= entry.articleRight + 3 * POINT, `[${entry.n}] reaches ${entry.right}px; the text area ends at ${entry.articleRight}px`);
+      }
+      const lastPage = Math.max(...first.map((entry) => entry.page));
+      assert.equal(lastPage, 4, `the references end on page ${lastPage}; Word ends them on page 4`);
+      // docx-preview's own tab pass ran 500 ms after rendering and moved the
+      // text again; the layout must not change after the reader settles.
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      assert.deepEqual(await referenceLayout(host), first, "the references do not move after rendering");
+    });
+  });
+
+  // Word sets the picture 2.9 pt from the column's left edge, on one line:
+  // centred on the 125 pt stop. Before the tab has its width, the picture
+  // does not fit beside it and wraps; the tab is sized from the picture's
+  // whole width, not from what was left on the tab's line.
+  test("a picture after a centred tab is centred on the stop, on one line", async () => {
+    await withHost({}, async (host) => {
+      await openFloats(host);
+      const placed = await host.page.evaluate(() => {
+        const image = Array.from(document.querySelectorAll("#docBody article img"))[0];
+        const p = image.closest("p");
+        const page = p.closest("section.docx");
+        const scale = page.getBoundingClientRect().width / page.offsetWidth;
+        const column = p.getBoundingClientRect();
+        const box = image.getBoundingClientRect();
+        const tab = p.querySelector("span.ld-tab").getBoundingClientRect();
+        return { left: (box.left - column.left) / scale, sameLine: box.top < tab.bottom && box.bottom > tab.top };
+      });
+      assert.ok(placed.sameLine, "the picture is on the tab's line");
+      assert.ok(Math.abs(placed.left / POINT - 2.9) <= 1.5, `the picture starts ${placed.left / POINT} pt into its column; Word's starts 2.9 pt in`);
+    });
+  });
+
+  test("every page shows its page number at the right margin, also where a section names no header", async () => {
+    await withHost({}, async (host) => {
+      const rendered = await openFloats(host);
+      const headers = await host.page.evaluate(() => {
+        const pages = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"));
+        return pages.map((page) => {
+          const header = Array.from(page.children).find((c) => c.nodeName === "HEADER");
+          if (!header) {
+            return null;
+          }
+          const p = header.querySelector("p");
+          const range = document.createRange();
+          range.selectNodeContents(p);
+          const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0);
+          const box = page.getBoundingClientRect();
+          const scale = box.width / page.offsetWidth;
+          const style = getComputedStyle(page);
+          return {
+            text: header.textContent.trim(),
+            right: (Math.max(...rects.map((r) => r.right)) - box.left) / scale,
+            margin: page.offsetWidth - parseFloat(style.paddingRight)
+          };
+        });
+      });
+      assert.equal(headers.length, rendered.pages);
+      assert.deepEqual(headers.map((header) => header && header.text), headers.map((_, index) => String(index + 1)),
+        "each page's header holds its page number");
+      headers.forEach((header, index) => {
+        assert.ok(Math.abs(header.right - header.margin) <= 2, `page ${index + 1}: the number ends at ${header.right}px; the right margin is at ${header.margin}px`);
+      });
+    });
+  });
+
+  test("a footnote with the author's own mark shows no number", async () => {
+    await withHost({}, async (host) => {
+      await openFloats(host);
+      const marks = await host.page.evaluate(() => {
+        const visible = (node) => node && getComputedStyle(node).display !== "none" && node.getClientRects().length > 0;
+        const author = Array.from(document.querySelectorAll("#docBody article p")).find((p) => p.textContent.includes("A. Author and B. Writer") && !/^\[/.test(p.textContent));
+        const note = Array.from(document.querySelectorAll("#docBody li")).find((li) => li.textContent.includes("Affiliation note wren"));
+        return {
+          shownNumbers: Array.from(author.querySelectorAll("sup")).filter(visible).map((s) => s.textContent),
+          marker: note ? getComputedStyle(note).listStyleType : null
+        };
+      });
+      assert.deepEqual(marks.shownNumbers, [], "no number at the reference");
+      assert.equal(marks.marker, "none", "no number before the note");
+    });
+  });
+
+  test("reading view sets the floating box between paragraphs, not over them", async () => {
+    await withHost({ view: "reading" }, async (host) => {
+      await openFloats(host);
+      const overlaps = await host.page.evaluate(() => {
+        const cell = Array.from(document.querySelectorAll("#docBody td")).find((td) => td.textContent.includes("Floatbox heron"));
+        const box = cell ? cell.closest(".ld-float") || cell.closest("svg") || cell.closest("table") : null;
+        if (!box) {
+          return ["no box"];
+        }
+        const b = box.getBoundingClientRect();
+        return Array.from(document.querySelectorAll("#docBody p")).filter((p) => !box.contains(p)).flatMap((p) =>
+          Array.from(p.getClientRects()).filter((r) => r.height > 0 && r.bottom > b.top + 1 && r.top < b.bottom - 1 && r.right > b.left && r.left < b.right)
+            .map(() => p.textContent.trim().slice(0, 24)));
+      });
+      assert.deepEqual(overlaps, []);
+    });
+  });
+
+  // Word refits a box that fits its text when it lays the page out: a file
+  // that saved the box at 140 pt prints it 73.2 pt tall, as Word does the
+  // default fixture. The reader held such a box at the height saved.
+  test("a box that fits its text is as tall as its text, whatever height the file saved", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeFloatsDocx({ boxHeight: 140 });
+      await host.openDocument({ bytes, report, fileName: "floats-tall.docx" });
+      const pages = await floatLayout(host);
+      const page = pages.find((p) => p.floats.some((f) => f.text.includes("Floatbox heron")));
+      const float = page.floats.find((f) => f.text.includes("Floatbox heron"));
+      // Chrome draws each of the table's five 0.5 pt rules a pixel wide:
+      // the reader's box is 1.3 pt taller than Word's.
+      assert.ok(Math.abs(float.height - 73.2 * POINT) <= 2 * POINT, `the box is ${float.height / POINT} pt tall; Word's is 73.2 pt`);
+      for (const paragraph of page.paragraphs) {
+        for (const rect of paragraph.rects) {
+          assert.ok(rect.top >= float.bottom + 12 * POINT - 1,
+            `"${paragraph.text}" starts at ${rect.top}px, inside the box or the 12 pt below it (box ends at ${float.bottom}px)`);
+        }
+      }
+    });
+  });
+
+  // With 23 paragraphs before it, "II. Anchor Heading" no longer fits on
+  // page 2 below the box, and Word moves the heading, and the box anchored
+  // in it, to page 3: the box at the top margin and the heading 154.35 pt
+  // from the top of the page. The reader set the box on page 2 and the
+  // heading on page 3.
+  test("a box goes to the next page with its anchor when Word moves the anchor there", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeFloatsDocx({ before: 23, savedStart: null });
+      await host.openDocument({ bytes, report, fileName: "floats-23.docx" });
+      const pages = await floatLayout(host);
+      const boxPage = pages.find((p) => p.floats.some((f) => f.text.includes("Floatbox heron")));
+      const anchorPage = pages.find((p) => p.paragraphs.some((q) => q.text.startsWith("II. Anchor Heading")));
+      assert.equal(boxPage.index, 3, `the box is on page ${boxPage.index}; Word prints it on page 3`);
+      assert.equal(anchorPage.index, 3, `the anchor heading is on page ${anchorPage.index}; Word puts it on page 3`);
+      const heading = anchorPage.paragraphs.find((q) => q.text.startsWith("II. Anchor Heading"));
+      const top = heading.rects[0].top / POINT;
+      assert.ok(Math.abs(top - 154.35) <= 1.5, `the heading starts ${top} pt from the top of the page; Word's starts at 154.35 pt`);
+    });
+  });
+
+  // Word never prints text past the paper's edge or in a third column. A
+  // line the browser breaks later than the reader measured (here every
+  // last line of a justified paragraph is spaced wider) left words of a
+  // two-column paper in a third column, off the page.
+  test("no text runs past the page or into a third column when lines come out longer than measured", async () => {
+    await withHost({}, async (host) => {
+      await host.page.addStyleTag({ content: '#docBody p[style*="text-align-last"] { letter-spacing: 0.4px; }' });
+      await openFloats(host);
+      const outside = await host.page.evaluate(() => {
+        const found = [];
+        document.querySelectorAll("#docBody .docx-wrapper > section.docx").forEach((page, index) => {
+          const box = page.getBoundingClientRect();
+          const walker = document.createTreeWalker(page, NodeFilter.SHOW_TEXT);
+          let node;
+          while ((node = walker.nextNode())) {
+            if (!/\S/.test(node.nodeValue)) {
+              continue;
+            }
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            for (const rect of range.getClientRects()) {
+              if (rect.width > 0 && (rect.left < box.left - 1 || rect.right > box.right + 1 || rect.bottom > box.bottom + 1)) {
+                found.push(`page ${index + 1}: "${node.nodeValue.trim().slice(0, 24)}" at ${Math.round(rect.left - box.left)}px`);
+              }
+            }
+          }
+        });
+        return found;
+      });
+      assert.deepEqual(outside, []);
+    });
+  });
+});
+
+describe("page view follows Word's numbered headings, page fields, and stops past the indent", () => {
+  // Expected values come from Word itself: tests/reader/make-numbered-docx.mjs
+  // exported to PDF by Word 16. A Heading 1's text starts 100.82 pt from the
+  // page's left edge (its "I." centred on the margin, then the style's
+  // 10.8 pt stop and the level's 28.8 pt stop), a Heading 2's 108.02 pt (its
+  // "A." at the margin, then the style's 14.4 pt stop and the 36 pt default
+  // stop). The contents line is one line. The header's page number prints
+  // at 6.96 pt, the footer's at 9.96 pt.
+  async function numberedLayout(host, options = {}) {
+    const { bytes, report } = await makeNumberedDocx(options);
+    await host.openDocument({ bytes, report, fileName: "numbered.docx" });
+    return host.page.evaluate(() => {
+      const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+      const box = page.getBoundingClientRect();
+      const scale = box.width / page.offsetWidth;
+      const points = (value) => value / scale * 0.75;
+      // Every page's headings: the pages share their left edge.
+      const headings = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx article p")).filter((p) => /heading/i.test(p.className)).map((p) => {
+        // The label is the paragraph's ::before box, which no range reaches:
+        // its left edge is where the first line starts plus its own margin.
+        const style = getComputedStyle(p);
+        const before = getComputedStyle(p, "::before");
+        const label = points(p.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft) +
+          parseFloat(style.textIndent) + (parseFloat(before.marginLeft) || 0) - box.left);
+        const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+          const start = node.nodeValue.search(/\S/);
+          if (start < 0 || node.parentElement.closest(".ld-tab")) {
+            continue;
+          }
+          const range = document.createRange();
+          range.setStart(node, start);
+          range.setEnd(node, start + 1);
+          // The label ends where the paragraph's first content starts: the
+          // label's tab, or the text when there is no tab.
+          const x = points(range.getClientRects()[0].left - box.left);
+          const tab = p.querySelector(".ld-tab");
+          const first = tab && (tab.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) ? tab : null;
+          // Where the text after the heading's last tab of its own starts
+          // (a word's letters can be in more than one node).
+          let after = NaN;
+          let afterTab = NaN;
+          const texts = [];
+          const all = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+          let text;
+          while ((text = all.nextNode())) {
+            if (!text.parentElement.closest(".ld-tab")) {
+              texts.push(text);
+            }
+          }
+          const following = (a, b) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+          const tabs = Array.from(p.querySelectorAll(".ld-tab")).filter((item) => item !== first && following(node, item) &&
+            texts.some((item2) => /\S/.test(item2.nodeValue) && following(item, item2)));
+          if (tabs.length) {
+            const lastTab = tabs[tabs.length - 1];
+            const lastText = texts.find((item) => /\S/.test(item.nodeValue) && following(lastTab, item));
+            const next = document.createRange();
+            const at = lastText.nodeValue.search(/\S/);
+            next.setStart(lastText, at);
+            next.setEnd(lastText, at + 1);
+            after = points(next.getClientRects()[0].left - box.left);
+            afterTab = points(lastTab.getBoundingClientRect().left - box.left);
+          }
+          // The heading's words and the lines they are on: a word's line is
+          // the row its first box is in (boxes of smaller letters sit lower
+          // on the same row).
+          const words = [];
+          let current = null;
+          texts.forEach((item) => {
+            for (let index = 0; index < item.nodeValue.length; index += 1) {
+              if (/\s/.test(item.nodeValue[index])) {
+                current = null;
+              } else {
+                if (!current) {
+                  current = { text: "", start: [item, index] };
+                  words.push(current);
+                }
+                current.text += item.nodeValue[index];
+                current.end = [item, index + 1];
+              }
+            }
+          });
+          const rows = [];
+          const lines = [];
+          words.forEach((word) => {
+            const range = document.createRange();
+            range.setStart(...word.start);
+            range.setEnd(...word.end);
+            const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0);
+            let row = rows.findIndex((item) => rects[0].top < item.bottom && rects[0].bottom > item.top);
+            if (row < 0) {
+              rows.push({ top: rects[0].top, bottom: rects[0].bottom });
+              lines.push([]);
+              row = rows.length - 1;
+            }
+            lines[row].push({ text: word.text, left: points(rects[0].left - box.left), right: points(rects[rects.length - 1].right - box.left) });
+          });
+          const own = p.cloneNode(true);
+          own.querySelectorAll(".ld-tab").forEach((item) => item.replaceWith("\t"));
+          return { text: own.textContent.trim().split("\t")[0].trim(), x, label, labelEnd: first ? points(first.getBoundingClientRect().left - box.left) : x,
+            labelWidth: (parseFloat(before.width) || NaN) * 0.75, after, afterTab, lines };
+        }
+        return { text: p.textContent.trim(), x: NaN, label, labelEnd: NaN };
+      });
+      const contents = Array.from(page.querySelectorAll("article p")).find((p) => p.textContent.includes("Contents line heron"));
+      const range = document.createRange();
+      const tops = [];
+      if (contents) {
+        range.selectNodeContents(contents);
+      }
+      for (const rect of contents ? range.getClientRects() : []) {
+        if (rect.width > 0 && !tops.some((top) => Math.abs(top - rect.top) < 4)) {
+          tops.push(rect.top);
+        }
+      }
+      const numbers = {};
+      Array.from(page.children).filter((child) => /^(HEADER|FOOTER)$/.test(child.nodeName)).forEach((part) => {
+        const walker = document.createTreeWalker(part, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+          if (/^\s*\d+\s*$/.test(node.nodeValue)) {
+            numbers[part.nodeName] = { text: node.nodeValue.trim(), size: parseFloat(getComputedStyle(node.parentElement).fontSize) * 0.75 };
+          }
+        }
+      });
+      return { headings, contentsLines: tops.length, numbers };
+    });
+  }
+
+  test("a numbered heading's text starts where Word's does", async () => {
+    await withHost({}, async (host) => {
+      const layout = await numberedLayout(host);
+      const word = { Introduction: 100.82, "Alpha Part": 108.02, "Beta Part": 108.02, "Gamma Part": 108.02, "Delta Part": 108.02, Method: 100.82 };
+      assert.deepEqual(layout.headings.map((heading) => heading.text), Object.keys(word));
+      for (const heading of layout.headings) {
+        assert.ok(Math.abs(heading.x - word[heading.text]) <= 1.5, `"${heading.text}" starts at ${heading.x} pt; Word's starts at ${word[heading.text]} pt`);
+      }
+    });
+  });
+
+  // Word's PDF of the fixture: "I." spans 69.14 to 74.99 pt and "II." 67.46
+  // to 76.67 pt, each centred on the 72 pt indent; the left-aligned "A." to
+  // "D." start at 72.02 pt.
+  test("a centred heading label is centred on its indent, as Word's is", async () => {
+    await withHost({}, async (host) => {
+      const layout = await numberedLayout(host);
+      const word = [69.14, 72.02, 72.02, 72.02, 72.02, 67.46];
+      layout.headings.forEach((heading, index) => {
+        assert.ok(Math.abs(heading.label - word[index]) <= 1, `the label of "${heading.text}" starts at ${heading.label} pt; Word's starts at ${word[index]} pt`);
+      });
+    });
+  });
+
+  // The IEEE template centres its Heading 1 paragraphs, and their text does
+  // not start with a tab: the label's own tab parts "I." from the text. Word
+  // centres the label on the indent and sends the tab to the first stop past
+  // the label's right edge, the style's 10.8 pt stop, so the gap is 10.8 pt
+  // less half the label: Word's PDF of the fixture (centred: true) has 7.83,
+  // 6.15, 4.47 and 4.25 pt after "I." to "IV.", and the text starting at
+  // 280.85, 293.45, 293.45 and 291.41 pt. The label was an inline block
+  // whose tab collapsed: "I.Introduction". (A Heading 2's "A." is left
+  // aligned and keeps docx-preview's label, as on main: its text starts
+  // 2.2 pt left of Word's 86.42 pt, a known gap this test leaves out.)
+  // "V." has a 36 pt left indent of its own: Word centres it there (283.13
+  // to 292.82 pt) and its text starts at 324.07 pt. "VI." has a tab of its
+  // own after "Notes": Word's PDF puts "Annex" at 327.31 pt; that tab, on
+  // the label's line, is measured in the label's frame too.
+  // Chrome's small capitals are narrower than Word's ("Results" by about
+  // 3 pt, "IV." by 1.2 pt), and the centred line moves by half of that: the
+  // start is held to 2 pt and the gap to 0.7 pt of Word's, and the gap to
+  // 0.15 pt of Word's rule, 10.8 pt less half the label as drawn here.
+  // The starts are Word's only where the text is drawn in Times New Roman,
+  // as on Windows. Linux draws it in Liberation Serif, whose small capitals
+  // Chrome makes about 14% narrower ("Introduction" 69.4 px to 80.4 px), so
+  // there the centred lines move by up to 4 pt and "Notes" ends before the
+  // 36 pt stop, where Word's and Windows' end past it. On every platform
+  // "Annex" is held to Word's rule: the first stop past the end of "Notes",
+  // counted in the label's frame (the label centred on the indent).
+  test("a centred heading label keeps Word's gap before the heading's text", async () => {
+    await withHost({}, async (host) => {
+      const layout = await numberedLayout(host, { centred: true });
+      const word = { Introduction: { x: 280.85, gap: 7.83 }, Method: { x: 293.45, gap: 6.15 }, Results: { x: 293.45, gap: 4.47 },
+        Outlook: { x: 291.41, gap: 4.25 }, Closing: { x: 324.07, gap: 31.25 }, Notes: { x: 266.09, gap: 4.24 } };
+      const headings = layout.headings.filter((heading) => !/Part$/.test(heading.text));
+      assert.deepEqual(headings.map((heading) => heading.text), Object.keys(word));
+      const wordFont = process.platform === "win32";
+      const annex = layout.headings.find((heading) => heading.text === "Notes");
+      // The label's frame: "label" is where the label starts when centred on
+      // the indent, so the indent is half the label past it, and the label
+      // as drawn starts labelWidth before its end.
+      const shift = annex.labelEnd - annex.labelWidth - annex.label;
+      const indent = annex.label + annex.labelWidth / 2;
+      const notesEnd = annex.afterTab - shift - indent;
+      const stop = [10.8, 28.8].find((value) => value > notesEnd + 0.01) ?? 36 * (Math.floor(notesEnd / 36 + 0.0003) + 1);
+      assert.ok(Math.abs(annex.after - shift - indent - stop) <= 0.15,
+        `"Annex" starts ${annex.after - shift - indent} pt into the label's frame; "Notes" ends at ${notesEnd} pt, so Word's rule gives the ${stop} pt stop`);
+      if (wordFont) {
+        assert.ok(Math.abs(annex.after - 327.31) <= 1.5, `"Annex" starts at ${annex.after} pt; Word's starts at 327.31 pt`);
+      }
+      for (const heading of headings) {
+        const expected = word[heading.text];
+        if (wordFont) {
+          assert.ok(Math.abs(heading.x - expected.x) <= 2, `"${heading.text}" starts at ${heading.x} pt; Word's starts at ${expected.x} pt`);
+        }
+        const gap = heading.x - heading.labelEnd;
+        assert.ok(Math.abs(gap - expected.gap) <= 0.7, `"${heading.text}" starts ${gap} pt after its label; Word's starts ${expected.gap} pt after it`);
+        // "V." is centred on its paragraph's 36 pt indent and its tab goes to
+        // the 36 pt default stop past the style's last.
+        const rule = (heading.text === "Closing" ? 72 - 36 : 10.8) - heading.labelWidth / 2;
+        assert.ok(Math.abs(gap - rule) <= 0.15, `"${heading.text}" starts ${gap} pt after its ${heading.labelWidth} pt label; Word's rule gives ${rule} pt`);
+      }
+    });
+  });
+
+  // Word's PDF of the fixture (centred: true, wrapped: true): headings VII.
+  // to XVII. are plain text, XVIII. to XXVI. small capitals as the IEEE
+  // template sets them. Word centres each line on the indent as if the
+  // label started there, and the label then reaches half its width left,
+  // past the column's 72 pt edge when the line is full (X., XI.). Small
+  // capitals are 80% capitals in Word, spaces included; Chrome drew them at
+  // 70%, so XXII. to XXV. held "Wi..." on their first line where Word's
+  // break before it, and their labels started up to 19 pt left of Word's.
+  // XII.'s "Tii" ends 0.4% short of the column here, where Word's does not
+  // fit: a near tie of plain text, left out.
+  test("a wrapped centred heading breaks where Word's does, with its label where Word's is", async () => {
+    await withHost({}, async (host) => {
+      const layout = await numberedLayout(host, { centred: true, wrapped: true });
+      const wrapped = layout.headings.slice(layout.headings.findIndex((heading) => heading.text === "Notes") + 1);
+      const word = [[73.10, "Anchor"], [72.38, "Packet"], [76.22, "Ledger"], [69.62, "T"], [66.74, "Ti"], [70.70, "Message", "near tie"],
+        [69.02, "Message"], [68.78, "Message"], [70.34, "Message"], [68.78, "Message"], [76.82, "Ledger"],
+        [63.38, "W" + "i".repeat(10)], [74.42, "W" + "i".repeat(11)], [74.66, "W" + "i".repeat(12)], [71.78, "W" + "i".repeat(13)],
+        [84.02, "Latency"], [82.34, "Latency"], [81.98, "Latency"], [83.66, "Latency"], [203.93, "Notes"]];
+      assert.equal(wrapped.length, word.length, `${wrapped.length} headings after "Notes"; the fixture has ${word.length}`);
+      wrapped.forEach((heading, index) => {
+        const [label, last, skip] = word[index];
+        if (skip) {
+          return;
+        }
+        const first = heading.lines[0].map((item) => item.text);
+        assert.equal(first[first.length - 1], last, `heading ${index + 7}'s first line ends "${first.slice(-2).join(" ")}"; Word's ends "${last}"`);
+        // Where the text is drawn in Times New Roman, as on Windows (see the
+        // test above); Liberation Serif has its widths but not its kerning.
+        // The label as drawn ends where its tab starts.
+        const drawn = heading.labelEnd - heading.labelWidth;
+        if (process.platform === "win32") {
+          assert.ok(Math.abs(drawn - label) <= 2, `the label of heading ${index + 7} starts at ${drawn} pt; Word's starts at ${label} pt`);
+        }
+      });
+      // Digits and punctuation stay whole: Word starts "2-B," at 274.97 pt
+      // and ends "Notes" at 394.40 pt. The text keeps its letters' case.
+      const phase = wrapped[wrapped.length - 1].lines[0];
+      assert.equal(phase.map((item) => item.text).join(" "), "Phase 2-B, Rev. 3.1 (Draft) Notes");
+      if (process.platform === "win32") {
+        assert.ok(Math.abs(phase[1].left - 274.97) <= 1, `"2-B," starts at ${phase[1].left} pt; Word's starts at 274.97 pt`);
+        assert.ok(Math.abs(phase[phase.length - 1].right - 394.40) <= 1, `"Notes" ends at ${phase[phase.length - 1].right} pt; Word's ends at 394.40 pt`);
+      }
+    });
+  });
+
+  // The fixture's last paragraphs: nine lower case words in small capitals
+  // set on the run, then a plain paragraph. Word's PDF ends "CACHE" at
+  // 373.89 pt, and the plain paragraph's line starts 11.5 pt below the
+  // small capitals' line, a 10 pt Times New Roman line: the small letters
+  // do not make the line smaller.
+  test("small capitals set on a run take Word's width and keep the line's height", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeNumberedDocx({ centred: true, wrapped: true });
+      await host.openDocument({ bytes, report, fileName: "numbered.docx" });
+      const result = await host.page.evaluate(() => {
+        const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+        const box = page.getBoundingClientRect();
+        const points = (value) => value / (box.width / page.offsetWidth) * 0.75;
+        const paragraphs = Array.from(document.querySelectorAll("#docBody article p"));
+        const index = paragraphs.findIndex((p) => p.textContent.trim().startsWith("buffer fabric kernel"));
+        const caps = paragraphs[index];
+        const range = document.createRange();
+        range.selectNodeContents(caps);
+        const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0);
+        return { text: caps.textContent.trim(), right: points(Math.max(...rects.map((rect) => rect.right)) - box.left),
+          pitch: points(paragraphs[index + 1].getBoundingClientRect().top - caps.getBoundingClientRect().top) };
+      });
+      assert.match(result.text, /^buffer fabric kernel channel thread vector signal memory cache$/);
+      if (process.platform === "win32") {
+        assert.ok(Math.abs(result.right - 373.89) <= 1, `"CACHE" ends at ${result.right} pt; Word's ends at 373.89 pt`);
+      }
+      assert.ok(Math.abs(result.pitch - 11.5) <= 0.3, `the next paragraph starts ${result.pitch} pt below; Word's starts 11.5 pt below`);
+    });
+  });
+
+  // makeSmallCapsDocx: small capitals in runs whose font is not the
+  // document's (Calibri 11) or the paragraph style's. Word's PDF of the
+  // fixture (Word 16) draws every small letter in its run's own font, at 80%
+  // of the run's size to the nearest half point; a run in capitals and small
+  // capitals all in full size capitals; "ß" as "ß". Positions are the x of
+  // each paragraph's closing "Sc", in points from the page's left edge.
+  async function smallCapsLayout(host) {
+    const { bytes, report } = await makeSmallCapsDocx();
+    await host.openDocument({ bytes, report, fileName: "small-caps.docx" });
+    return host.page.evaluate(() => {
+      const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+      const box = page.getBoundingClientRect();
+      const points = (value) => value / (box.width / page.offsetWidth) * 0.75;
+      const result = {};
+      document.querySelectorAll("#docBody article p").forEach((p) => {
+        const id = /^Sc(\d+)/i.exec(p.textContent);
+        if (!id) {
+          return;
+        }
+        const chars = [];
+        const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          for (let index = 0; index < node.data.length; index += 1) {
+            const range = document.createRange();
+            range.setStart(node, index);
+            range.setEnd(node, index + 1);
+            const rect = Array.from(range.getClientRects()).filter((r) => r.width > 0).pop();
+            if (rect) {
+              chars.push({ c: node.data[index], left: points(rect.left - box.left), top: points(rect.top - box.top) });
+            }
+          }
+        }
+        const lines = [];
+        chars.forEach((char) => {
+          let line = lines.find((each) => Math.abs(each.top - char.top) < 3);
+          if (!line) {
+            line = { top: char.top, text: "" };
+            lines.push(line);
+          }
+          line.text += char.c;
+        });
+        const text = chars.map((char) => char.c).join("");
+        const close = text.lastIndexOf("Sc");
+        result[id[1]] = {
+          closing: close > 0 ? chars[close].left : null,
+          first: chars[0].top,
+          ends: lines.map((line) => line.text.trim().split(/\s+/).pop().toUpperCase()),
+          innerText: p.innerText,
+          height: points(p.getBoundingClientRect().height),
+          spans: Array.from(p.querySelectorAll("span.ld-sc")).map((span) => {
+            const own = getComputedStyle(span);
+            const run = getComputedStyle(span.parentElement);
+            return { text: span.textContent, family: own.fontFamily, runFamily: run.fontFamily, weight: own.fontWeight, runWeight: run.fontWeight,
+              style: own.fontStyle, runStyle: run.fontStyle, size: parseFloat(own.fontSize) * 0.75, runSize: parseFloat(run.fontSize) * 0.75 };
+          })
+        };
+      });
+      return result;
+    });
+  }
+
+  test("small capitals keep their run's own font", async () => {
+    await withHost({}, async (host) => {
+      const layout = await smallCapsLayout(host);
+      ["1", "2", "3", "12"].forEach((id) => {
+        assert.ok(layout[id].spans.length > 0, `paragraph Sc${id} has small letters`);
+        layout[id].spans.forEach((span) => {
+          assert.equal(span.family, span.runFamily, `Sc${id} "${span.text}" is drawn in ${span.family}; its run's font is ${span.runFamily}`);
+          assert.equal(span.weight, span.runWeight, `Sc${id} "${span.text}" weight`);
+          assert.equal(span.style, span.runStyle, `Sc${id} "${span.text}" style`);
+        });
+      });
+      if (process.platform === "win32") {
+        // Word: Times New Roman bold 11.5 pt in a Calibri document, Arial
+        // 10 pt and Garamond 12 pt.
+        [["1", 348.79], ["2", 314.45], ["3", 346.03]].forEach(([id, word]) => {
+          assert.ok(Math.abs(layout[id].closing - word) <= 1, `Sc${id} closes at ${layout[id].closing} pt; Word's at ${word} pt`);
+        });
+        // The 90 Calibri words wrap to Word's 7 lines, each ending on
+        // Word's word.
+        assert.deepEqual(layout["12"].ends, ["STREAM", "CACHE", "KERNEL", "MESSAGE", "SWITCH", "THREAD", "SC"],
+          "the Calibri paragraph's lines end where Word's do");
+      }
+    });
+  });
+
+  test("small capitals take Word's size and leave capitals, ß and the line alone", async () => {
+    await withHost({}, async (host) => {
+      const layout = await smallCapsLayout(host);
+      // Capitals and small capitals: Word draws full size capitals.
+      assert.deepEqual(layout["4"].spans, [], "a run in capitals and small capitals gets no small letters");
+      // 80% to the nearest half point: 11.5, 8, 9, 12 and 14 pt runs.
+      [["1", 9], ["5", 6.5], ["6", 7], ["7", 9.5], ["8", 11]].forEach(([id, size]) => {
+        layout[id].spans.forEach((span) => {
+          assert.ok(Math.abs(span.size - size) < 0.01, `Sc${id} "${span.text}" is ${span.size} pt; Word's is ${size} pt`);
+        });
+      });
+      assert.match(layout["9"].innerText, /^Sc9 STRAUßE MAß LEDGER Sc$/, "ß stays ß");
+      // A heading at an exact 12 pt line: as tall as Word's line, and the
+      // next paragraph's first line 15.72 pt below its own, as in Word.
+      assert.ok(Math.abs(layout["13"].height - 12) <= 0.1, `the heading is ${layout["13"].height} pt tall; Word's line is 12 pt`);
+      const pitch = layout["14"].first - layout["13"].first;
+      assert.ok(Math.abs(pitch - 15.72) <= 0.3, `the next paragraph starts ${pitch} pt below the heading; Word's 15.72 pt`);
+      if (process.platform === "win32") {
+        [["4", 345.19], ["5", 261.65], ["6", 279.05], ["7", 351.43], ["8", 396.31], ["9", 182.06]].forEach(([id, word]) => {
+          assert.ok(Math.abs(layout[id].closing - word) <= 2, `Sc${id} closes at ${layout[id].closing} pt; Word's at ${word} pt`);
+        });
+      }
+    });
+  });
+
+  test("a contents line whose right stop is past the right indent stays on one line", async () => {
+    await withHost({}, async (host) => {
+      const layout = await numberedLayout(host);
+      assert.equal(layout.contentsLines, 1, `the contents line takes ${layout.contentsLines} lines; Word's takes one`);
+    });
+  });
+
+  test("a page number prints in its field code's size unless the field keeps its result's format", async () => {
+    await withHost({}, async (host) => {
+      const layout = await numberedLayout(host);
+      assert.equal(layout.numbers.FOOTER && layout.numbers.FOOTER.text, "1");
+      assert.ok(Math.abs(layout.numbers.FOOTER.size - 10) <= 0.1, `the footer's number is ${layout.numbers.FOOTER.size} pt; Word prints it at 10 pt`);
+      assert.equal(layout.numbers.HEADER && layout.numbers.HEADER.text, "1");
+      assert.ok(Math.abs(layout.numbers.HEADER.size - 7) <= 0.1, `the header's number is ${layout.numbers.HEADER.size} pt; Word prints it at 7 pt`);
+    });
+  });
+
+  // A document of more than 60 sections opens in batches, and its first
+  // pages were measured while the reader pane was still hidden: every
+  // paragraph measured 0 wide, no tab got a width, and a contents page lost
+  // its dot leaders and right-aligned page numbers. Word's PDF of the same
+  // file (71 pages): the leaders run from 436.03 to 511.6 pt and "12" ends at
+  // 522.16 pt, on the 450 pt stop.
+  test("a contents tab is sized in a document long enough to open in batches", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeNumberedDocx({ morePages: 70 });
+      await host.openDocument({ bytes, report, fileName: "numbered-long.docx" });
+      const line = await host.page.evaluate(() => {
+        const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+        const box = page.getBoundingClientRect();
+        const points = (value) => value / (box.width / page.offsetWidth) * 0.75;
+        const contents = Array.from(page.querySelectorAll("p")).find((p) => p.textContent.includes("Contents line heron"));
+        const tab = contents.querySelector(".ld-tab");
+        const walker = document.createTreeWalker(contents, NodeFilter.SHOW_TEXT);
+        let node;
+        let number = null;
+        while ((node = walker.nextNode())) {
+          if (node.nodeValue.trim() === "12") {
+            number = node;
+          }
+        }
+        const range = document.createRange();
+        range.selectNodeContents(number);
+        return { tab: tab ? points(tab.getBoundingClientRect().width) : 0, end: points(range.getBoundingClientRect().right - box.left) };
+      });
+      assert.ok(line.tab > 60, `the contents tab is ${line.tab} pt wide; Word's leaders run 75.6 pt`);
+      assert.ok(Math.abs(line.end - 522.16) <= 1.5, `"12" ends at ${line.end} pt; Word's ends at 522.16 pt`);
+    });
+  });
+
+  // A paragraph of a list style that cancels the style's numbering (w:numId
+  // 0) loses the style's indents in Word, and its leading tab goes to the
+  // 14.4 pt stop. Word 16 (COM) starts the text of "Cancelled tabbed" at
+  // 14.4 pt from the margin, "Cancelled plain" at 0, and "Body tabbed" (the
+  // style below, which keeps its 14.4 pt first line) at 36 pt, and
+  // "Cancelled indented", whose list style's base indents 36 pt, at 0.
+  // Where each paragraph's text starts on the first page, in points from
+  // the left margin, by its first two words.
+  async function textStarts(host) {
+    return host.page.evaluate(() => {
+        const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+        const article = page.querySelector("article");
+        const box = page.getBoundingClientRect();
+        const scale = box.width / page.offsetWidth;
+        const margin = article.getBoundingClientRect().left + parseFloat(getComputedStyle(article).paddingLeft) * scale;
+        const result = {};
+        article.querySelectorAll("p").forEach((p) => {
+          const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+          let node;
+          while ((node = walker.nextNode())) {
+            const at = node.nodeValue.search(/\S/);
+            if (at < 0 || node.parentElement.closest(".ld-tab")) {
+              continue;
+            }
+            const range = document.createRange();
+            range.setStart(node, at);
+            range.setEnd(node, at + 1);
+            const name = node.nodeValue.trim().split(" ").slice(0, 2).join(" ");
+            result[name] = (range.getClientRects()[0].left - margin) / scale * 0.75;
+            return;
+          }
+        });
+        return result;
+    });
+  }
+
+  // Word 16, COM, on these fixtures (the transitional and the Strict file
+  // give the same positions).
+  const CANCELLED_WORD_STARTS = { "Cancelled tabbed": 14.4, "Cancelled plain": 0, "Body tabbed": 36.3,
+    "Cancelled indented": 0, "Cancelled own": 36.3 };
+
+  test("a paragraph that cancels its style's numbering starts where Word's does", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeCancelledNumberingDocx();
+      await host.openDocument({ bytes, report, fileName: "cancelled-numbering.docx" });
+      const starts = await textStarts(host);
+      Object.keys(CANCELLED_WORD_STARTS).forEach((name) => {
+        const word = CANCELLED_WORD_STARTS[name];
+        assert.ok(Math.abs(starts[name] - word) <= 1, `"${name}" starts at ${starts[name]} pt; Word's at ${word} pt`);
+      });
+    });
+  });
+
+  // docx-preview reads only the transitional namespaces: a Strict document
+  // lost its styles part, numbering and every paragraph property, and its
+  // tabbed paragraphs went to the 36 pt default stop. Its body paragraphs
+  // also lost the style's 14.4 pt first line.
+  test("a Strict OOXML document keeps its styles, indents and tab stops", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeCancelledNumberingDocx({ strict: true });
+      await host.openDocument({ bytes, report, fileName: "cancelled-numbering-strict.docx" });
+      const starts = await textStarts(host);
+      Object.keys(CANCELLED_WORD_STARTS).forEach((name) => {
+        const word = CANCELLED_WORD_STARTS[name];
+        assert.ok(Math.abs(starts[name] - word) <= 1, `"${name}" starts at ${starts[name]} pt; Word's at ${word} pt`);
+      });
+      const listed = await host.page.evaluate(() => {
+        const item = Array.from(document.querySelectorAll("#docBody article p")).find((p) => /Listed item/.test(p.textContent));
+        return item ? { numbered: /\bdocx-num-/.test(item.className), align: getComputedStyle(item).textAlign } : null;
+      });
+      assert.ok(listed && listed.numbered, "the listed item is numbered");
+      assert.equal(listed.align, "justify");
+    });
+  });
+
+  // A page that starts inside a word: the line before the break ended at an
+  // optional hyphen, which Chrome prints only where a line breaks. Split
+  // there, the page's last line ended "...revol" with no hyphen and the next
+  // page started "ution...". Word prints the hyphen.
+  test("a word broken across pages keeps its hyphen", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeSoftHyphenDocx();
+      await host.openDocument({ bytes, report, fileName: "soft-hyphens.docx" });
+      const splits = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody p[data-ld-continued]")).map((rest) => {
+        const pages = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"));
+        const page = rest.closest("section.docx");
+        const before = pages[pages.indexOf(page) - 1];
+        const kept = before ? Array.from(before.querySelectorAll("article p")).pop() : null;
+        const keptText = kept ? kept.textContent : "";
+        const after = getComputedStyle(kept, "::after").content;
+        return {
+          inWord: /[a-z­]$/i.test(keptText) && /^[a-z]/i.test(rest.textContent),
+          hyphen: /-|‐/.test(after) || /-$/.test(keptText.replace(/­$/, ""))
+        };
+      }));
+      const inWord = splits.filter((split) => split.inWord);
+      assert.ok(inWord.length > 0, `a page starts inside a word (${splits.length} splits)`);
+      inWord.forEach((split, index) => assert.ok(split.hyphen, `split ${index + 1} inside a word shows no hyphen`));
+    });
+  });
+
+  // A page's first part of a paragraph can be split again when its kept
+  // lines wrap differently once split (a justified paragraph in columns).
+  // The hyphen belongs to where each part now ends: the first split's
+  // hyphen stayed on the part that was split again, so a page ending
+  // between two words printed one ("following-"), and the new middle part,
+  // which ends inside the word, printed none.
+  test("a paragraph split twice keeps a hyphen only where a part ends inside a word", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeSoftHyphenDocx({ columns: true });
+      await host.openDocument({ bytes, report, fileName: "soft-hyphens-columns.docx" });
+      const splits = await host.page.evaluate(() => {
+        const all = Array.from(document.querySelectorAll("#docBody article p"));
+        return all.map((rest, index) => {
+          if (!rest.hasAttribute("data-ld-continued") || index === 0) {
+            return null;
+          }
+          const kept = all[index - 1];
+          return {
+            inWord: /[a-z­]$/i.test(kept.textContent) && /^[a-z]/i.test(rest.textContent),
+            hyphen: kept.hasAttribute("data-ld-hyphen") && /-/.test(getComputedStyle(kept, "::after").content),
+            ends: kept.textContent.slice(-12)
+          };
+        }).filter(Boolean);
+      });
+      assert.ok(splits.some((split) => split.inWord), `a page starts inside a word (${splits.length} splits)`);
+      assert.ok(splits.some((split) => !split.inWord), `a page starts between words (${splits.length} splits)`);
+      splits.forEach((split, index) => assert.equal(split.hyphen, split.inWord,
+        `split ${index + 1} (ends "${split.ends}") ${split.inWord ? "inside a word shows no" : "between words shows a"} hyphen`));
+    });
+  });
+
+  // Lines joined by line breaks: one paragraph of 79 lines that crosses a
+  // page. Word's PDF of the fixture: page 1 ends with "Row 56", page 2
+  // starts with "Row 57", every line whole. The split fell between the
+  // last letter of one line and the first of the next, which read as a word
+  // broken in two (range text leaves the <br> out); its hyphen took a line
+  // of its own and pushed "Row 56" past the page's right edge, out of view.
+  for (const justified of [false, true]) {
+    test(`a page break between lines joined by line breaks adds no hyphen and loses no line${justified ? " (justified)" : ""}`, async () => {
+      await withHost({}, async (host) => {
+        const { bytes, report } = await makeBreakLinesDocx({ justified });
+        await host.openDocument({ bytes, report, fileName: "break-lines.docx" });
+        const layout = await host.page.evaluate(() => {
+          const pages = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"));
+          const rows = [];
+          pages.forEach((page, index) => {
+            const box = page.getBoundingClientRect();
+            const walker = document.createTreeWalker(page.querySelector("article"), NodeFilter.SHOW_TEXT);
+            let node;
+            while ((node = walker.nextNode())) {
+              const match = /Row (\d+)/.exec(node.nodeValue);
+              if (!match) {
+                continue;
+              }
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              const inside = Array.from(range.getClientRects()).every((rect) =>
+                rect.left >= box.left - 0.5 && rect.right <= box.right + 0.5 && rect.top >= box.top - 0.5 && rect.bottom <= box.bottom + 0.5);
+              rows.push({ row: Number(match[1]), page: index + 1, inside });
+            }
+          });
+          const second = pages[1] && pages[1].querySelector("article");
+          return { rows, hyphens: document.querySelectorAll("#docBody p[data-ld-hyphen]").length,
+            secondPage: second ? second.textContent.trim() : "" };
+        });
+        assert.equal(layout.hyphens, 0, "no part is marked for a hyphen");
+        assert.deepEqual(layout.rows.map((entry) => entry.row), Array.from({ length: 79 }, (_, index) => index + 1));
+        layout.rows.forEach((entry) => assert.ok(entry.inside, `"Row ${entry.row}" is drawn outside page ${entry.page}`));
+        const last = layout.rows.filter((entry) => entry.page === 1).pop();
+        assert.equal(last && last.row, 56, `page 1 ends with "Row ${last && last.row}"; Word's ends with "Row 56"`);
+        assert.match(layout.secondPage, /^Row 57 closes on a plain word/, `page 2 starts with "${layout.secondPage.slice(0, 30)}"`);
+      });
+    });
+  }
+
+  // The first letter after a line broken at a hyphenation point also
+  // returns, first, the box of the hyphen at the end of the line before;
+  // read from that box, the page split fell one letter late, after the
+  // soft hyphen ("counterr-" | "evolution"). A page breaks a word where its
+  // line broke: right after a soft hyphen.
+  test("a word broken across pages breaks at its soft hyphen", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeSoftHyphenDocx();
+      await host.openDocument({ bytes, report, fileName: "soft-hyphens.docx" });
+      const splits = await host.page.evaluate(() => {
+        const all = Array.from(document.querySelectorAll("#docBody article p"));
+        return all.map((rest, index) => {
+          if (!rest.hasAttribute("data-ld-continued") || index === 0) {
+            return null;
+          }
+          const kept = all[index - 1].textContent;
+          return { inWord: /[a-z­]$/i.test(kept) && /^[a-z]/i.test(rest.textContent), soft: /­$/.test(kept), at: kept.slice(-8) + "|" + rest.textContent.slice(0, 8) };
+        }).filter(Boolean);
+      });
+      const inWord = splits.filter((split) => split.inWord);
+      assert.ok(inWord.length > 0, `a page starts inside a word (${splits.length} splits)`);
+      inWord.forEach((split) => assert.ok(split.soft, `the page breaks a word after a letter, not its soft hyphen ("${split.at}")`));
+    });
+  });
+
+  // A line also breaks after a hard hyphen. A page that starts there keeps
+  // the word's parts where its line put them, and adds no hyphen of its own.
+  test("a page that starts after a hard hyphen keeps the line's break", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeSoftHyphenDocx({ hard: true });
+      await host.openDocument({ bytes, report, fileName: "hard-hyphens.docx" });
+      const splits = await host.page.evaluate(() => {
+        const all = Array.from(document.querySelectorAll("#docBody article p"));
+        return all.map((rest, index) => {
+          if (!rest.hasAttribute("data-ld-continued") || index === 0) {
+            return null;
+          }
+          const kept = all[index - 1];
+          return { afterHyphen: /-$/.test(kept.textContent), marked: kept.hasAttribute("data-ld-hyphen"),
+            at: kept.textContent.slice(-8) + "|" + rest.textContent.slice(0, 8) };
+        }).filter(Boolean);
+      });
+      const after = splits.filter((split) => split.afterHyphen);
+      assert.ok(after.length > 0, `a page starts after a hard hyphen (${splits.map((split) => split.at).join(", ")})`);
+      splits.forEach((split) => assert.ok(!split.marked, `the part before "${split.at}" is marked for a hyphen`));
+    });
+  });
+
+  // A part that ends inside a word ends with a hyphen, which can be wider
+  // than the one its line was laid out with (it takes the paragraph's
+  // size). On a line with no room for it, it pushed the last letters onto
+  // a line of their own past the page; it takes no room there instead.
+  test("a hyphen added at the foot of a page keeps the page's last line in place", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeTightHyphenDocx();
+      await host.openDocument({ bytes, report, fileName: "tight-hyphen.docx" });
+      // Where each of a page's last three letters is drawn: inside the page,
+      // on the text area's last line (exact 6 pt lines: within 12 px of the
+      // area's foot).
+      const parts = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx")).map((page) => {
+        const box = page.getBoundingClientRect();
+        const style = getComputedStyle(page);
+        const limit = box.top + parseFloat(style.minHeight) - parseFloat(style.paddingBottom);
+        const paragraphs = page.querySelectorAll("article p");
+        const kept = paragraphs[paragraphs.length - 1];
+        const walker = document.createTreeWalker(kept, NodeFilter.SHOW_TEXT);
+        let node;
+        let last = null;
+        while ((node = walker.nextNode())) {
+          last = node;
+        }
+        const letters = [];
+        for (let offset = last.nodeValue.length - 1; offset >= 0 && letters.length < 3; offset -= 1) {
+          if (last.nodeValue[offset] !== "i") {
+            continue;
+          }
+          const range = document.createRange();
+          range.setStart(last, offset);
+          range.setEnd(last, offset + 1);
+          const rects = range.getClientRects();
+          const rect = rects[rects.length - 1];
+          letters.push(rect.left >= box.left && rect.right <= box.right && rect.bottom <= limit + 0.5 && rect.bottom > limit - 12);
+        }
+        return { hyphen: kept.hasAttribute("data-ld-hyphen") && /-/.test(getComputedStyle(kept, "::after").content), letters };
+      }));
+      const hyphenated = parts.filter((part) => part.hyphen);
+      assert.ok(hyphenated.length > 0, `a page ends inside the word with a hyphen (${parts.length} pages)`);
+      hyphenated.forEach((part, index) => assert.deepEqual(part.letters, [true, true, true],
+        `page ${index + 1}'s last letters are not all on its last line`));
+    });
+  });
+
+  // A document that leaves automatic hyphenation off, whose paragraphs run
+  // 144 pt past the right margin (a negative right indent). The page split
+  // fell at the first letter past the text area's right edge, inside a
+  // word, and the part kept took a hyphen ("led-" | "ger"). Word breaks no
+  // word there; the whole word goes on to the next page.
+  // The same paragraphs holding numbers, in a document that hyphenates:
+  // Chrome hyphenates no number, so a split between two digits takes no
+  // hyphen, and the number goes on to the next page whole. And the same
+  // words with each letter a run of its own: the word that moves on starts
+  // some runs back.
+  for (const [name, options] of [
+    ["a document without automatic hyphenation breaks no word across pages", {}],
+    ["a number is not broken across pages, in a document that hyphenates", { numbers: true }],
+    ["a word made of many runs is not broken across pages", { runs: true }]
+  ]) {
+  test(name, async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeWideLinesDocx(options);
+      await host.openDocument({ bytes, report, fileName: "wide-lines.docx" });
+      const splits = await host.page.evaluate(() => {
+        const all = Array.from(document.querySelectorAll("#docBody article p"));
+        return all.map((rest, index) => {
+          if (!rest.hasAttribute("data-ld-continued") || index === 0) {
+            return null;
+          }
+          const kept = all[index - 1];
+          return {
+            inWord: /[a-z0-9]$/i.test(kept.textContent) && /^[a-z0-9]/i.test(rest.textContent),
+            hyphen: kept.hasAttribute("data-ld-hyphen"),
+            at: kept.textContent.slice(-8) + "|" + rest.textContent.slice(0, 8)
+          };
+        }).filter(Boolean);
+      });
+      assert.ok(splits.length > 0, "a paragraph is split across pages");
+      splits.forEach((split) => {
+        assert.ok(!split.inWord, `the page splits a word ("${split.at}")`);
+        assert.ok(!split.hyphen, `the part before "${split.at}" is marked for a hyphen`);
+      });
+    });
+  });
+  }
+
+  // A footnote reference that says a mark of the author's own follows, with
+  // no mark after it, whose note starts with the note's own reference mark
+  // (w:footnoteRef). Word's PDF: no mark at the reference, and the note
+  // starts with its number, 1.
+  test("a note whose own mark is empty keeps its number in the note", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeEmptyMarkNoteDocx();
+      await host.openDocument({ bytes, report, fileName: "empty-mark-note.docx" });
+      const marks = await host.page.evaluate(() => {
+        const visible = (node) => node && getComputedStyle(node).display !== "none" && node.getClientRects().length > 0;
+        const lead = Array.from(document.querySelectorAll("#docBody article p")).find((p) => p.textContent.includes("Summary heron"));
+        const note = Array.from(document.querySelectorAll("#docBody li")).find((li) => li.textContent.includes("Note heron"));
+        return {
+          shownNumbers: Array.from(lead.querySelectorAll("sup")).filter(visible).map((sup) => sup.textContent),
+          marker: note ? getComputedStyle(note).listStyleType : null
+        };
+      });
+      assert.deepEqual(marks.shownNumbers, [], "no mark at the reference");
+      assert.notEqual(marks.marker, "none", "the note shows its number");
+    });
+  });
+
+  // A header whose right indent reaches 36 pt past the paper's edge: Word's
+  // PDF of it has no page number. The reader showed the number beside the
+  // page.
+  test("nothing past the paper's edge is shown", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeNumberedDocx({ offPage: true });
+      await host.openDocument({ bytes, report, fileName: "numbered-off.docx" });
+      const seen = await host.page.evaluate(() => {
+        const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+        const header = Array.from(page.children).find((child) => child.nodeName === "HEADER");
+        const walker = document.createTreeWalker(header, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+          if (/\d/.test(node.nodeValue)) {
+            break;
+          }
+        }
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        node.parentElement.scrollIntoView({ block: "center", inline: "nearest" });
+        const rect = range.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        return { past: rect.left - page.getBoundingClientRect().right, shown: !!hit && header.contains(hit) };
+      });
+      assert.ok(seen.past > 0, `the number starts ${seen.past}px past the page's right edge`);
+      assert.equal(seen.shown, false, "the number past the page's edge is not shown");
     });
   });
 });

@@ -888,3 +888,326 @@ test("Theme colours keep text readable and turn light fills dark on a dark page"
     }
   }
 });
+
+// A VML text box as Word writes one: v:shape with a style, v:textbox, and
+// w10:wrap. docx-preview's model of it is a vmlPicture whose foreignObject
+// holds the text box paragraphs.
+function vmlTextBox({ style, wrap = "topAndBottom", textbox = {}, shape = {} } = {}) {
+  const pict = el("pict", [
+    el("shapetype", [], { id: "_x0000_t202" }),
+    el("shape", [
+      el("textbox", [el("txbxContent", [el("p")])], textbox),
+      ...(wrap ? [el("wrap", [], { type: wrap })] : [])
+    ], { style, ...shape })
+  ]);
+  const content = [{ type: "paragraph", children: [] }];
+  const picture = { type: "vmlPicture", children: [{ type: "vmlElement", tagName: "g", children: [{ type: "vmlElement", tagName: "foreignObject", children: content }] }] };
+  return { pict, picture, content };
+}
+
+function floatFixture(options) {
+  const box = vmlTextBox(options);
+  const xmlBody = el("body", [el("p"), el("p", [el("r", [box.pict]), el("r")])]);
+  const modelBody = { children: [{ type: "paragraph", children: [] }, { type: "paragraph", children: [{ type: "run", children: [box.picture] }] }] };
+  return { ...box, count: Fixups.floatTextBoxes(modelBody, xmlBody) };
+}
+
+const FLOAT_STYLE = "position:absolute;margin-left:0;margin-top:0;width:514pt;height:282.35pt;z-index:3;" +
+  "mso-wrap-distance-top:0;mso-wrap-distance-bottom:12pt;mso-position-horizontal:center;" +
+  "mso-position-horizontal-relative:margin;mso-position-vertical:absolute;mso-position-vertical-relative:margin";
+
+test("A text box Word wraps top and bottom against the margin becomes a block at the top of the page", () => {
+  const { picture, content, count } = floatFixture({
+    style: FLOAT_STYLE, textbox: { style: "mso-fit-shape-to-text:t", inset: "0,0,0,0" }, shape: { filled: "f", stroked: "f" }
+  });
+  assert.equal(count, 1);
+  assert.equal(picture.children.length, 1);
+  const box = picture.children[0];
+  assert.equal(box.type, "drawing");
+  assert.equal(box.className, `${Fixups.FLOAT_CLASS} ${Fixups.FLOAT_CLASS}-top`);
+  assert.equal(box.children, content, "the text box paragraphs move into the block");
+  assert.deepEqual(box.cssStyle, {
+    width: "514pt",
+    "box-sizing": "border-box",
+    padding: "0pt 0pt 0pt 0pt",
+    "margin-top": "0pt",
+    "margin-bottom": "12pt",
+    "margin-left": "auto",
+    "margin-right": "auto"
+  }, "a box that fits its text (mso-fit-shape-to-text) takes its text's height, not the one saved");
+});
+
+test("A floated text box that does not fit its text keeps the height Word saved", () => {
+  const { picture } = floatFixture({ style: FLOAT_STYLE, textbox: { inset: "0,0,0,0" }, shape: { filled: "f", stroked: "f" } });
+  assert.equal(picture.children[0].cssStyle["min-height"], "282.35pt");
+});
+
+test("A floated text box keeps VML's default inset, line, and fill, and goes to the foot when placed at the bottom", () => {
+  const style = FLOAT_STYLE.replace("mso-position-vertical:absolute", "mso-position-vertical:bottom")
+    .replace("mso-position-horizontal:center", "mso-position-horizontal:right");
+  const { picture } = floatFixture({ style, shape: { strokeweight: "1pt", fillcolor: "#eeeeee" } });
+  const box = picture.children[0];
+  assert.equal(box.className, `${Fixups.FLOAT_CLASS} ${Fixups.FLOAT_CLASS}-bottom`);
+  assert.equal(box.cssStyle.padding, "3.6pt 7.2pt 3.6pt 7.2pt");
+  assert.equal(box.cssStyle.border, "1pt solid black");
+  assert.equal(box.cssStyle["background-color"], "#eeeeee");
+  assert.equal(box.cssStyle["margin-left"], "auto");
+  assert.equal(box.cssStyle["margin-right"], "0pt");
+});
+
+test("A text box placed against its paragraph stays where its paragraph is", () => {
+  const style = FLOAT_STYLE.replace("mso-position-vertical-relative:margin", "mso-position-vertical-relative:paragraph");
+  const { picture } = floatFixture({ style });
+  assert.equal(picture.children[0].className, `${Fixups.FLOAT_CLASS} ${Fixups.FLOAT_CLASS}-inline`);
+});
+
+test("Text boxes Word does not wrap top and bottom, or that sit in the line, are left to docx-preview", () => {
+  for (const options of [
+    { style: FLOAT_STYLE, wrap: "square" },
+    { style: FLOAT_STYLE, wrap: null },
+    { style: FLOAT_STYLE.replace("position:absolute;", "") },
+    { style: FLOAT_STYLE.replace("width:514pt;", "") }
+  ]) {
+    const { picture, count } = floatFixture(options);
+    assert.equal(count, 0, JSON.stringify(options));
+    assert.equal(picture.children[0].type, "vmlElement", "the picture is unchanged");
+  }
+});
+
+test("Text boxes are left alone when the model and the XML do not pair", () => {
+  const box = vmlTextBox({ style: FLOAT_STYLE });
+  const xmlBody = el("body", [el("p", [el("r", [box.pict])])]);
+  const modelBody = { children: [{ type: "paragraph", children: [] }, { type: "paragraph", children: [box.picture] }] };
+  assert.equal(Fixups.floatTextBoxes(modelBody, xmlBody), 0);
+  assert.equal(Fixups.floatTextBoxes(modelBody, null), 0);
+});
+
+test("A section that names no header or footer of a kind takes the previous section's", () => {
+  const first = { headerRefs: [{ id: "rId7", type: "default" }], footerRefs: [{ id: "rId8", type: "default" }, { id: "rId9", type: "first" }] };
+  const middle = { headerRefs: [], footerRefs: [{ id: "rId10", type: "default" }] };
+  const last = { headerRefs: [{ id: "rId11", type: "even" }] };
+  const body = { children: [{ type: "paragraph", sectionProps: first }, { type: "paragraph" }, { type: "paragraph", sectionProps: middle }], props: last };
+  assert.equal(Fixups.inheritHeaderFooters(body), 5);
+  assert.deepEqual(middle.headerRefs, [{ id: "rId7", type: "default" }]);
+  assert.deepEqual(middle.footerRefs, [{ id: "rId10", type: "default" }, { id: "rId9", type: "first" }]);
+  assert.deepEqual(last.headerRefs, [{ id: "rId11", type: "even" }, { id: "rId7", type: "default" }]);
+  assert.deepEqual(last.footerRefs, [{ id: "rId10", type: "default" }, { id: "rId9", type: "first" }]);
+  assert.equal(Fixups.inheritHeaderFooters(null), 0);
+});
+
+test("Tabs become runs the reader sizes, and paragraphs carry their stops from the style chain", () => {
+  const styles = [
+    { id: "Normal", target: "p", paragraphProps: { tabs: [{ style: "left", position: "36pt" }, { style: "decimal", position: "200pt" }] } },
+    { id: "Reference", target: "p", basedOn: "Normal", paragraphProps: { tabs: [{ style: "clear", position: "36pt" }, { style: "right", position: "468pt", leader: "dot" }] } }
+  ];
+  const tab = () => ({ type: "tab" });
+  const reference = { type: "paragraph", styleName: "Reference", tabs: [{ style: "center", position: "100.5pt", leader: "hyphen" }], children: [{ type: "run", children: [{ type: "text", text: "[1]" }, tab()] }] };
+  const boxParagraph = { type: "paragraph", children: [{ type: "run", children: [tab()] }] };
+  const anchor = { type: "paragraph", children: [{ type: "run", children: [{ type: "vmlPicture", children: [boxParagraph] }] }] };
+  const plain = { type: "paragraph", children: [{ type: "run", children: [{ type: "text", text: "no tab" }] }] };
+  assert.equal(Fixups.markTabs([reference, anchor, plain], styles), 2);
+  const run = reference.children[0].children[1];
+  assert.deepEqual(run, { type: "run", className: Fixups.TAB_CLASS, children: [{ type: "text", text: "\u2003" }] });
+  assert.match(reference.className, /(^|\s)ld-ts-c2010h_d4000_r9360o(\s|$)/);
+  assert.equal(anchor.className, undefined, "a text box's tab is its own paragraph's");
+  assert.equal(boxParagraph.className, undefined, "a paragraph with no stops gets no stop class");
+  assert.equal(plain.className, undefined);
+  assert.deepEqual(Fixups.parseTabStops(reference.className), [
+    { kind: "c", position: 100.5, leader: "h" },
+    { kind: "d", position: 200, leader: "" },
+    { kind: "r", position: 468, leader: "o" }
+  ]);
+  assert.deepEqual(Fixups.parseTabStops("docx_normal ld-l3"), []);
+});
+
+// The IEEE template's heading numbering, as tests/reader/make-numbered-docx.mjs
+// writes it: level 0 centres "%1." with a stop at 28.8 pt, level 1 has a stop
+// at 18 pt that the Heading 2 style clears for its own at 14.4 pt.
+test("A numbered paragraph's label tab is its first tab, its stops rank as Word ranks them, and a numbering style keeps its indents", () => {
+  const xml = el("numbering", [
+    el("abstractNum", [
+      el("lvl", [el("lvlJc", [], { val: "center" }), el("pPr", [el("tabs", [el("tab", [], { val: "num", pos: "576" })]), el("ind", [], { firstLine: "216" })])], { ilvl: "0" }),
+      el("lvl", [el("lvlJc", [], { val: "left" }), el("pPr", [el("tabs", [el("tab", [], { val: "num", pos: "360" })])])], { ilvl: "1" })
+    ], { abstractNumId: "7" }),
+    el("num", [el("abstractNumId", [], { val: "7" })], { numId: "3" })
+  ]);
+  const levelTabs = Fixups.numberingTabs({ _xmlDocument: xml });
+  assert.deepEqual(Array.from(levelTabs["3:0"]), [{ style: "num", leader: "", position: 28.8 }]);
+  assert.equal(levelTabs["3:0"].jc, "center");
+  assert.equal(levelTabs["3:1"].jc, "left");
+  const styles = [
+    { id: "Heading1", target: "p", styles: [{ target: "p", values: { "text-indent": "0.00pt" } }],
+      paragraphProps: { numbering: { id: "3" }, tabs: [{ style: "left", position: "10.8pt" }] } },
+    { id: "Heading2", target: "p", styles: [{ target: "p", values: {} }],
+      paragraphProps: { numbering: { id: "3", level: 1 }, tabs: [{ style: "clear", position: "18pt" }, { style: "num", position: "14.4pt" }] } }
+  ];
+  const numberings = [
+    { id: "3", level: 0, levelText: "%1.", pStyleName: "Heading1", suff: "tab" },
+    { id: "3", level: 1, levelText: "%2.", pStyleName: "Heading2", suff: "tab" }
+  ];
+  const heading = (styleName, extra = {}) => ({ type: "paragraph", styleName, ...extra,
+    children: [{ type: "run", children: [{ type: "tab" }, { type: "text", text: "Title" }] }] });
+  const first = heading("Heading1");
+  const second = heading("Heading2");
+  const direct = heading("Heading2", { numbering: { id: "3", level: 1 }, cssStyle: { "margin-inline-start": "20pt" } });
+  assert.equal(Fixups.markTabs([first, second, direct], styles, numberings, levelTabs), 6, "each label's tab and each heading's own");
+  assert.equal(first.children[0].children[0].className, Fixups.TAB_CLASS, "the label's tab comes first");
+  assert.deepEqual(numberings.map((num) => num.suff), ["nothing", "nothing"], "the label prints no tab of its own");
+  // Heading 1: the level's numbering from the style (no w:ilvl), the style's
+  // first line of 0 over the level's 10.8 pt, the label centred.
+  assert.match(first.className, /(^|\s)ld-ts-l216_l576(\s|$)/);
+  assert.match(first.className, /(^|\s)ld-lj-center(\s|$)/);
+  assert.equal(first.cssStyle["text-indent"], "0.00pt");
+  // Heading 2: the style clears the level's 18 pt stop.
+  assert.match(second.className, /(^|\s)ld-ts-l288(\s|$)/);
+  assert.doesNotMatch(second.className, /ld-lj-/);
+  // Numbered by the paragraph itself: the level's stop ranks above the
+  // style's clear, and no style indent is copied.
+  assert.match(direct.className, /(^|\s)ld-ts-l288_l360(\s|$)/);
+  assert.equal(direct.cssStyle["text-indent"], undefined);
+});
+
+// A list whose items start with their text, as most reports' numbered lists
+// do, keeps docx-preview's label and gets no tab run per item: in the
+// 300-page perf report the runs cost about 4 MiB, and its 1,000-page
+// sibling missed the Windows memory budget (M-04) by 0.8 MiB. A level with
+// any item that starts with a tab of its own gets the label's tab on every
+// item, as the label's suffix belongs to the level.
+test("A numbered level gets its label's tab only where its paragraphs start with a tab of their own", () => {
+  const numberings = [
+    { id: "5", level: 0, levelText: "%1.", suff: "tab" },
+    { id: "5", level: 1, levelText: "%2)", suff: "tab" }
+  ];
+  const item = (level, ...children) => ({ type: "paragraph", numbering: { id: "5", level },
+    children: [{ type: "run", children }] });
+  const plain = item(0, { type: "text", text: "First item" });
+  const bookmarked = item(1, { type: "bookmarkStart" }, { type: "tab" }, { type: "text", text: "Tabbed item" });
+  const sibling = item(1, { type: "text", text: "Plain item at the tabbed level" });
+  assert.equal(Fixups.markTabs([plain, bookmarked, sibling], [], numberings, {}), 3, "the tabbed item's own tab and the two label tabs at its level");
+  assert.equal(plain.children.length, 1, "no label tab where the level's items start with text");
+  assert.equal(numberings[0].suff, "tab");
+  assert.equal(bookmarked.children.length, 2);
+  assert.equal(sibling.children.length, 2, "every item at a tabbed level gets the label's tab");
+  assert.equal(numberings[1].suff, "nothing");
+});
+
+test("A PAGE result takes its field code's format unless the code keeps the result's own", () => {
+  const field = (charType) => ({ type: "run", fieldRun: true, children: [{ type: "complexField", charType }] });
+  const plain = { type: "run", cssStyle: { "font-size": "7pt" }, children: [{ type: "text", text: "3" }] };
+  const kept = { type: "run", cssStyle: { "font-size": "7pt" }, children: [{ type: "text", text: "3" }] };
+  const paragraph = {
+    type: "paragraph",
+    children: [
+      field("begin"),
+      { type: "run", fieldRun: true, cssStyle: { "font-family": "Code Face" }, styleName: "CodeChar", children: [{ type: "instruction", text: " PAGE " }] },
+      field("separate"), plain, field("end"),
+      field("begin"),
+      { type: "run", fieldRun: true, cssStyle: { "font-family": "Code Face" }, children: [{ type: "instruction", text: " PAGE   \\* MERGEFORMAT " }] },
+      field("separate"), kept, field("end")
+    ]
+  };
+  const doc = { documentPart: { body: { type: "body", children: [] } }, parts: [{ rootElement: { type: "header", children: [paragraph] } }] };
+  assert.equal(Fixups.prepareModel(doc).pageFields, 2);
+  assert.deepEqual(plain.cssStyle, { "font-family": "Code Face" });
+  assert.equal(plain.styleName, "CodeChar");
+  assert.deepEqual(kept.cssStyle, { "font-size": "7pt" });
+});
+
+test("Footnotes whose reference has the author's own mark are listed", () => {
+  const reference = (id, attributes) => el("r", [el("footnoteReference", [], { id, ...attributes })]);
+  const body = el("body", [
+    el("p", [reference("1", { customMarkFollows: "1" }), reference("2"), reference("3", { customMarkFollows: "0" })]),
+    el("tbl", [el("tr", [el("tc", [el("p", [reference("4", { customMarkFollows: "true" })])])])])
+  ]);
+  assert.deepEqual(Fixups.customMarkNotes(body), ["1", "4"]);
+  assert.deepEqual(Fixups.customMarkNotes(null), []);
+});
+
+test("Notes that start with their own reference mark are listed", () => {
+  const note = (id, children) => el("footnote", [el("p", children)], { id });
+  const root = el("footnotes", [
+    note("-1", [el("r", [el("separator")])]),
+    note("1", [el("r", [el("footnoteRef")]), el("r", [el("t")])]),
+    note("2", [el("r", [el("t")])]),
+    note("3", [el("pPr"), el("r", [el("rPr"), el("footnoteRef")])])
+  ]);
+  assert.deepEqual(Fixups.notesWithReferenceMark(root), ["1", "3"]);
+  assert.deepEqual(Fixups.notesWithReferenceMark(null), []);
+});
+
+// Strict OOXML parts in the transitional form docx-preview reads. Word saves
+// lengths with units; each kind converts to its own transitional unit.
+test("Strict OOXML parts are rewritten to the transitional form", () => {
+  const strictW = "http://purl.oclc.org/ooxml/wordprocessingml/main";
+  const transitionalW = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+  const part = `<w:styles xmlns:w="${strictW}" xmlns:r="http://purl.oclc.org/ooxml/officeDocument/relationships">` +
+    `<w:pPr><w:tabs><w:tab w:val="start" w:pos="14.40pt"/></w:tabs><w:ind w:start="0.5in" w:hanging="-18pt"/>` +
+    `<w:spacing w:after="6pt" w:line="11.40pt" w:lineRule="auto"/><w:pBdr><w:top w:val="single" w:sz="0.5pt" w:space="1pt"/></w:pBdr></w:pPr>` +
+    `<w:cols w:space="36pt"/><w:rPr><w:sz w:val="10pt"/><w:szCs w:val="9.5pt"/><w:w w:val="90%"/></w:rPr>` +
+    `<w:tblW w:w="100%" w:type="pct"/><w:pgSz w:w="2.54cm" w:h="25.4mm"/><w:t>12pt="1pt"</w:t></w:styles>`;
+  const out = Fixups.transitionalXml(part);
+  assert.equal(out, `<w:styles xmlns:w="${transitionalW}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+    `<w:pPr><w:tabs><w:tab w:val="start" w:pos="288"/></w:tabs><w:ind w:start="720" w:hanging="-360"/>` +
+    `<w:spacing w:after="120" w:line="228" w:lineRule="auto"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="1"/></w:pBdr></w:pPr>` +
+    `<w:cols w:space="720"/><w:rPr><w:sz w:val="20"/><w:szCs w:val="19"/><w:w w:val="90"/></w:rPr>` +
+    `<w:tblW w:w="5000" w:type="pct"/><w:pgSz w:w="1440" w:h="1440"/><w:t>12pt="1pt"</w:t></w:styles>`);
+  const rels = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rId1" Type="http://purl.oclc.org/ooxml/officeDocument/relationships/styles" Target="styles.xml"/>` +
+    `<Relationship Id="rId2" Type="http://purl.oclc.org/ooxml/officeDocument/relationships/extendedProperties" Target="docProps/app.xml"/>` +
+    `<Relationship Id="rId3" Type="http://purl.oclc.org/ooxml/drawingml/main" Target="x"/></Relationships>`;
+  assert.equal(Fixups.transitionalXml(rels),
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>` +
+    `<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>` +
+    `<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/drawingml/2006/main" Target="x"/></Relationships>`);
+  // A transitional part is returned as it is, units and all.
+  const transitional = `<w:p xmlns:w="${transitionalW}"><w:ind w:left="14.40pt"/></w:p>`;
+  assert.equal(Fixups.transitionalXml(transitional), transitional);
+});
+
+// Only the namespaces of the markup change: a document's own text that
+// spells a Strict namespace, and a link whose target is one, are kept.
+test("Strict OOXML text and link targets that spell a Strict namespace are kept", () => {
+  const strictW = "http://purl.oclc.org/ooxml/wordprocessingml/main";
+  const part = `<w:document xmlns:w="${strictW}"><w:body><w:p><w:r><w:t xml:space="preserve">See ${strictW} and ` +
+    `http://purl.oclc.org/ooxml/drawingml/main here.</w:t></w:r></w:p></w:body></w:document>`;
+  assert.equal(Fixups.transitionalXml(part),
+    `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t xml:space="preserve">` +
+    `See ${strictW} and http://purl.oclc.org/ooxml/drawingml/main here.</w:t></w:r></w:p></w:body></w:document>`);
+  const rels = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rId9" Type="http://purl.oclc.org/ooxml/officeDocument/relationships/hyperlink" ` +
+    `Target="${strictW}" TargetMode="External"/></Relationships>`;
+  assert.equal(Fixups.transitionalXml(rels),
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" ` +
+    `Target="${strictW}" TargetMode="External"/></Relationships>`);
+});
+
+test("Only a Strict package has its parts rewritten", async () => {
+  const JSZip = require(path.join(repositoryRoot, "node_modules", "jszip"));
+  const strictRels = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" ` +
+    `Type="http://purl.oclc.org/ooxml/officeDocument/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  const strictDocument = `<w:document xmlns:w="http://purl.oclc.org/ooxml/wordprocessingml/main"><w:ind w:start="14.4pt"/></w:document>`;
+  const strict = new JSZip();
+  strict.file("_rels/.rels", strictRels);
+  strict.file("word/document.xml", strictDocument);
+  // Only XML parts are read as text; a picture is left as it is, even one
+  // whose bytes happen to spell the Strict namespace.
+  strict.file("word/media/image1.png", "http://purl.oclc.org/ooxml/drawingml/main w:start=\"1pt\"");
+  const opened = await Fixups.transitionalPackage(strict);
+  assert.equal(opened, strict);
+  assert.match(await opened.file("_rels/.rels").async("string"), /2006\/relationships\/officeDocument/);
+  assert.equal(await opened.file("word/document.xml").async("string"),
+    `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:ind w:start="288"/></w:document>`);
+  assert.equal(await opened.file("word/media/image1.png").async("string"), "http://purl.oclc.org/ooxml/drawingml/main w:start=\"1pt\"");
+
+  // A transitional package whose text mentions the Strict namespace is
+  // left alone: only the package relationships decide.
+  const plain = new JSZip();
+  plain.file("_rels/.rels", strictRels.replace("http://purl.oclc.org/ooxml/officeDocument/relationships",
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships"));
+  plain.file("word/document.xml", strictDocument);
+  await Fixups.transitionalPackage(plain);
+  assert.equal(await plain.file("word/document.xml").async("string"), strictDocument);
+  assert.equal(await Fixups.transitionalPackage(new JSZip()).then((zip) => Object.keys(zip.files).length), 0);
+});
