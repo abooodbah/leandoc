@@ -109,6 +109,13 @@ Decisions taken here (the owner can change them):
   `$XDG_CONFIG_HOME/leandoc/settings.ini` group `[Reader]`, macOS
   `NSUserDefaults` (`LeanDocTheme`, `LeanDocPageColor`).
 
+## LeanDoc 0.3.0
+
+- The 0.3.0 version bump: the page layout work of #37 (below), released
+  as 0.3.0. Then the release tag, the Store package workflow for the tag,
+  and the post-release pull request (validation record, Store pack,
+  checksums).
+
 ## Word layout: floating boxes, tabs, running headers (after 0.2.0)
 
 - Branch fidelity-floating-and-columns, one pull request, tests committed
