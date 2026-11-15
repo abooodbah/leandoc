@@ -17,7 +17,7 @@
 // makeMarginSectionsDocx: a one-column title section of 6 lines with a
 // 1-inch top margin, then a two-column section of `lines` lines with a
 // 1.5-inch top margin after a continuous break. Page 1 holds 60 of its lines
-// and each later page 68; the saved page starts sit 2 lines later.
+// and each later page 68; the saved page starts sit `stale` lines later.
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -122,16 +122,15 @@ export async function makeFigureSectionDocx({ extra = 2, columnLines = 36, figur
   return pack(body, `<w:type w:val="continuous"/>${page(figureSize)}${columns(2)}`);
 }
 
-export async function makeMarginSectionsDocx({ lines = 140 } = {}) {
+export async function makeMarginSectionsDocx({ lines = 140, stale = 2 } = {}) {
   const body = [];
   for (let index = 1; index <= 6; index += 1) {
     body.push(line(`Title line ${index}.`));
   }
   body.push(sectionEnd(`${PORTRAIT}${margins(1440)}${columns(1)}`));
   for (let index = 1; index <= lines; index += 1) {
-    // Word's pages start at lines 61 and 129; the saved starts are stale by
-    // two lines.
-    body.push(line(`Alpha line ${index}.`, { saved: index === 63 || index === 131 }));
+    // Word's pages start at lines 61 and 129.
+    body.push(line(`Alpha line ${index}.`, { saved: index === 61 + stale || index === 129 + stale }));
   }
   return pack(body, `<w:type w:val="continuous"/>${PORTRAIT}${margins(2160)}${columns(2)}`);
 }

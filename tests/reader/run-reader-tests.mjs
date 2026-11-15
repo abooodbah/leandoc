@@ -2729,6 +2729,23 @@ describe("text past a saved page start continues on that page across a section b
     });
   });
 
+  // The same document with its saved page starts 10 lines late. The text
+  // of one section continues however much of it runs over: 10 lines take 5
+  // of the page's 36 lines, more than the tenth that text spanning sections
+  // may take. Word gives the same 3 pages.
+  test("ten lines of one section continue on a page with another top margin", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeMarginSectionsDocx({ stale: 10 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "margin-sections-10.docx" });
+      const pages = await layout(host);
+      assert.equal(rendered.pages, 3, "Word gives 3 pages");
+      assert.deepEqual(starts(pages), ["Title line 1.", "Alpha line 61.", "Alpha line 129."]);
+      assert.deepEqual(counts(pages), [66, 68, 12]);
+      near(find(pages[1], "Alpha line 61.").top, 144, "line 61 top");
+      assertInside(pages);
+    });
+  });
+
   // The figure section is continuous but on a landscape page, which Word
   // starts on a new page: 3 pages. The empty start of the figure's
   // paragraph, before the saved start, made a blank portrait page: 4 pages.
