@@ -1663,11 +1663,16 @@
     // gets the label's tab, on each of its paragraphs (the label's suffix
     // belongs to the level). A plain numbered list keeps docx-preview's
     // label: a tab run per item cost a 300-page report about 4 MiB.
+    // A level whose label Word centres or right-aligns gets the tab too: the
+    // reader shifts that label as an inline block (alignLabels), where the
+    // tab and space after "I." collapsed, and "I.Introduction" lost the
+    // 7.8 pt Word leaves (the text goes to the next stop past the label).
     var ownTab = {};
     eachModelElement(roots, function (element) {
       if (element.type === "paragraph") {
         var key = numberingKey(element);
-        if (key && levels[key] && startsWithTab(element)) {
+        var aligned = key && levelTabs[key] && LABEL_JC[levelTabs[key].jc];
+        if (key && levels[key] && (aligned || startsWithTab(element))) {
           ownTab[key] = true;
         }
       }

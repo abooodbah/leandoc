@@ -2844,7 +2844,36 @@
       return a.position - b.position;
     });
     return { margin: marginLeft * scale, perPoint: scale * 4 / 3, stops: stops, last: last,
-      right: (marginLeft + width) * 0.75, marginRight: parseFloat(style.marginRight) || 0 };
+      right: (marginLeft + width) * 0.75, marginRight: parseFloat(style.marginRight) || 0,
+      label: alignedLabel(paragraph, style, scale) };
+  }
+
+  // A label Word centres (or right-aligns) on the indent (alignLabels) sits
+  // there in Word's own frame, and the tab after it goes to the first stop
+  // past the label's right edge, wherever the line itself lands: in a
+  // centred heading "I." ended 5.9 pt / 2 past the indent and the text
+  // started at the style's 10.8 pt stop, 7.8 pt after the label. Measured
+  // from the column, the label tab took 10.3 pt. Returns where the line
+  // starts in that frame (points from the column) and how far past the
+  // line's start the label ends (pixels), or null.
+  function alignedLabel(paragraph, style, scale) {
+    if (!paragraph.classList.contains("ld-lj-center") && !paragraph.classList.contains("ld-lj-right")) {
+      return null;
+    }
+    var first = paragraph.querySelector("span." + Fixups.TAB_CLASS);
+    if (!first) {
+      return null;
+    }
+    var head = document.createRange();
+    head.setStart(paragraph, 0);
+    head.setEndBefore(first);
+    if (/\S/.test(head.toString())) {
+      return null;
+    }
+    var width = parseFloat(getComputedStyle(paragraph, "::before").width) || 0;
+    var share = paragraph.classList.contains("ld-lj-center") ? 0.5 : 1;
+    return { tab: first, start: ((parseFloat(style.marginLeft) || 0) + (parseFloat(style.textIndent) || 0)) * 0.75,
+      past: width * (1 - share) * scale };
   }
 
   // Where a tab's line measures from: the left of the paragraph's fragment
@@ -3041,7 +3070,11 @@
         }
         var tab = item.tabs[round];
         var line = tab.getBoundingClientRect();
-        var x = (line.left - tabOrigin(item, line)) / item.info.perPoint;
+        var label = item.info.label;
+        var labelTab = label ? label.tab.getBoundingClientRect() : null;
+        var x = labelTab && Math.abs(labelTab.top - line.top) < 1 ?
+          label.start + (line.left - labelTab.left + label.past) / item.info.perPoint :
+          (line.left - tabOrigin(item, line)) / item.info.perPoint;
         var stop = nextTabStop(item.info, x);
         var width = stop.position - x;
         var field = "";
