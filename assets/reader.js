@@ -2229,17 +2229,56 @@
     return !!first && !!first.querySelector("[id^='" + Fixups.SAVED_PAGE_START + "']");
   }
 
+  // The text that does not fit can span sections. Its last section is the
+  // one the saved start is in, and continues in the first section of the
+  // page that starts there. The sections before it ended at continuous
+  // breaks: Word sets them at the top of the next page in their own columns,
+  // balanced, and that page's first section follows (Word 16 on
+  // tests/reader/make-section-flow-docx.mjs). Two lines of two-column text
+  // before a one-column figure section had made a page of their own. Such
+  // text continues when it takes at most FLOW_FILL of a page's text height.
+  var FLOW_FILL = 0.1;
+
+  // Whether the text of `page`, just split off, takes at most FLOW_FILL of
+  // its text area's height.
+  function isShort(page) {
+    var articles = childrenNamed(page, "ARTICLE");
+    var top = articles[0].getBoundingClientRect().top;
+    var limit = top + (contentBottom(page) - top) * FLOW_FILL;
+    fillPage(page, limit);
+    return articles[articles.length - 1].getBoundingClientRect().bottom <= limit;
+  }
+
   function flowsInto(rest, page) {
-    if (!page || !startsAtSavedBreak(page) || rest.style.cssText !== page.style.cssText) {
+    if (!page || !startsAtSavedBreak(page)) {
       return false;
     }
     var from = childrenNamed(rest, "ARTICLE");
-    var to = childrenNamed(page, "ARTICLE");
+    var last = from[from.length - 1];
+    var first = childrenNamed(page, "ARTICLE")[0];
     // A column section flows too, into a section with the same columns: in
     // two-column papers each overflow made a page that held a paragraph or
     // two, and a 17-page paper showed as 23 pages.
-    return from.length === 1 && to.length > 0 && columnCount(from[0]) === columnCount(to[0]) &&
-      from[0].style.cssText === to[0].style.cssText;
+    if (columnCount(last) !== columnCount(first) || last.style.cssText !== first.style.cssText) {
+      return false;
+    }
+    // `rest` copies the size and margins of the page it came off, which are
+    // those of that page's first section. Text of the one section that
+    // starts `page` takes that page's own: in Word a page has the top margin
+    // of the section at its top, and a paper whose title section's top
+    // margin is 1 pt less than its text's showed a line and a half on a page
+    // alone.
+    if (from.length === 1) {
+      return true;
+    }
+    // Earlier sections join only a page of the same size and margins (a
+    // continuous section on another page size starts a new page in Word),
+    // and only when the text is short. Word has no such limit. Here it
+    // keeps the change to the line or two that Word fits on the page
+    // before: text that takes more of a page keeps its own page, as it did,
+    // because continued it moved the starts of the pages after it off
+    // Word's.
+    return rest.style.cssText === page.style.cssText && isShort(rest);
   }
 
   // Takes every node of an article, waiting ones included, off it.
@@ -2263,11 +2302,16 @@
 
   // Moves the page `rest` holds to the front of `page`, which starts at a
   // saved page start, and removes `rest`. docx-preview split the paragraph
-  // the saved start is in; its two parts become one paragraph again.
+  // the saved start is in; its two parts become one paragraph again. The
+  // sections of `rest` before its last stay sections of their own, above.
   function flowInto(rest, page) {
     var target = childrenNamed(page, "ARTICLE")[0];
-    var moving = takeNodes(childrenNamed(rest, "ARTICLE")[0]);
+    var sections = childrenNamed(rest, "ARTICLE");
+    var moving = takeNodes(sections.pop());
     var staying = takeNodes(target);
+    sections.forEach(function (article) {
+      page.insertBefore(article, target);
+    });
     var tail = null;
     for (var back = moving.length - 1; back >= 0 && !tail; back -= 1) {
       tail = moving[back].nodeType === Node.ELEMENT_NODE ? moving[back] : null;
