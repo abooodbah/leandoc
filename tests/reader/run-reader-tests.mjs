@@ -17,8 +17,8 @@ import {
 import { makeBigDocx } from "./make-big-docx.mjs";
 import { makeFloatsDocx } from "./make-floats-docx.mjs";
 import {
-  makeBreakLinesDocx, makeCancelledNumberingDocx, makeEmptyMarkNoteDocx, makeEquationDocx, makeNumberedDocx, makeSoftHyphenDocx,
-  makeTightHyphenDocx, makeWideLinesDocx
+  makeBreakLinesDocx, makeCancelledNumberingDocx, makeEmptyMarkNoteDocx, makeEquationDocx, makeNumberedDocx, makeSmallCapsDocx,
+  makeSoftHyphenDocx, makeTightHyphenDocx, makeWideLinesDocx
 } from "./make-numbered-docx.mjs";
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeWordMetricsDocx } from "./make-saved-pages-docx.mjs";
@@ -3505,7 +3505,8 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
       const box = page.getBoundingClientRect();
       const scale = box.width / page.offsetWidth;
       const points = (value) => value / scale * 0.75;
-      const headings = Array.from(page.querySelectorAll("article p")).filter((p) => /heading/i.test(p.className)).map((p) => {
+      // Every page's headings: the pages share their left edge.
+      const headings = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx article p")).filter((p) => /heading/i.test(p.className)).map((p) => {
         // The label is the paragraph's ::before box, which no range reaches:
         // its left edge is where the first line starts plus its own margin.
         const style = getComputedStyle(p);
@@ -3527,30 +3528,69 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
           const x = points(range.getClientRects()[0].left - box.left);
           const tab = p.querySelector(".ld-tab");
           const first = tab && (tab.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) ? tab : null;
-          // Where the heading's last text starts, when it is not its first
-          // (text after a tab of the heading's own).
+          // Where the text after the heading's last tab of its own starts
+          // (a word's letters can be in more than one node).
           let after = NaN;
           let afterTab = NaN;
           const texts = [];
           const all = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
           let text;
           while ((text = all.nextNode())) {
-            if (/\S/.test(text.nodeValue) && !text.parentElement.closest(".ld-tab")) {
+            if (!text.parentElement.closest(".ld-tab")) {
               texts.push(text);
             }
           }
-          const lastText = texts[texts.length - 1];
-          if (lastText && lastText !== node) {
+          const following = (a, b) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+          const tabs = Array.from(p.querySelectorAll(".ld-tab")).filter((item) => item !== first && following(node, item) &&
+            texts.some((item2) => /\S/.test(item2.nodeValue) && following(item, item2)));
+          if (tabs.length) {
+            const lastTab = tabs[tabs.length - 1];
+            const lastText = texts.find((item) => /\S/.test(item.nodeValue) && following(lastTab, item));
             const next = document.createRange();
             const at = lastText.nodeValue.search(/\S/);
             next.setStart(lastText, at);
             next.setEnd(lastText, at + 1);
             after = points(next.getClientRects()[0].left - box.left);
-            const tabs = Array.from(p.querySelectorAll(".ld-tab")).filter((item) => item.compareDocumentPosition(lastText) & Node.DOCUMENT_POSITION_FOLLOWING);
-            afterTab = tabs.length ? points(tabs[tabs.length - 1].getBoundingClientRect().left - box.left) : NaN;
+            afterTab = points(lastTab.getBoundingClientRect().left - box.left);
           }
-          return { text: node.nodeValue.trim(), x, label, labelEnd: first ? points(first.getBoundingClientRect().left - box.left) : x,
-            labelWidth: (parseFloat(before.width) || NaN) * 0.75, after, afterTab };
+          // The heading's words and the lines they are on: a word's line is
+          // the row its first box is in (boxes of smaller letters sit lower
+          // on the same row).
+          const words = [];
+          let current = null;
+          texts.forEach((item) => {
+            for (let index = 0; index < item.nodeValue.length; index += 1) {
+              if (/\s/.test(item.nodeValue[index])) {
+                current = null;
+              } else {
+                if (!current) {
+                  current = { text: "", start: [item, index] };
+                  words.push(current);
+                }
+                current.text += item.nodeValue[index];
+                current.end = [item, index + 1];
+              }
+            }
+          });
+          const rows = [];
+          const lines = [];
+          words.forEach((word) => {
+            const range = document.createRange();
+            range.setStart(...word.start);
+            range.setEnd(...word.end);
+            const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0);
+            let row = rows.findIndex((item) => rects[0].top < item.bottom && rects[0].bottom > item.top);
+            if (row < 0) {
+              rows.push({ top: rects[0].top, bottom: rects[0].bottom });
+              lines.push([]);
+              row = rows.length - 1;
+            }
+            lines[row].push({ text: word.text, left: points(rects[0].left - box.left), right: points(rects[rects.length - 1].right - box.left) });
+          });
+          const own = p.cloneNode(true);
+          own.querySelectorAll(".ld-tab").forEach((item) => item.replaceWith("\t"));
+          return { text: own.textContent.trim().split("\t")[0].trim(), x, label, labelEnd: first ? points(first.getBoundingClientRect().left - box.left) : x,
+            labelWidth: (parseFloat(before.width) || NaN) * 0.75, after, afterTab, lines };
         }
         return { text: p.textContent.trim(), x: NaN, label, labelEnd: NaN };
       });
@@ -3660,6 +3700,192 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
         // the 36 pt default stop past the style's last.
         const rule = (heading.text === "Closing" ? 72 - 36 : 10.8) - heading.labelWidth / 2;
         assert.ok(Math.abs(gap - rule) <= 0.15, `"${heading.text}" starts ${gap} pt after its ${heading.labelWidth} pt label; Word's rule gives ${rule} pt`);
+      }
+    });
+  });
+
+  // Word's PDF of the fixture (centred: true, wrapped: true): headings VII.
+  // to XVII. are plain text, XVIII. to XXVI. small capitals as the IEEE
+  // template sets them. Word centres each line on the indent as if the
+  // label started there, and the label then reaches half its width left,
+  // past the column's 72 pt edge when the line is full (X., XI.). Small
+  // capitals are 80% capitals in Word, spaces included; Chrome drew them at
+  // 70%, so XXII. to XXV. held "Wi..." on their first line where Word's
+  // break before it, and their labels started up to 19 pt left of Word's.
+  // XII.'s "Tii" ends 0.4% short of the column here, where Word's does not
+  // fit: a near tie of plain text, left out.
+  test("a wrapped centred heading breaks where Word's does, with its label where Word's is", async () => {
+    await withHost({}, async (host) => {
+      const layout = await numberedLayout(host, { centred: true, wrapped: true });
+      const wrapped = layout.headings.slice(layout.headings.findIndex((heading) => heading.text === "Notes") + 1);
+      const word = [[73.10, "Anchor"], [72.38, "Packet"], [76.22, "Ledger"], [69.62, "T"], [66.74, "Ti"], [70.70, "Message", "near tie"],
+        [69.02, "Message"], [68.78, "Message"], [70.34, "Message"], [68.78, "Message"], [76.82, "Ledger"],
+        [63.38, "W" + "i".repeat(10)], [74.42, "W" + "i".repeat(11)], [74.66, "W" + "i".repeat(12)], [71.78, "W" + "i".repeat(13)],
+        [84.02, "Latency"], [82.34, "Latency"], [81.98, "Latency"], [83.66, "Latency"], [203.93, "Notes"]];
+      assert.equal(wrapped.length, word.length, `${wrapped.length} headings after "Notes"; the fixture has ${word.length}`);
+      wrapped.forEach((heading, index) => {
+        const [label, last, skip] = word[index];
+        if (skip) {
+          return;
+        }
+        const first = heading.lines[0].map((item) => item.text);
+        assert.equal(first[first.length - 1], last, `heading ${index + 7}'s first line ends "${first.slice(-2).join(" ")}"; Word's ends "${last}"`);
+        // Where the text is drawn in Times New Roman, as on Windows (see the
+        // test above); Liberation Serif has its widths but not its kerning.
+        // The label as drawn ends where its tab starts.
+        const drawn = heading.labelEnd - heading.labelWidth;
+        if (process.platform === "win32") {
+          assert.ok(Math.abs(drawn - label) <= 2, `the label of heading ${index + 7} starts at ${drawn} pt; Word's starts at ${label} pt`);
+        }
+      });
+      // Digits and punctuation stay whole: Word starts "2-B," at 274.97 pt
+      // and ends "Notes" at 394.40 pt. The text keeps its letters' case.
+      const phase = wrapped[wrapped.length - 1].lines[0];
+      assert.equal(phase.map((item) => item.text).join(" "), "Phase 2-B, Rev. 3.1 (Draft) Notes");
+      if (process.platform === "win32") {
+        assert.ok(Math.abs(phase[1].left - 274.97) <= 1, `"2-B," starts at ${phase[1].left} pt; Word's starts at 274.97 pt`);
+        assert.ok(Math.abs(phase[phase.length - 1].right - 394.40) <= 1, `"Notes" ends at ${phase[phase.length - 1].right} pt; Word's ends at 394.40 pt`);
+      }
+    });
+  });
+
+  // The fixture's last paragraphs: nine lower case words in small capitals
+  // set on the run, then a plain paragraph. Word's PDF ends "CACHE" at
+  // 373.89 pt, and the plain paragraph's line starts 11.5 pt below the
+  // small capitals' line, a 10 pt Times New Roman line: the small letters
+  // do not make the line smaller.
+  test("small capitals set on a run take Word's width and keep the line's height", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeNumberedDocx({ centred: true, wrapped: true });
+      await host.openDocument({ bytes, report, fileName: "numbered.docx" });
+      const result = await host.page.evaluate(() => {
+        const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+        const box = page.getBoundingClientRect();
+        const points = (value) => value / (box.width / page.offsetWidth) * 0.75;
+        const paragraphs = Array.from(document.querySelectorAll("#docBody article p"));
+        const index = paragraphs.findIndex((p) => p.textContent.trim().startsWith("buffer fabric kernel"));
+        const caps = paragraphs[index];
+        const range = document.createRange();
+        range.selectNodeContents(caps);
+        const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0);
+        return { text: caps.textContent.trim(), right: points(Math.max(...rects.map((rect) => rect.right)) - box.left),
+          pitch: points(paragraphs[index + 1].getBoundingClientRect().top - caps.getBoundingClientRect().top) };
+      });
+      assert.match(result.text, /^buffer fabric kernel channel thread vector signal memory cache$/);
+      if (process.platform === "win32") {
+        assert.ok(Math.abs(result.right - 373.89) <= 1, `"CACHE" ends at ${result.right} pt; Word's ends at 373.89 pt`);
+      }
+      assert.ok(Math.abs(result.pitch - 11.5) <= 0.3, `the next paragraph starts ${result.pitch} pt below; Word's starts 11.5 pt below`);
+    });
+  });
+
+  // makeSmallCapsDocx: small capitals in runs whose font is not the
+  // document's (Calibri 11) or the paragraph style's. Word's PDF of the
+  // fixture (Word 16) draws every small letter in its run's own font, at 80%
+  // of the run's size to the nearest half point; a run in capitals and small
+  // capitals all in full size capitals; "ß" as "ß". Positions are the x of
+  // each paragraph's closing "Sc", in points from the page's left edge.
+  async function smallCapsLayout(host) {
+    const { bytes, report } = await makeSmallCapsDocx();
+    await host.openDocument({ bytes, report, fileName: "small-caps.docx" });
+    return host.page.evaluate(() => {
+      const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+      const box = page.getBoundingClientRect();
+      const points = (value) => value / (box.width / page.offsetWidth) * 0.75;
+      const result = {};
+      document.querySelectorAll("#docBody article p").forEach((p) => {
+        const id = /^Sc(\d+)/i.exec(p.textContent);
+        if (!id) {
+          return;
+        }
+        const chars = [];
+        const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          for (let index = 0; index < node.data.length; index += 1) {
+            const range = document.createRange();
+            range.setStart(node, index);
+            range.setEnd(node, index + 1);
+            const rect = Array.from(range.getClientRects()).filter((r) => r.width > 0).pop();
+            if (rect) {
+              chars.push({ c: node.data[index], left: points(rect.left - box.left), top: points(rect.top - box.top) });
+            }
+          }
+        }
+        const lines = [];
+        chars.forEach((char) => {
+          let line = lines.find((each) => Math.abs(each.top - char.top) < 3);
+          if (!line) {
+            line = { top: char.top, text: "" };
+            lines.push(line);
+          }
+          line.text += char.c;
+        });
+        const text = chars.map((char) => char.c).join("");
+        const close = text.lastIndexOf("Sc");
+        result[id[1]] = {
+          closing: close > 0 ? chars[close].left : null,
+          first: chars[0].top,
+          ends: lines.map((line) => line.text.trim().split(/\s+/).pop().toUpperCase()),
+          innerText: p.innerText,
+          height: points(p.getBoundingClientRect().height),
+          spans: Array.from(p.querySelectorAll("span.ld-sc")).map((span) => {
+            const own = getComputedStyle(span);
+            const run = getComputedStyle(span.parentElement);
+            return { text: span.textContent, family: own.fontFamily, runFamily: run.fontFamily, weight: own.fontWeight, runWeight: run.fontWeight,
+              style: own.fontStyle, runStyle: run.fontStyle, size: parseFloat(own.fontSize) * 0.75, runSize: parseFloat(run.fontSize) * 0.75 };
+          })
+        };
+      });
+      return result;
+    });
+  }
+
+  test("small capitals keep their run's own font", async () => {
+    await withHost({}, async (host) => {
+      const layout = await smallCapsLayout(host);
+      ["1", "2", "3", "12"].forEach((id) => {
+        assert.ok(layout[id].spans.length > 0, `paragraph Sc${id} has small letters`);
+        layout[id].spans.forEach((span) => {
+          assert.equal(span.family, span.runFamily, `Sc${id} "${span.text}" is drawn in ${span.family}; its run's font is ${span.runFamily}`);
+          assert.equal(span.weight, span.runWeight, `Sc${id} "${span.text}" weight`);
+          assert.equal(span.style, span.runStyle, `Sc${id} "${span.text}" style`);
+        });
+      });
+      if (process.platform === "win32") {
+        // Word: Times New Roman bold 11.5 pt in a Calibri document, Arial
+        // 10 pt and Garamond 12 pt.
+        [["1", 348.79], ["2", 314.45], ["3", 346.03]].forEach(([id, word]) => {
+          assert.ok(Math.abs(layout[id].closing - word) <= 1, `Sc${id} closes at ${layout[id].closing} pt; Word's at ${word} pt`);
+        });
+        // The 90 Calibri words wrap to Word's 7 lines, each ending on
+        // Word's word.
+        assert.deepEqual(layout["12"].ends, ["STREAM", "CACHE", "KERNEL", "MESSAGE", "SWITCH", "THREAD", "SC"],
+          "the Calibri paragraph's lines end where Word's do");
+      }
+    });
+  });
+
+  test("small capitals take Word's size and leave capitals, ß and the line alone", async () => {
+    await withHost({}, async (host) => {
+      const layout = await smallCapsLayout(host);
+      // Capitals and small capitals: Word draws full size capitals.
+      assert.deepEqual(layout["4"].spans, [], "a run in capitals and small capitals gets no small letters");
+      // 80% to the nearest half point: 11.5, 8, 9, 12 and 14 pt runs.
+      [["1", 9], ["5", 6.5], ["6", 7], ["7", 9.5], ["8", 11]].forEach(([id, size]) => {
+        layout[id].spans.forEach((span) => {
+          assert.ok(Math.abs(span.size - size) < 0.01, `Sc${id} "${span.text}" is ${span.size} pt; Word's is ${size} pt`);
+        });
+      });
+      assert.match(layout["9"].innerText, /^Sc9 STRAUßE MAß LEDGER Sc$/, "ß stays ß");
+      // A heading at an exact 12 pt line: as tall as Word's line, and the
+      // next paragraph's first line 15.72 pt below its own, as in Word.
+      assert.ok(Math.abs(layout["13"].height - 12) <= 0.1, `the heading is ${layout["13"].height} pt tall; Word's line is 12 pt`);
+      const pitch = layout["14"].first - layout["13"].first;
+      assert.ok(Math.abs(pitch - 15.72) <= 0.3, `the next paragraph starts ${pitch} pt below the heading; Word's 15.72 pt`);
+      if (process.platform === "win32") {
+        [["4", 345.19], ["5", 261.65], ["6", 279.05], ["7", 351.43], ["8", 396.31], ["9", 182.06]].forEach(([id, word]) => {
+          assert.ok(Math.abs(layout[id].closing - word) <= 2, `Sc${id} closes at ${layout[id].closing} pt; Word's at ${word} pt`);
+        });
       }
     });
   });

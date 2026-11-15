@@ -117,7 +117,13 @@ function paragraph(text) {
 // Heading 1s ("I." to "IV.") and two Heading 2s follow one another; then
 // "V.", whose paragraph has a 36 pt left indent of its own, and "VI.",
 // whose text has a tab of its own after its first word.
-export async function makeNumberedDocx({ offPage = false, morePages = 0, centred = false } = {}) {
+const titleCase = (text) => text.split(" ").map((word) => word[0].toUpperCase() + word.slice(1)).join(" ");
+const PLAIN_WRAPPED = [titleCase(words(1, 15)), titleCase(words(2, 16)), titleCase(words(4, 15))]
+  .concat([0, 1, 2, 3, 4, 5, 6, 7].map((count) => titleCase(words(3, 14)) + " T" + "i".repeat(count)));
+const CAPS_WRAPPED = [0, 1, 2, 3, 4, 5, 6, 7].map((count) => titleCase(words(5, 11)) + " W" + "i".repeat(10 + count))
+  .concat(["Phase 2-B, Rev. 3.1 (Draft) Notes"]);
+
+export async function makeNumberedDocx({ offPage = false, morePages = 0, centred = false, wrapped = false } = {}) {
   const body = [];
   if (centred) {
     ["Introduction", "Method", "Results", "Outlook"].forEach((title, index) => {
@@ -133,6 +139,18 @@ export async function makeNumberedDocx({ offPage = false, morePages = 0, centred
     body.push(paragraph(`Closing para. ${words(8, 20)}.`));
     body.push(`<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Notes</w:t></w:r><w:r><w:tab/><w:t>Annex</w:t></w:r></w:p>`);
     body.push(paragraph(`Notes para. ${words(9, 20)}.`));
+    if (wrapped) {
+      PLAIN_WRAPPED.concat(CAPS_WRAPPED).forEach((title, index) => {
+        const caps = index < PLAIN_WRAPPED.length ? "<w:rPr><w:smallCaps w:val=\"0\"/></w:rPr>" : "";
+        body.push(`<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r>${caps}<w:t>${title}</w:t></w:r></w:p>`);
+        body.push(paragraph(`Wrapped para ${index + 1}. ${words(index + 3, 12)}.`));
+      });
+      // Small capitals set on the run, not the style: a paragraph of lower
+      // case words only, then a plain one.
+      body.push(`<w:p><w:pPr><w:ind w:firstLine="0"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:smallCaps/></w:rPr>` +
+        `<w:t>${words(6, 9)}</w:t></w:r></w:p>`);
+      body.push(paragraph(`Run caps para. ${words(7, 12)}.`));
+    }
   } else {
     body.push(`<w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr><w:r><w:t xml:space="preserve">Contents line heron about ${words(1, 9)}</w:t></w:r>` +
       `<w:r><w:tab/><w:t>12</w:t></w:r></w:p>`);
@@ -502,6 +520,66 @@ ${PLAIN_SECTION}
     "word/document.xml": documentXml,
     "word/_rels/document.xml.rels": DOCUMENT_RELS.replace(/<Relationship Id="rId[345]"[^>]*\/>\n?/g, ""),
     "word/styles.xml": `${SMALL_STYLES_HEAD}\n</w:styles>`,
+    "word/settings.xml": SETTINGS
+  });
+}
+
+// Small capitals in a Calibri 11 document, each case in a paragraph that
+// opens with a marker "Sc" and its number in the case's font and closes
+// with " Sc": a Times New Roman bold run at 11.5 pt, an Arial 10 run, a
+// Garamond 12 run, a Times New Roman 10 run in capitals and small capitals,
+// runs at 8, 9, 12 and 14 pt, a word with "ß", a heading whose style sets
+// the small capitals, and 90 words in Calibri 11 small capitals in a
+// justified paragraph whose style sets Times New Roman. Each run's font is
+// not the one its paragraph or the document sets. Last, the heading again
+// at an exact 12 pt line, and a plain paragraph. All text is made up.
+export function makeSmallCapsDocx() {
+  const text = "Ledger quorum ABC lease, 42-K. Relay window";
+  const props = (font, halfPoints, extra = "") =>
+    `<w:rPr><w:rFonts w:ascii="${font}" w:hAnsi="${font}" w:cs="${font}"/>${extra}<w:sz w:val="${halfPoints}"/><w:szCs w:val="${halfPoints}"/></w:rPr>`;
+  const run = (value, rPr = "") => `<w:r>${rPr}<w:t xml:space="preserve">${value}</w:t></w:r>`;
+  const line = (number, font, halfPoints, value, extra, pPr = "") =>
+    `<w:p><w:pPr>${pPr}<w:spacing w:after="120"/></w:pPr>${run(`Sc${number} `, props(font, halfPoints))}` +
+    `${run(value, props(font, halfPoints, extra))}${run(" Sc", props(font, halfPoints))}</w:p>`;
+  const cases = [
+    ["Times New Roman", 23, text, "<w:b/><w:smallCaps/>"],
+    ["Arial", 20, text, "<w:smallCaps/>"],
+    ["Garamond", 24, text, "<w:smallCaps/>"],
+    ["Times New Roman", 20, text, "<w:caps/><w:smallCaps/>"],
+    ["Times New Roman", 16, text, "<w:smallCaps/>"],
+    ["Times New Roman", 18, text, "<w:smallCaps/>"],
+    ["Times New Roman", 24, text, "<w:smallCaps/>"],
+    ["Times New Roman", 28, text, "<w:smallCaps/>"],
+    ["Times New Roman", 20, "Strauße maß Ledger", "<w:smallCaps/>"]
+  ];
+  const paragraphs = cases.map(([font, halfPoints, value, extra], index) => line(index + 1, font, halfPoints, value, extra));
+  paragraphs.push(`<w:p><w:pPr><w:pStyle w:val="ScHeading"/></w:pPr>${run("Sc10 Ledger quorum of the relay window")}</w:p>`);
+  paragraphs.push(`<w:p><w:pPr><w:pStyle w:val="ScBody"/></w:pPr>${run(`Sc11 ${words(3, 30)}.`)}</w:p>`);
+  paragraphs.push(line(12, "Calibri", 22, words(5, 90), "<w:smallCaps/>", `<w:pStyle w:val="ScBody"/>`));
+  paragraphs.push(`<w:p><w:pPr><w:pStyle w:val="ScHeading"/><w:spacing w:before="160" w:after="80" w:line="240" w:lineRule="exact"/></w:pPr>` +
+    `${run("Sc13 Lease of the quorum window")}</w:p>`);
+  paragraphs.push(`<w:p><w:pPr><w:pStyle w:val="ScBody"/></w:pPr>${run(`Sc14 ${words(4, 12)}.`)}</w:p>`);
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${paragraphs.join("\n")}
+${PLAIN_SECTION}
+</w:body></w:document>`;
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="${W}">
+<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr></w:rPrDefault>
+<w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>
+<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>
+<w:style w:type="paragraph" w:styleId="ScHeading"><w:name w:val="Sc Heading"/><w:basedOn w:val="Normal"/>
+<w:pPr><w:keepNext/><w:spacing w:before="160" w:after="80"/><w:jc w:val="center"/></w:pPr>
+<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:smallCaps/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="ScBody"><w:name w:val="Sc Body"/><w:basedOn w:val="Normal"/>
+<w:pPr><w:jc w:val="both"/></w:pPr><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style>
+</w:styles>`;
+  return packageDocx({
+    "[Content_Types].xml": CONTENT_TYPES.replace(/<Override PartName="\/word\/(numbering|header1|footer1)\.xml"[^>]*\/>\n?/g, ""),
+    "_rels/.rels": ROOT_RELS,
+    "word/document.xml": documentXml,
+    "word/_rels/document.xml.rels": DOCUMENT_RELS.replace(/<Relationship Id="rId[345]"[^>]*\/>\n?/g, ""),
+    "word/styles.xml": styles,
     "word/settings.xml": SETTINGS
   });
 }

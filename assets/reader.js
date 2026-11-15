@@ -2956,6 +2956,9 @@
     matchStandInWidths(container);
     fitParagraphsToRuns(container);
     setSingleLines(container);
+    // After the runs' sizes are read (fitParagraphsToRuns), so the smaller
+    // capitals do not set a paragraph's size; before any line is measured.
+    matchSmallCaps(container);
     alignLabels(container);
     // Before the tabs: setTabStops reads the layout this pass reads, so a
     // page with no wide equation is not laid out again. Read after the last
@@ -2963,6 +2966,116 @@
     wrapWideMaths(container);
     setTabStops(container);
     shrinkJustifiedSpaces(container);
+  }
+
+  // Word draws small capitals (w:smallCaps) at 80% of the run's size,
+  // rounded to the nearest half point (11.5 pt runs get 9 pt letters), and
+  // its spaces too; Chrome draws them at 70% and keeps the spaces whole. A
+  // centred IEEE heading's first line was 3.7 pt narrower than Word's, took
+  // one word more and moved its label 12 pt left. Each run of lower case
+  // letters and spaces in small-capital text becomes a span of capitals at
+  // that size (the text itself is kept, for copying and search). Digits,
+  // punctuation and capitals stay at full size, as in Word's PDF. A run in
+  // capitals as well (w:caps) is left alone: Word draws all of it in full
+  // size capitals. A letter whose capital is two letters ("ß") stays as it
+  // is, at the small size, as in Word.
+  var SMALL_CAPS_CLASS = "ld-sc";
+  var SMALL_CAPS_KEEP_CLASS = "ld-sc-keep";
+  var smallCapsSelectors = new WeakMap();
+
+  function smallCapsSelector() {
+    var selectors = ['[style*="small-caps"]'];
+    Array.prototype.forEach.call(document.styleSheets, function (sheet) {
+      var found = smallCapsSelectors.get(sheet);
+      if (!found) {
+        found = [];
+        var rules = null;
+        try {
+          rules = sheet.cssRules;
+        } catch (error) {
+          rules = null;
+        }
+        Array.prototype.forEach.call(rules || [], function (rule) {
+          if (rule.selectorText && rule.style && /small-caps/.test(rule.style.fontVariant || rule.style.fontVariantCaps || "") &&
+              rule.selectorText.indexOf("." + SMALL_CAPS_CLASS) < 0) {
+            found.push(rule.selectorText);
+          }
+        });
+        smallCapsSelectors.set(sheet, found);
+      }
+      selectors = selectors.concat(found);
+    });
+    return selectors.join(",");
+  }
+
+  // The small letters' size as a share of the run's: 80% of the size in
+  // points, to the nearest half point.
+  function smallCapsScale(fontSize) {
+    var points = parseFloat(fontSize) * 0.75;
+    return points > 0 ? Math.round(points * 1.6) / 2 / points : 0.8;
+  }
+
+  function smallCapsSpan(text, scale, keep) {
+    var small = document.createElement("span");
+    small.className = keep ? SMALL_CAPS_CLASS + " " + SMALL_CAPS_KEEP_CLASS : SMALL_CAPS_CLASS;
+    small.style.fontSize = scale + "em";
+    small.textContent = text;
+    return small;
+  }
+
+  function matchSmallCaps(container) {
+    if (!container.querySelectorAll) {
+      return;
+    }
+    var elements = [];
+    container.querySelectorAll(smallCapsSelector()).forEach(function (element) {
+      if (!hasOwnText(element)) {
+        return;
+      }
+      var style = getComputedStyle(element);
+      if (style.fontVariantCaps === "small-caps" && style.textTransform !== "uppercase") {
+        elements.push({ element: element, scale: smallCapsScale(style.fontSize) });
+      }
+    });
+    elements.forEach(function (item) {
+      var element = item.element;
+      Array.prototype.slice.call(element.childNodes).forEach(function (node) {
+        if (node.nodeType !== 3 || !/[^\S\u00a0]|\p{Ll}/u.test(node.data)) {
+          return;
+        }
+        var parts = node.data.split(/((?:[^\S\u00a0]|\p{Ll})+)/u);
+        var fragment = document.createDocumentFragment();
+        parts.forEach(function (part, index) {
+          if (!part) {
+            return;
+          }
+          if (!(index % 2)) {
+            fragment.appendChild(document.createTextNode(part));
+            return;
+          }
+          if (part.toUpperCase().length === part.length) {
+            fragment.appendChild(smallCapsSpan(part, item.scale, false));
+            return;
+          }
+          // Letters whose capital is more than one letter, apart.
+          part.split(/(\p{Ll})/u).reduce(function (runs, piece) {
+            if (piece) {
+              var keep = piece.length === 1 && piece.toUpperCase().length > 1;
+              var last = runs[runs.length - 1];
+              if (last && last.keep === keep) {
+                last.text += piece;
+              } else {
+                runs.push({ text: piece, keep: keep });
+              }
+            }
+            return runs;
+          }, []).forEach(function (run) {
+            fragment.appendChild(smallCapsSpan(run.text, item.scale, run.keep));
+          });
+        });
+        element.replaceChild(fragment, node);
+      });
+    });
   }
 
   // A numbering label Word centres (or right-aligns) on the indent
