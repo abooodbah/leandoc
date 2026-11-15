@@ -3222,8 +3222,8 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
   // "A." at the margin, then the style's 14.4 pt stop and the 36 pt default
   // stop). The contents line is one line. The header's page number prints
   // at 6.96 pt, the footer's at 9.96 pt.
-  async function numberedLayout(host) {
-    const { bytes, report } = await makeNumberedDocx();
+  async function numberedLayout(host, options = {}) {
+    const { bytes, report } = await makeNumberedDocx(options);
     await host.openDocument({ bytes, report, fileName: "numbered.docx" });
     return host.page.evaluate(() => {
       const page = document.querySelector("#docBody .docx-wrapper > section.docx");
@@ -3247,15 +3247,23 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
           const range = document.createRange();
           range.setStart(node, start);
           range.setEnd(node, start + 1);
-          return { text: node.nodeValue.trim(), x: points(range.getClientRects()[0].left - box.left), label };
+          // The label ends where the paragraph's first content starts: the
+          // label's tab, or the text when there is no tab.
+          const x = points(range.getClientRects()[0].left - box.left);
+          const tab = p.querySelector(".ld-tab");
+          const first = tab && (tab.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) ? tab : null;
+          return { text: node.nodeValue.trim(), x, label, labelEnd: first ? points(first.getBoundingClientRect().left - box.left) : x,
+            labelWidth: (parseFloat(before.width) || NaN) * 0.75 };
         }
-        return { text: p.textContent.trim(), x: NaN, label };
+        return { text: p.textContent.trim(), x: NaN, label, labelEnd: NaN };
       });
       const contents = Array.from(page.querySelectorAll("article p")).find((p) => p.textContent.includes("Contents line heron"));
       const range = document.createRange();
-      range.selectNodeContents(contents);
       const tops = [];
-      for (const rect of range.getClientRects()) {
+      if (contents) {
+        range.selectNodeContents(contents);
+      }
+      for (const rect of contents ? range.getClientRects() : []) {
         if (rect.width > 0 && !tops.some((top) => Math.abs(top - rect.top) < 4)) {
           tops.push(rect.top);
         }
@@ -3295,6 +3303,38 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
       layout.headings.forEach((heading, index) => {
         assert.ok(Math.abs(heading.label - word[index]) <= 1, `the label of "${heading.text}" starts at ${heading.label} pt; Word's starts at ${word[index]} pt`);
       });
+    });
+  });
+
+  // The IEEE template centres its Heading 1 paragraphs, and their text does
+  // not start with a tab: the label's own tab parts "I." from the text. Word
+  // centres the label on the indent and sends the tab to the first stop past
+  // the label's right edge, the style's 10.8 pt stop, so the gap is 10.8 pt
+  // less half the label: Word's PDF of the fixture (centred: true) has 7.83,
+  // 6.15, 4.47 and 4.25 pt after "I." to "IV.", and the text starting at
+  // 280.85, 293.45, 293.45 and 291.41 pt. The label was an inline block
+  // whose tab collapsed: "I.Introduction". (A Heading 2's "A." is left
+  // aligned and keeps docx-preview's label, as on main: its text starts
+  // 2.2 pt left of Word's 86.42 pt, a known gap this test leaves out.)
+  // Chrome's small capitals are narrower than Word's ("Results" by about
+  // 3 pt, "IV." by 1.2 pt), and the centred line moves by half of that: the
+  // start is held to 2 pt and the gap to 0.7 pt of Word's, and the gap to
+  // 0.15 pt of Word's rule, 10.8 pt less half the label as drawn here.
+  test("a centred heading label keeps Word's gap before the heading's text", async () => {
+    await withHost({}, async (host) => {
+      const layout = await numberedLayout(host, { centred: true });
+      const word = { Introduction: { x: 280.85, gap: 7.83 }, Method: { x: 293.45, gap: 6.15 }, Results: { x: 293.45, gap: 4.47 },
+        Outlook: { x: 291.41, gap: 4.25 } };
+      const headings = layout.headings.filter((heading) => !/Part$/.test(heading.text));
+      assert.deepEqual(headings.map((heading) => heading.text), Object.keys(word));
+      for (const heading of headings) {
+        const expected = word[heading.text];
+        assert.ok(Math.abs(heading.x - expected.x) <= 2, `"${heading.text}" starts at ${heading.x} pt; Word's starts at ${expected.x} pt`);
+        const gap = heading.x - heading.labelEnd;
+        assert.ok(Math.abs(gap - expected.gap) <= 0.7, `"${heading.text}" starts ${gap} pt after its label; Word's starts ${expected.gap} pt after it`);
+        const rule = 10.8 - heading.labelWidth / 2;
+        assert.ok(Math.abs(gap - rule) <= 0.15, `"${heading.text}" starts ${gap} pt after its ${heading.labelWidth} pt label; Word's rule gives ${rule} pt`);
+      }
     });
   });
 

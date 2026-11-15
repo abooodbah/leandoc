@@ -100,8 +100,8 @@ function words(seed, count) {
   return out.join(" ");
 }
 
-function heading(text, style) {
-  return `<w:p><w:pPr><w:pStyle w:val="${style}"/></w:pPr><w:r><w:tab/><w:t>${text}</w:t></w:r></w:p>`;
+function heading(text, style, tab = true) {
+  return `<w:p><w:pPr><w:pStyle w:val="${style}"/></w:pPr><w:r>${tab ? "<w:tab/>" : ""}<w:t>${text}</w:t></w:r></w:p>`;
 }
 
 function paragraph(text) {
@@ -111,18 +111,34 @@ function paragraph(text) {
 // With `morePages`, that many one-paragraph pages follow, each after a page
 // break. docx-preview makes a section of each page, and a document of more
 // than 60 sections opens in batches (reader.js PROGRESSIVE_PAGES).
-export async function makeNumberedDocx({ offPage = false, morePages = 0 } = {}) {
+// With `centred`, the headings are set as the IEEE template sets them: the
+// Heading 1 style centres its paragraphs, and no heading starts with a tab
+// of its own, so the label's tab alone parts "I." from the text. Four
+// Heading 1s ("I." to "IV.") and two Heading 2s follow one another.
+export async function makeNumberedDocx({ offPage = false, morePages = 0, centred = false } = {}) {
   const body = [];
-  body.push(`<w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr><w:r><w:t xml:space="preserve">Contents line heron about ${words(1, 9)}</w:t></w:r>` +
-    `<w:r><w:tab/><w:t>12</w:t></w:r></w:p>`);
-  body.push(heading("Introduction", "Heading1"));
-  body.push(paragraph(`Lead para. ${words(2, 40)}.`));
-  ["Alpha Part", "Beta Part", "Gamma Part", "Delta Part"].forEach((title, index) => {
-    body.push(heading(title, "Heading2"));
-    body.push(paragraph(`Part para ${index + 1}. ${words(index + 3, 30)}.`));
-  });
-  body.push(heading("Method", "Heading1"));
-  body.push(paragraph(`Method para. ${words(9, 30)}.`));
+  if (centred) {
+    ["Introduction", "Method", "Results", "Outlook"].forEach((title, index) => {
+      body.push(heading(title, "Heading1", false));
+      body.push(paragraph(`Lead para ${index + 1}. ${words(index + 2, 30)}.`));
+      if (index === 1) {
+        body.push(heading("Alpha Part", "Heading2", false));
+        body.push(paragraph(`Part para. ${words(index + 5, 20)}.`));
+        body.push(heading("Beta Part", "Heading2", false));
+      }
+    });
+  } else {
+    body.push(`<w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr><w:r><w:t xml:space="preserve">Contents line heron about ${words(1, 9)}</w:t></w:r>` +
+      `<w:r><w:tab/><w:t>12</w:t></w:r></w:p>`);
+    body.push(heading("Introduction", "Heading1"));
+    body.push(paragraph(`Lead para. ${words(2, 40)}.`));
+    ["Alpha Part", "Beta Part", "Gamma Part", "Delta Part"].forEach((title, index) => {
+      body.push(heading(title, "Heading2"));
+      body.push(paragraph(`Part para ${index + 1}. ${words(index + 3, 30)}.`));
+    });
+    body.push(heading("Method", "Heading1"));
+    body.push(paragraph(`Method para. ${words(9, 30)}.`));
+  }
   for (let index = 1; index <= morePages; index += 1) {
     body.push(`<w:p><w:r><w:br w:type="page"/></w:r><w:r><w:t xml:space="preserve">Later page ${index}. ${words(index, 20)}.</w:t></w:r></w:p>`);
   }
@@ -137,7 +153,9 @@ export async function makeNumberedDocx({ offPage = false, morePages = 0 } = {}) 
   zip.file("_rels/.rels", ROOT_RELS, options);
   zip.file("word/document.xml", documentXml, options);
   zip.file("word/_rels/document.xml.rels", DOCUMENT_RELS, options);
-  zip.file("word/styles.xml", STYLES, options);
+  const styles = centred ? STYLES.replace('<w:ind w:firstLine="0"/><w:jc w:val="left"/><w:outlineLvl w:val="0"/>',
+    '<w:ind w:firstLine="0"/><w:jc w:val="center"/><w:outlineLvl w:val="0"/>') : STYLES;
+  zip.file("word/styles.xml", styles, options);
   zip.file("word/settings.xml", SETTINGS, options);
   zip.file("word/numbering.xml", NUMBERING, options);
   // offPage: the header's right indent is -108 pt, 36 pt past the paper's
