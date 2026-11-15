@@ -18,6 +18,11 @@
 // 1-inch top margin, then a two-column section of `lines` lines with a
 // 1.5-inch top margin after a continuous break. Page 1 holds 60 of its lines
 // and each later page 68; the saved page starts sit `stale` lines later.
+// With `wideTableAfter`, a floating table as wide as both columns follows
+// that line: one cell with a 54 pt line for a figure and a caption line
+// longer than a column, anchored to the margin (w:tblpPr), as a figure with
+// its caption is set in a two-column paper. With `floating: false` the same
+// table is in the text's flow.
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -122,7 +127,18 @@ export async function makeFigureSectionDocx({ extra = 2, columnLines = 36, figur
   return pack(body, `<w:type w:val="continuous"/>${page(figureSize)}${columns(2)}`);
 }
 
-export async function makeMarginSectionsDocx({ lines = 140, stale = 2 } = {}) {
+export const WIDE_CAPTION = "Wide caption one: this line is longer than a column and shorter than both of them.";
+
+// A table 468 pt wide, the width of the text area.
+function wideTable(floating) {
+  const none = `<w:top w:w="0" w:type="dxa"/><w:left w:w="0" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/>`;
+  return `<w:tbl><w:tblPr>${floating ? `<w:tblpPr w:vertAnchor="text" w:horzAnchor="margin"/><w:tblOverlap w:val="never"/>` : ""}` +
+    `<w:tblW w:w="9360" w:type="dxa"/><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar>${none}</w:tblCellMar></w:tblPr>` +
+    `<w:tblGrid><w:gridCol w:w="9360"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w="9360" w:type="dxa"/></w:tcPr>` +
+    `${line("Wide figure one.", { height: 1080 })}${line(WIDE_CAPTION)}</w:tc></w:tr></w:tbl>`;
+}
+
+export async function makeMarginSectionsDocx({ lines = 140, stale = 2, wideTableAfter = 0, floating = true } = {}) {
   const body = [];
   for (let index = 1; index <= 6; index += 1) {
     body.push(line(`Title line ${index}.`));
@@ -131,6 +147,9 @@ export async function makeMarginSectionsDocx({ lines = 140, stale = 2 } = {}) {
   for (let index = 1; index <= lines; index += 1) {
     // Word's pages start at lines 61 and 129.
     body.push(line(`Alpha line ${index}.`, { saved: index === 61 + stale || index === 129 + stale }));
+    if (index === wideTableAfter) {
+      body.push(wideTable(floating));
+    }
   }
   return pack(body, `<w:type w:val="continuous"/>${PORTRAIT}${margins(2160)}${columns(2)}`);
 }

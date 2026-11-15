@@ -22,7 +22,7 @@ import {
 } from "./make-numbered-docx.mjs";
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeWordMetricsDocx } from "./make-saved-pages-docx.mjs";
-import { makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
+import { WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
 let browser;
@@ -2743,6 +2743,65 @@ describe("text past a saved page start continues on that page across a section b
       assert.deepEqual(counts(pages), [66, 68, 12]);
       near(find(pages[1], "Alpha line 61.").top, 144, "line 61 top");
       assertInside(pages);
+    });
+  });
+
+  // A floating table as wide as both columns, with a caption longer than a
+  // column, follows line 92 of the two-margin document. Word gives 2 pages
+  // and sets the table whole at the top of page 2, from the left margin
+  // (72 pt). The reader sets such a table in the column where its place in
+  // the text falls. After lines 63 to 92 it fits at the foot of the first
+  // column and reaches across the second. With lines 61 and 62 continued
+  // above them it starts the second column, and its caption runs past the
+  // page's edge. So a document with such a table keeps the page breaks it
+  // had: lines 61 and 62 on a page of their own, 3 pages, the caption whole.
+  test("a floating table wider than a column keeps its caption whole after two lines that run past a page", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeMarginSectionsDocx({ lines: 100, wideTableAfter: 92 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "wide-table.docx" });
+      const pages = await layout(host);
+      const caption = await host.page.evaluate((text) => {
+        const paragraph = Array.from(document.querySelectorAll("#docBody article td p")).find((p) => p.textContent.trim() === text);
+        const page = paragraph.closest("section.docx");
+        const box = page.getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(paragraph);
+        const rects = Array.from(range.getClientRects());
+        return {
+          left: Math.min(...rects.map((rect) => rect.left)) - box.left,
+          right: Math.max(...rects.map((rect) => rect.right)) - box.left,
+          edge: box.width - parseFloat(getComputedStyle(page).paddingRight)
+        };
+      }, WIDE_CAPTION);
+      assert.ok(caption.right <= caption.edge + 0.5, `the caption ends at ${caption.right} px, the text area at ${caption.edge} px`);
+      near(caption.left, 96, "caption left");
+      assert.equal(rendered.pages, 3, "the reader gives 3 pages; Word gives 2");
+      assert.deepEqual(starts(pages), ["Title line 1.", "Alpha line 61.", "Alpha line 63."]);
+      assert.deepEqual(texts(pages), [...Array.from({ length: 6 }, (_, index) => `Title line ${index + 1}.`), ...alpha(1, 100)]);
+    });
+  });
+
+  // The same table in the text's flow, not floating (no w:tblpPr). Word
+  // gives 2 pages and sets it at the top of the second column (324 pt,
+  // 108 pt), where it runs past the page as it does in the reader. Such a
+  // table holds nothing back: lines 61 and 62 continue.
+  test("a table wider than a column that is in the text's flow goes where Word puts it", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeMarginSectionsDocx({ lines: 100, wideTableAfter: 92, floating: false });
+      const rendered = await host.openDocument({ bytes, report, fileName: "wide-table-in-flow.docx" });
+      const pages = await layout(host);
+      assert.equal(rendered.pages, 2, "Word gives 2 pages");
+      assert.deepEqual(starts(pages), ["Title line 1.", "Alpha line 61."]);
+      const table = await host.page.evaluate(() => {
+        const element = document.querySelector("#docBody article > table");
+        const page = element.closest("section.docx");
+        const box = page.getBoundingClientRect();
+        const rect = element.getBoundingClientRect();
+        return { page: Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx")).indexOf(page) + 1, left: rect.left - box.left, top: rect.top - box.top };
+      });
+      assert.equal(table.page, 2);
+      near(table.left, 432, "table left");
+      near(table.top, 144, "table top");
     });
   });
 
