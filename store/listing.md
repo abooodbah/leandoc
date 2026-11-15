@@ -1,13 +1,13 @@
 # LeanDoc Microsoft Store listing
 
-Paste each field into Partner Center > your app > Submission > Store listings > English (United States). Every value below was checked against the README and the app on 2026-10-24.
+Paste each field into Partner Center > your app > Submission > Store listings > English (United States). Every value below was checked against the README and the app on 2026-11-15.
 
 ## Product
 
-- Product name (reserve this exact name): LeanDoc
+- Product name (reserve this exact name): LeanDoc. The listing can show "LeanDoc Word Viewer" only after that name is also reserved in Partner Center (Product management > Manage product names); the package's display name stays LeanDoc.
 - Publisher display name: Lean Apps Studio
-- Short title (50 characters or fewer): LeanDoc: Word document viewer
-- Version in this pack: 0.2.0 (package version 0.2.0.0)
+- Short title (50 characters or fewer): LeanDoc Word Viewer
+- Version in this pack: 0.3.0 (package version 0.3.0.0)
 - File types it shows as pages: Word documents (.docx, .docm, .dotx, .dotm). Older .doc files, .rtf, and .odt are not shown: they open to a page that offers your editor
 
 ## Short description
@@ -18,32 +18,34 @@ Read Word documents as pages, without an office suite. Nothing in the file runs.
 
 ## Description
 
-LeanDoc is a read-only viewer for Word documents (.docx, .docm, .dotx, .dotm). It opens a document as pages so you can read it, and has one button that hands the file to a full editor when you need to change it.
+LeanDoc Word Viewer reads Word documents without Word. Open a .docx and LeanDoc shows it as pages, with headers, footers, tables, footnotes, pictures, numbered lists, and right-to-left text such as Arabic. Reading view reflows the text to the window.
 
-LeanDoc never runs macros and never fetches anything a document points to, such as remote templates, linked images, or linked fields. Before the page is drawn, the document is copied into a cleaned version that keeps only the text, styles, numbering, tables, pictures, headers, footers, and notes.
+Version 0.3.0 lays pages out closer to Word. Two-column papers keep their columns. Tables and figures that Word floats at the top or foot of a page sit there, and the text no longer runs over them. Contents pages keep their dot leaders and page numbers, and files saved in Word's Strict format keep their styles and lists.
 
-It shows paragraph and character styles, multi-level numbering, tables with merged cells, pictures, headers and footers, footnotes and endnotes, and right-to-left text such as Arabic. Page view is the default; reading view reflows the text to the window. A heading outline, find, zoom from 50 to 300 percent, and light and dark themes are built in. Each document opens as a tab in one window.
+Safe for attachments: macros never run, and nothing a document points to is fetched from the internet. A small bar names anything LeanDoc does not display yet, such as charts or SmartArt, and one button opens the file in Word, LibreOffice, or your default editor.
 
-When a document holds something LeanDoc does not display, such as a chart or a text box, a bar above the page says so and offers the editor. Older .doc files, .rtf, and .odt files get a page that says what the file is, with the same button.
+Find, zoom, a heading outline, tabs for several documents, five themes, and a page colour setting. No telemetry, no update check, and no account.
 
-LeanDoc draws pages with the Microsoft Edge WebView2 runtime that Windows already provides. Its own code makes no network requests.
-
-LeanDoc is free and open source under the MIT License.
+LeanDoc draws pages with the Microsoft Edge WebView2 runtime that Windows already provides. It is free and open source under the MIT License.
 
 ## Product features
 
 - Opens .docx, .docm, .dotx, and .dotm documents as pages
-- Macros never run; remote templates, images, and fields are never fetched
+- Two-column layouts, such as IEEE papers, with references in two columns
+- Floating tables and figures placed at the top or foot of the page, as in Word
+- Tab stops with dot leaders, so contents pages line up
+- Page numbers, footnotes, endnotes, headers, and footers
 - Styles, multi-level numbering, tables with merged cells, and pictures
-- Headers, footers, footnotes, and endnotes
+- Files saved in Word's Strict format keep their styles and lists
 - Right-to-left text, including Arabic
 - Page view and reading view
 - Heading outline and find
 - Zoom from 50 to 300 percent, with fit width
+- Each document opens as a tab in one window
+- Macros never run; remote templates, images, and fields are never fetched
 - A bar names any content that is not displayed
 - One button opens the file in your installed editor
-- Each document opens as a tab in one window
-- Light, dark, and system themes
+- Five themes and a page colour setting
 - No telemetry, no account, no update check
 - Free and open source (MIT License)
 
@@ -51,10 +53,10 @@ LeanDoc is free and open source under the MIT License.
 
 - word viewer
 - docx viewer
-- docx
+- docx reader
 - document viewer
 - read docx
-- wordpad
+- word document
 - office
 
 ## Category
@@ -64,7 +66,7 @@ LeanDoc is free and open source under the MIT License.
 
 ## What's new in this version
 
-Two softer dark themes, Dim and Dusk, a settings panel with every keyboard shortcut, and a page colour setting: keep the page white like paper or give it the theme's colours. Find, zoom, and the switch between page and reading view do less work.
+Page view is closer to Word. Floating tables and figures sit where Word puts them, two-column papers keep their columns, and contents pages keep their dot leaders. Page numbers, footnote marks, centred numbered headings, long equations, and small capitals are drawn more like Word, and Strict format files keep their styles and lists. Some documents open a little more slowly.
 
 ## Copyright and trademark info
 
@@ -84,11 +86,15 @@ Copyright (c) 2026 Abdulfatah Bahbouh. Released under the MIT License.
 
 ## Screenshots
 
-Upload the files in `store/screenshots/` in this order (Desktop, 1920x1080). Each one is the packaged app running on Windows 11 with public sample files from this repository or generated sample data.
+Upload the files in `store/screenshots/` in this order (Desktop, 1920x1080). Each one is the packaged app running on Windows 11 with public sample files from this repository or generated sample data. 01 to 04 are LeanDoc 0.3.0 with the two sample documents that `docs/images/screenshot-source/make-store-paper-docs.py` writes; 05 to 08 are from 0.2.0.
 
 | File | Caption |
 | --- | --- |
-| 01-report-page.png | A report with a heading outline, a cost table, and an Arabic summary, in page view. |
-| 02-fidelity-bar-dark.png | A draft with a text box and tracked changes; the bar above the page says what is not displayed. |
-| 03-reading-view-dark.png | The report in reading view with the dark theme. |
-| 04-tabs.png | Two documents open as tabs. |
+| 01-two-column-paper.png | A two-column sample paper in page view, with its footnotes at the foot of the page. |
+| 02-floating-table-figure.png | A table floated to the top of the page and a figure to the foot, with the references in two columns. |
+| 03-contents-leaders.png | A contents page with dot leaders and right-aligned page numbers. |
+| 04-paper-dark.png | The sample paper with the dark theme; the page stays white like paper. |
+| 05-report-page.png | A report with a heading outline, a cost table, and an Arabic summary, in page view. |
+| 06-fidelity-bar-dark.png | A draft with a text box and tracked changes; the bar above the page says what is not displayed. |
+| 07-reading-view-dark.png | The report in reading view with the dark theme. |
+| 08-tabs.png | Two documents open as tabs. |

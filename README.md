@@ -1,6 +1,6 @@
 # LeanDoc: a free, read-only Word (.docx) viewer for Windows, Linux and macOS
 
-Open a .docx without Microsoft Office. LeanDoc shows the document as pages, never runs macros, and never fetches anything the document points to. MIT licensed, no telemetry. The 0.2.0 Windows download is a 950 KiB ZIP.
+Open a .docx without Microsoft Office. LeanDoc shows the document as pages, never runs macros, and never fetches anything the document points to. MIT licensed, no telemetry. The 0.3.0 Windows download is a 972 KiB ZIP.
 
 [Website](https://abooodbah.github.io/leandoc/) · [Microsoft Store](https://apps.microsoft.com/detail/9NSM04BJL6F6) · `winget install abooodbah.LeanDoc` · `choco install leandoc` · [Open a .docx without Word](https://abooodbah.github.io/leandoc/open-docx-without-word/) · [Releases feed (Atom)](https://github.com/abooodbah/leandoc/releases.atom) · [All Lean apps](https://abooodbah.github.io/)
 
@@ -391,8 +391,10 @@ sheet are 39,855 bytes larger than in 0.1.4; in 0.3.0 the reader's two
 scripts and its style sheet are 80,634 bytes larger than in 0.2.0. The
 0.2.0 release files are
 972,464 bytes (Windows ZIP), 625,478 bytes (Linux `.deb`), and 811,831 bytes
-(macOS ZIP), as the GitHub release lists them on 2026-11-07; their unpacked
-sizes have not been measured again.
+(macOS ZIP), as the GitHub release lists them on 2026-11-07. The 0.3.0
+release files are 995,150 bytes (Windows ZIP), 646,610 bytes (Linux `.deb`),
+and 833,939 bytes (macOS ZIP), as the GitHub release lists them on
+2026-11-15. Unpacked sizes have not been measured again.
 
 Measured figures will be added after a run on a reference Windows machine; the method is in [tests/owner/README.md](tests/owner/README.md).
 
