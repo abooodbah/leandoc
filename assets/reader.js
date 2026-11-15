@@ -2249,25 +2249,51 @@
     return articles[articles.length - 1].getBoundingClientRect().bottom <= limit;
   }
 
-  // docx-preview draws a floating table (w:tblpPr) as a CSS float in the
-  // column where its place in the text falls. One wider than its column
-  // (its section's width over the columns) reaches across the next column
-  // from the first, and runs past the page's edge from the last, where Word
-  // sets it across the columns from the margin. A page break that moves can
-  // move such a table from one column to the other: the caption of a figure
-  // in a 14-page paper, whole at the foot of a first column, started the
-  // second column a page earlier and ran past the page. A document that has
-  // such a table keeps the page breaks it had (flowsInto).
+  // What Word places itself, docx-preview draws in the column where its
+  // anchor falls: a floating table (w:tblpPr), a picture with text wrapped
+  // around it (wp:anchor) and a drop cap (w:framePr) as CSS floats, and a
+  // picture with text above and below it, or one over the text, from the
+  // start of its anchor's line. One wider than its column reaches across the
+  // next column from the first, and runs past the page's edge from the last
+  // (to the left, when it floats right), where Word sets a table or a
+  // picture from the margin and breaks a dropped word inside its column. A
+  // page break that moves can move such a thing from one column to another:
+  // the caption of a figure in a 14-page paper, whole at the foot of a first
+  // column, started the second column a page earlier and ran past the page.
+  // A document that has one in a section with columns keeps the page breaks
+  // it had (flowsInto). A one-column section has one place for it, wherever
+  // the page breaks fall. A table or a picture in the text's flow goes with
+  // its column in Word too.
   var wideFloats = false;
+
+  // Whether Word places `node` itself: a float, or the picture of an anchor
+  // that text does not wrap around. docx-preview makes the holder of such a
+  // picture as wide as its line ("100%", text above and below) or gives it
+  // no width ("0px", over the text); the holder of a picture in a line of
+  // text has the picture's width.
+  function isAnchored(node) {
+    if (node.style.cssFloat) {
+      return true;
+    }
+    var width = node.parentElement.style.width;
+    return width === "100%" || width === "0px";
+  }
+
+  // A drop cap of one letter is not measured. Measuring anything here lays
+  // the whole document out once more, and a 19-page paper whose only float
+  // is such a letter, 27 px wide, opened 20 to 40 ms later.
+  function isDroppedLetter(node) {
+    return node.nodeName === "P" && node.textContent.length < 2;
+  }
 
   function hasWideFloat(pages) {
     return pages.some(function (page) {
       return childrenNamed(page, "ARTICLE").some(function (article) {
-        return childrenNamed(article, "TABLE").some(function (table) {
-          if (table.style.cssFloat !== "left") {
-            return false;
-          }
-          return table.getBoundingClientRect().width > article.clientWidth / columnCount(article);
+        if (columnCount(article) < 2) {
+          return false;
+        }
+        return Array.prototype.some.call(article.querySelectorAll("[style*='float'], img"), function (node) {
+          return isAnchored(node) && !isDroppedLetter(node) && node.getBoundingClientRect().width > columnWidth(article);
         });
       });
     });
