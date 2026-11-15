@@ -1165,6 +1165,24 @@ test("Strict OOXML parts are rewritten to the transitional form", () => {
   assert.equal(Fixups.transitionalXml(transitional), transitional);
 });
 
+// Only the namespaces of the markup change: a document's own text that
+// spells a Strict namespace, and a link whose target is one, are kept.
+test("Strict OOXML text and link targets that spell a Strict namespace are kept", () => {
+  const strictW = "http://purl.oclc.org/ooxml/wordprocessingml/main";
+  const part = `<w:document xmlns:w="${strictW}"><w:body><w:p><w:r><w:t xml:space="preserve">See ${strictW} and ` +
+    `http://purl.oclc.org/ooxml/drawingml/main here.</w:t></w:r></w:p></w:body></w:document>`;
+  assert.equal(Fixups.transitionalXml(part),
+    `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t xml:space="preserve">` +
+    `See ${strictW} and http://purl.oclc.org/ooxml/drawingml/main here.</w:t></w:r></w:p></w:body></w:document>`);
+  const rels = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rId9" Type="http://purl.oclc.org/ooxml/officeDocument/relationships/hyperlink" ` +
+    `Target="${strictW}" TargetMode="External"/></Relationships>`;
+  assert.equal(Fixups.transitionalXml(rels),
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" ` +
+    `Target="${strictW}" TargetMode="External"/></Relationships>`);
+});
+
 test("Only a Strict package has its parts rewritten", async () => {
   const JSZip = require(path.join(repositoryRoot, "node_modules", "jszip"));
   const strictRels = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" ` +
