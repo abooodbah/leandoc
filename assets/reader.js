@@ -2249,6 +2249,30 @@
     return articles[articles.length - 1].getBoundingClientRect().bottom <= limit;
   }
 
+  // docx-preview draws a floating table (w:tblpPr) as a CSS float in the
+  // column where its place in the text falls. One wider than its column
+  // (its section's width over the columns) reaches across the next column
+  // from the first, and runs past the page's edge from the last, where Word
+  // sets it across the columns from the margin. A page break that moves can
+  // move such a table from one column to the other: the caption of a figure
+  // in a 14-page paper, whole at the foot of a first column, started the
+  // second column a page earlier and ran past the page. A document that has
+  // such a table keeps the page breaks it had (flowsInto).
+  var wideFloats = false;
+
+  function hasWideFloat(pages) {
+    return pages.some(function (page) {
+      return childrenNamed(page, "ARTICLE").some(function (article) {
+        return childrenNamed(article, "TABLE").some(function (table) {
+          if (table.style.cssFloat !== "left") {
+            return false;
+          }
+          return table.getBoundingClientRect().width > article.clientWidth / columnCount(article);
+        });
+      });
+    });
+  }
+
   function flowsInto(rest, page) {
     if (!page || !startsAtSavedBreak(page)) {
       return false;
@@ -2260,6 +2284,14 @@
     // two-column papers each overflow made a page that held a paragraph or
     // two, and a 17-page paper showed as 23 pages.
     if (columnCount(last) !== columnCount(first) || last.style.cssText !== first.style.cssText) {
+      return false;
+    }
+    var same = rest.style.cssText === page.style.cssText;
+    if (from.length === 1 && same) {
+      return true;
+    }
+    // The two cases below move page breaks that stood before them.
+    if (wideFloats) {
       return false;
     }
     // `rest` copies the size and margins of the page it came off, which are
@@ -2278,7 +2310,7 @@
     // before: text that takes more of a page keeps its own page, as it did,
     // because continued it moved the starts of the pages after it off
     // Word's.
-    return rest.style.cssText === page.style.cssText && isShort(rest);
+    return same && isShort(rest);
   }
 
   // Takes every node of an article, waiting ones included, off it.
@@ -2363,6 +2395,7 @@
     var notes = collectFootnotes(pages);
     var floats = takePageFloats(pages);
     pendingSettle = null;
+    wideFloats = hasWideFloat(pages);
     pages.forEach(function (page) {
       var articles = childrenNamed(page, "ARTICLE");
       if (articles.length) {
