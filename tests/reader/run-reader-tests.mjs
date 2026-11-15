@@ -3593,6 +3593,31 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
     });
   });
 
+  test("small capitals take Word's size and leave capitals, ß and the line alone", async () => {
+    await withHost({}, async (host) => {
+      const layout = await smallCapsLayout(host);
+      // Capitals and small capitals: Word draws full size capitals.
+      assert.deepEqual(layout["4"].spans, [], "a run in capitals and small capitals gets no small letters");
+      // 80% to the nearest half point: 11.5, 8, 9, 12 and 14 pt runs.
+      [["1", 9], ["5", 6.5], ["6", 7], ["7", 9.5], ["8", 11]].forEach(([id, size]) => {
+        layout[id].spans.forEach((span) => {
+          assert.ok(Math.abs(span.size - size) < 0.01, `Sc${id} "${span.text}" is ${span.size} pt; Word's is ${size} pt`);
+        });
+      });
+      assert.match(layout["9"].innerText, /^Sc9 STRAUßE MAß LEDGER Sc$/, "ß stays ß");
+      // A heading at an exact 12 pt line: as tall as Word's line, and the
+      // next paragraph's first line 15.72 pt below its own, as in Word.
+      assert.ok(Math.abs(layout["13"].height - 12) <= 0.1, `the heading is ${layout["13"].height} pt tall; Word's line is 12 pt`);
+      const pitch = layout["14"].first - layout["13"].first;
+      assert.ok(Math.abs(pitch - 15.72) <= 0.3, `the next paragraph starts ${pitch} pt below the heading; Word's 15.72 pt`);
+      if (process.platform === "win32") {
+        [["4", 345.19], ["5", 261.65], ["6", 279.05], ["7", 351.43], ["8", 396.31], ["9", 182.06]].forEach(([id, word]) => {
+          assert.ok(Math.abs(layout[id].closing - word) <= 2, `Sc${id} closes at ${layout[id].closing} pt; Word's at ${word} pt`);
+        });
+      }
+    });
+  });
+
   test("a contents line whose right stop is past the right indent stays on one line", async () => {
     await withHost({}, async (host) => {
       const layout = await numberedLayout(host);
