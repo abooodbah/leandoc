@@ -1766,13 +1766,21 @@ body {
    to the nearest half point (reader.js matchSmallCaps sets the size). The
    span is inside the run's own span, so it takes everything else from it:
    the document's and the paragraph style's rules for "span" (font, size,
-   weight, colour) would otherwise reach it and beat the run's own font. */
+   weight, colour) would otherwise reach it and beat the run's own font.
+   It adds no height to the line: Word's line is as tall as the run's full
+   size, and the smaller letters on the paragraph's fixed line height made
+   a heading line 0.75 pt taller. */
 #docBody span.ld-sc {
   all: unset;
   font-size: 80%;
+  line-height: 0;
   font-kerning: none;
   font-variant-caps: normal;
   text-transform: uppercase;
+}
+
+#docBody span.ld-sc-keep {
+  text-transform: none;
 }
 
 /* A numbering label centred or right-aligned on its indent (reader.js

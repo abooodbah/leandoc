@@ -2898,8 +2898,12 @@
   // one word more and moved its label 12 pt left. Each run of lower case
   // letters and spaces in small-capital text becomes a span of capitals at
   // that size (the text itself is kept, for copying and search). Digits,
-  // punctuation and capitals stay at full size, as in Word's PDF.
+  // punctuation and capitals stay at full size, as in Word's PDF. A run in
+  // capitals as well (w:caps) is left alone: Word draws all of it in full
+  // size capitals. A letter whose capital is two letters ("ß") stays as it
+  // is, at the small size, as in Word.
   var SMALL_CAPS_CLASS = "ld-sc";
+  var SMALL_CAPS_KEEP_CLASS = "ld-sc-keep";
   var smallCapsSelectors = new WeakMap();
 
   function smallCapsSelector() {
@@ -2934,6 +2938,14 @@
     return points > 0 ? Math.round(points * 1.6) / 2 / points : 0.8;
   }
 
+  function smallCapsSpan(text, scale, keep) {
+    var small = document.createElement("span");
+    small.className = keep ? SMALL_CAPS_CLASS + " " + SMALL_CAPS_KEEP_CLASS : SMALL_CAPS_CLASS;
+    small.style.fontSize = scale + "em";
+    small.textContent = text;
+    return small;
+  }
+
   function matchSmallCaps(container) {
     if (!container.querySelectorAll) {
       return;
@@ -2944,7 +2956,7 @@
         return;
       }
       var style = getComputedStyle(element);
-      if (style.fontVariantCaps === "small-caps") {
+      if (style.fontVariantCaps === "small-caps" && style.textTransform !== "uppercase") {
         elements.push({ element: element, scale: smallCapsScale(style.fontSize) });
       }
     });
@@ -2960,15 +2972,29 @@
           if (!part) {
             return;
           }
-          if (index % 2) {
-            var small = document.createElement("span");
-            small.className = SMALL_CAPS_CLASS;
-            small.style.fontSize = item.scale + "em";
-            small.textContent = part;
-            fragment.appendChild(small);
-          } else {
+          if (!(index % 2)) {
             fragment.appendChild(document.createTextNode(part));
+            return;
           }
+          if (part.toUpperCase().length === part.length) {
+            fragment.appendChild(smallCapsSpan(part, item.scale, false));
+            return;
+          }
+          // Letters whose capital is more than one letter, apart.
+          part.split(/(\p{Ll})/u).reduce(function (runs, piece) {
+            if (piece) {
+              var keep = piece.length === 1 && piece.toUpperCase().length > 1;
+              var last = runs[runs.length - 1];
+              if (last && last.keep === keep) {
+                last.text += piece;
+              } else {
+                runs.push({ text: piece, keep: keep });
+              }
+            }
+            return runs;
+          }, []).forEach(function (run) {
+            fragment.appendChild(smallCapsSpan(run.text, item.scale, run.keep));
+          });
         });
         element.replaceChild(fragment, node);
       });
