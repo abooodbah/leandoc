@@ -5,7 +5,7 @@
 [execution plan](EXECUTION_PLAN.md)) and published from `main`; the Linux
 session, GitHub Actions runners for Windows, macOS, and Linux, and the reader
 in headless Chromium<br>
-**Current public release:** LeanDoc 0.3.1
+**Current public release:** LeanDoc 0.3.2
 
 This page records the result of every ID in the [test plan](TEST_PLAN.md),
 with the evidence rules of [ACCEPTANCE.md](ACCEPTANCE.md). The defects found
@@ -13,6 +13,41 @@ and how each was fixed are in the [test report](TEST_REPORT.md). Every
 figure below is a test-gate figure from a cloud session or a CI runner. None
 of them is a product claim: published figures come only from the owner's
 laptop run of `tests/owner/`.
+
+## v0.3.2 publication
+
+LeanDoc 0.3.2, a patch release, is published on
+[GitHub Releases](https://github.com/abooodbah/leandoc/releases/tag/v0.3.2).
+The Microsoft Store package shows the name reserved in Partner Center,
+LeanDoc Word Viewer (#43); the reader and the native code are the same as in
+0.3.1. The annotated tag `v0.3.2` is on
+`a0e63d0dec82d5907fcca02146b25e32f1b51fe8`, the merge commit of #44, created
+by "Tag a release"
+([run 43818358502](https://github.com/abooodbah/leandoc/actions/runs/43818358502)).
+Tag build
+[run 43818386406](https://github.com/abooodbah/leandoc/actions/runs/43818386406)
+published the release with every job green. The Store package workflow
+([run 43820017438](https://github.com/abooodbah/leandoc/actions/runs/43820017438))
+built `LeanDoc-v0.3.2-x64.msix` (1,068,832 bytes, SHA-256
+`27aad69cfebff30341906fa5b0657d972cf7f62470a7d714083a40307fc5f8ae`), version
+0.3.2.0. Its manifest names the app `LeanDoc Word Viewer` in
+`Properties/DisplayName` and `VisualElements DisplayName`; the Identity Name
+`LeanAppsStudio.LeanDoc`, the publisher and `LeanDoc.exe` are the same as in
+the 0.3.1 package.
+
+| Asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `LeanDoc-v0.3.2-windows-x64.zip` | 996,665 | `ca5f4d22c818d5c48df16f3fac03a985c8502a5410a198d4c3a156086c01c712` |
+| `LeanDoc-v0.3.2-linux-x86_64.deb` | 648,214 | `a3d23a1b11f4a73dc8b8d9877e7cd49816876de2ac9e98cda643dd85a9efc9b5` |
+| `LeanDoc-v0.3.2-macos-universal-preview.zip` | 835,348 | `1da540fb8584675cb9b13dd78802323ef7e1725cc01be95dcd49e2f0ea1ea002` |
+
+The downloaded files matched their sidecars; the Windows ZIP's `LeanDoc.exe`
+is 582,656 bytes, as in 0.3.1.
+
+| Check | Result |
+| --- | --- |
+| Pull requests in 0.3.2 | #43 (Store display name and its release check), #44 (version bump) |
+| Distribution | Scoop and Homebrew moved to 0.3.2, winget pull request microsoft/winget-pkgs#481348 opened, Chocolatey package pushed (in moderation), all on 2026-11-16. The Store update is not submitted yet. The release ZIP's installer was run on the maintainer's PC: version 0.3.2, settings and recent files kept. |
 
 ## v0.3.1 publication
 

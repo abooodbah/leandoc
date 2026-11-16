@@ -7,7 +7,7 @@ Paste each field into Partner Center > your app > Submission > Store listings > 
 - Product name (reserve this exact name): LeanDoc Word Viewer (reserved in Partner Center; the MSIX manifest DisplayName is set to it, and the package identity, executable and window title stay LeanDoc)
 - Publisher display name: Lean Apps Studio
 - Short title (50 characters or fewer): LeanDoc Word Viewer
-- Version in this pack: 0.3.1 (package version 0.3.1.0)
+- Version in this pack: 0.3.2 (package version 0.3.2.0)
 - File types it shows as pages: Word documents (.docx, .docm, .dotx, .dotm). Older .doc files, .rtf, and .odt are not shown: they open to a page that offers your editor
 
 ## Short description
@@ -66,7 +66,9 @@ LeanDoc draws pages with the Microsoft Edge WebView2 runtime that Windows alread
 
 ## What's new in this version
 
-Fewer near-empty extra pages: when a line or two runs past where Word started the next page, it now continues on that page, also across a section boundary.
+The Microsoft Store now lists the app as LeanDoc Word Viewer. Nothing else changed.
+
+From 0.3.1: fewer near-empty extra pages: when a line or two runs past where Word started the next page, it now continues on that page, also across a section boundary.
 
 ## Copyright and trademark info
 
