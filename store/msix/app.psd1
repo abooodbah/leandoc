@@ -1,6 +1,11 @@
 @{
     # Read by New-StorePackage.ps1, New-StoreImages.ps1 and Test-StorePackage.ps1.
     AppId = 'LeanDoc'
+    # The product name reserved in Partner Center. The Store takes the listing
+    # name from the manifest DisplayName, which must equal it exactly. The
+    # package identity, the executable and the app's own window title stay
+    # LeanDoc.
+    StoreDisplayName = 'LeanDoc Word Viewer'
     Executable = 'LeanDoc.exe'
     # The command alias; the ZIP installer registers the same name under App Paths.
     Alias = 'leandoc.exe'
