@@ -7,7 +7,7 @@ Paste each field into Partner Center > your app > Submission > Store listings > 
 - Product name (reserve this exact name): LeanDoc. The listing can show "LeanDoc Word Viewer" only after that name is also reserved in Partner Center (Product management > Manage product names); the package's display name stays LeanDoc.
 - Publisher display name: Lean Apps Studio
 - Short title (50 characters or fewer): LeanDoc Word Viewer
-- Version in this pack: 0.3.0 (package version 0.3.0.0)
+- Version in this pack: 0.3.1 (package version 0.3.1.0)
 - File types it shows as pages: Word documents (.docx, .docm, .dotx, .dotm). Older .doc files, .rtf, and .odt are not shown: they open to a page that offers your editor
 
 ## Short description
@@ -20,7 +20,7 @@ Read Word documents as pages, without an office suite. Nothing in the file runs.
 
 LeanDoc Word Viewer reads Word documents without Word. Open a .docx and LeanDoc shows it as pages, with headers, footers, tables, footnotes, pictures, numbered lists, and right-to-left text such as Arabic. Reading view reflows the text to the window.
 
-Version 0.3.0 lays pages out closer to Word. Two-column papers keep their columns. Tables and figures that Word floats at the top or foot of a page sit there, and the text no longer runs over them. Contents pages keep their dot leaders and page numbers, and files saved in Word's Strict format keep their styles and lists.
+Version 0.3 lays pages out closer to Word. Two-column papers keep their columns. Tables and figures that Word floats at the top or foot of a page sit there, and the text no longer runs over them. Contents pages keep their dot leaders and page numbers, and files saved in Word's Strict format keep their styles and lists.
 
 Safe for attachments: macros never run, and nothing a document points to is fetched from the internet. A small bar names anything LeanDoc does not display yet, such as charts or SmartArt, and one button opens the file in Word, LibreOffice, or your default editor.
 
@@ -66,7 +66,7 @@ LeanDoc draws pages with the Microsoft Edge WebView2 runtime that Windows alread
 
 ## What's new in this version
 
-Page view is closer to Word. Floating tables and figures sit where Word puts them, two-column papers keep their columns, and contents pages keep their dot leaders. Page numbers, footnote marks, centred numbered headings, long equations, and small capitals are drawn more like Word, and Strict format files keep their styles and lists. Some documents open a little more slowly.
+Fewer near-empty extra pages: when a line or two runs past where Word started the next page, it now continues on that page, also across a section boundary.
 
 ## Copyright and trademark info
 
