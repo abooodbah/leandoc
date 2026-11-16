@@ -39,6 +39,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.3.1" date="2026-11-15">
+      <description>
+        <p>Fewer near-empty extra pages: when a line or two runs past where Word started the next page, it now continues on that page, also across a section boundary.</p>
+      </description>
+    </release>
     <release version="0.3.0" date="2026-11-15">
       <description>
         <p>Page view lays documents out closer to Word: two-column pages, floating tables and figures, tab stops with leaders, centred numbered headings, page numbers, footnote marks, long equations, and Strict OOXML styles and lists. Some documents open more slowly.</p>

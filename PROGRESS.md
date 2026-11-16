@@ -109,6 +109,13 @@ Decisions taken here (the owner can change them):
   `$XDG_CONFIG_HOME/leandoc/settings.ini` group `[Reader]`, macOS
   `NSUserDefaults` (`LeanDocTheme`, `LeanDocPageColor`).
 
+## LeanDoc 0.3.1
+
+- The 0.3.1 version bump: the pagination fix of #38 (a line or two past
+  a saved page start continues on the next page, also across a section
+  boundary), released as a patch. Then the release tag, the Store package
+  workflow for the tag, and the post-release pull request.
+
 ## LeanDoc 0.3.0
 
 - The 0.3.0 version bump: the page layout work of #37 (below), released

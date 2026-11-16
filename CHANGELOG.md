@@ -3,6 +3,17 @@
 All notable LeanDoc changes are recorded here. The project follows semantic
 versioning.
 
+## [0.3.1] - 2026-11-15
+
+### Fixed
+
+- Fewer near-empty extra pages: when a line or two runs past where Word
+  started the next page, it now continues on that page, also across a
+  section boundary.
+
+On 57 real-world documents compared with Word, 39 have Word's page count
+(0.3.0: 34). 49 of the 57 are laid out exactly as in 0.3.0.
+
 ## [0.3.0] - 2026-11-15
 
 ### Changed
