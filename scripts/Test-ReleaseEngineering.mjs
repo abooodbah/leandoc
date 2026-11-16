@@ -280,6 +280,34 @@ check(signingUpload && signingUpload[1].split(/\s+/).filter(Boolean).join(" ") =
   "dist/LeanDoc.exe dist/tools/leandoc-inspect.exe",
   "build.yml must send exactly dist/LeanDoc.exe and dist/tools/leandoc-inspect.exe for signing");
 
+// --- Store package ----------------------------------------------------------------
+
+// The Store lists the app under the manifest DisplayName, which must equal the
+// name reserved in Partner Center. Only that name differs from LeanDoc.
+{
+  const reservedStoreName = "LeanDoc Word Viewer";
+  const storeConfig = read("store/msix/app.psd1");
+  const configValue = (key) => {
+    const match = storeConfig.match(new RegExp(`^\\s*${key}\\s*=\\s*'([^']*)'`, "m"));
+    return match ? match[1] : null;
+  };
+  const storeName = configValue("StoreDisplayName");
+  check(storeName === reservedStoreName,
+    `store/msix/app.psd1 StoreDisplayName must be the reserved name "${reservedStoreName}", found "${storeName}"`);
+  const template = read("store/msix/AppxManifest.template.xml");
+  const propertiesName = template.match(/<Properties>[\s\S]*?<DisplayName>([^<]*)<\/DisplayName>/);
+  check(propertiesName && propertiesName[1] === storeName,
+    `AppxManifest.template.xml Properties/DisplayName is "${propertiesName && propertiesName[1]}", expected "${storeName}"`);
+  const visualName = template.match(/<uap:VisualElements\s[^>]*?DisplayName="([^"]*)"/);
+  check(visualName && visualName[1] === storeName,
+    `AppxManifest.template.xml VisualElements DisplayName is "${visualName && visualName[1]}", expected "${storeName}"`);
+  check(/<Identity\s+Name="\{\{IDENTITY_NAME\}\}"/.test(template),
+    "AppxManifest.template.xml Identity Name must stay the Partner Center value from MSIX_IDENTITY_NAME");
+  check(/<Application Id="LeanDoc" Executable="LeanDoc\.exe"/.test(template) &&
+    configValue("AppId") === "LeanDoc" && configValue("Executable") === "LeanDoc.exe",
+    "AppxManifest.template.xml Application Id and Executable must stay LeanDoc and LeanDoc.exe");
+}
+
 // --- Notices --------------------------------------------------------------------
 
 check(exists("THIRD_PARTY_NOTICES.md"), "THIRD_PARTY_NOTICES.md is missing");
