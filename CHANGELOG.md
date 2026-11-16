@@ -3,6 +3,13 @@
 All notable LeanDoc changes are recorded here. The project follows semantic
 versioning.
 
+## [0.3.2] - 2026-11-16
+
+### Changed
+
+- The Microsoft Store now lists the app as LeanDoc Word Viewer. Nothing else
+  changed.
+
 ## [0.3.1] - 2026-11-15
 
 ### Fixed

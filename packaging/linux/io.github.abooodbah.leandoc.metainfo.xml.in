@@ -39,6 +39,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.3.2" date="2026-11-16">
+      <description>
+        <p>The Microsoft Store now lists the app as LeanDoc Word Viewer. Nothing else changed.</p>
+      </description>
+    </release>
     <release version="0.3.1" date="2026-11-15">
       <description>
         <p>Fewer near-empty extra pages: when a line or two runs past where Word started the next page, it now continues on that page, also across a section boundary.</p>

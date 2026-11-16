@@ -109,6 +109,13 @@ Decisions taken here (the owner can change them):
   `$XDG_CONFIG_HOME/leandoc/settings.ini` group `[Reader]`, macOS
   `NSUserDefaults` (`LeanDocTheme`, `LeanDocPageColor`).
 
+## LeanDoc 0.3.2
+
+- The 0.3.2 version bump: the Store name change of #43 (the MSIX manifest
+  display name is LeanDoc Word Viewer, the name reserved in Partner
+  Center), released as a patch. Then the release tag, the Store package
+  workflow for the tag, and the post-release pull request.
+
 ## LeanDoc 0.3.1
 
 - The 0.3.1 version bump: the pagination fix of #38 (a line or two past
