@@ -16,7 +16,7 @@
     ProcessorArchitecture="x64" />
 
   <Properties>
-    <DisplayName>LeanDoc</DisplayName>
+    <DisplayName>LeanDoc Word Viewer</DisplayName>
     <PublisherDisplayName>{{PUBLISHER_DISPLAY_NAME}}</PublisherDisplayName>
     <Logo>Images\StoreLogo.png</Logo>
     <Description>A read-only viewer for Word documents that never runs macros or fetches anything the document points to.</Description>
@@ -33,7 +33,7 @@
   <Applications>
     <Application Id="LeanDoc" Executable="LeanDoc.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="LeanDoc"
+        DisplayName="LeanDoc Word Viewer"
         Description="Read Word documents without an office suite."
         BackgroundColor="transparent"
         Square150x150Logo="Images\Square150x150Logo.png"

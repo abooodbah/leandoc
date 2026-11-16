@@ -4,7 +4,7 @@ Paste each field into Partner Center > your app > Submission > Store listings > 
 
 ## Product
 
-- Product name (reserve this exact name): LeanDoc. The listing can show "LeanDoc Word Viewer" only after that name is also reserved in Partner Center (Product management > Manage product names); the package's display name stays LeanDoc.
+- Product name (reserve this exact name): LeanDoc Word Viewer (reserved in Partner Center; the MSIX manifest DisplayName is set to it, and the package identity, executable and window title stay LeanDoc)
 - Publisher display name: Lean Apps Studio
 - Short title (50 characters or fewer): LeanDoc Word Viewer
 - Version in this pack: 0.3.1 (package version 0.3.1.0)
