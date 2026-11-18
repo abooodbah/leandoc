@@ -137,6 +137,17 @@ Get-FileHash .\LeanDoc-v0.3.2-windows-x64.zip -Algorithm SHA256
 sha256sum -c LeanDoc-v0.3.2-linux-x86_64.deb.sha256
 ```
 
+Releases after 0.3.2 also carry a build provenance attestation: a record,
+signed through GitHub, that the file was built by this repository's release
+workflow from the tagged source. To check one with the GitHub CLI:
+
+```sh
+gh attestation verify <downloaded file> --repo abooodbah/leandoc
+```
+
+This shows where a file was built. It is not code signing and does not change
+the SmartScreen or Gatekeeper prompt.
+
 ## Package use
 
 ### Windows x64
