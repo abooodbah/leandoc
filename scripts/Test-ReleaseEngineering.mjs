@@ -153,6 +153,20 @@ check(workflow.includes("--notes-file") && workflow.includes("docs/releases/${LE
   "build.yml must publish notes from docs/releases/<tag>.md");
 check(!workflow.includes("\t"), "build.yml must not contain tabs");
 
+// The release job attests the packages it publishes, before publishing them.
+const releaseJob = workflow.slice(workflow.indexOf("\n  release:\n"));
+for (const required of [
+  "      id-token: write",
+  "      attestations: write",
+  "uses: actions/attest-build-provenance@",
+  "release-assets/*.zip",
+  "release-assets/*.deb",
+]) {
+  check(releaseJob.includes(required), `build.yml release job must include: ${required}`);
+}
+check(releaseJob.indexOf("actions/attest-build-provenance@") < releaseJob.indexOf("gh release create"),
+  "build.yml must attest the packages before it publishes the release");
+
 const documented = [];
 for (const file of ["README.md", notesPath, "installer/README.md", "site/index.html"]) {
   if (!exists(file)) {
