@@ -39,6 +39,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.3.3" date="2026-11-19">
+      <description>
+        <p>Nothing is cut off the bottom of a page at zooms other than 100%: a page whose last lines or table rows no longer fit at that zoom grows taller so that all of its text shows.</p>
+      </description>
+    </release>
     <release version="0.3.2" date="2026-11-16">
       <description>
         <p>The Microsoft Store now lists the app as LeanDoc Word Viewer. Nothing else changed.</p>
