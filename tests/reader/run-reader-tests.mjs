@@ -4507,3 +4507,150 @@ describe("page view follows Word's numbered headings, page fields, and stops pas
     });
   });
 });
+
+// The reader splits pages at 100% and gives each section of a split page
+// the height it was measured at. Drawn at another zoom, lines and table
+// rows can take a little more room; what no longer fits went to a column
+// beside the section, past the page's edge, where the page clips it. In
+// 0.3.2 rows 35 to 60 of the long table never showed at 90%, and at 110% the
+// last two lines of the two-margin sections lay past the page.
+describe("text stays on its page at any zoom", () => {
+  const ZOOMS = [90, 80, 75, 67, 50, 110, 150];
+  const documents = {
+    "wide-tables.docx": () => makeTablesDocx(),
+    "margin-sections.docx": () => makeMarginSectionsDocx(),
+    "figure-section.docx": () => makeFigureSectionDocx({ extra: 2 }),
+    "two-column-floats.docx": () => makeFloatsDocx()
+  };
+
+  async function zoomTo(host, target) {
+    for (let guard = 0; guard < 20; guard += 1) {
+      const zoom = await host.page.evaluate(() => Number(document.documentElement.dataset.zoom));
+      if (zoom === target) {
+        return;
+      }
+      await host.page.click(zoom > target ? "#zoomOut" : "#zoomIn");
+      await zoomSettled(host);
+    }
+    assert.fail(`zoom did not reach ${target}%`);
+  }
+
+  // Evaluated in the page: each page is scrolled into view and drawn, then
+  // every block that lies in a column past its section's right edge is
+  // listed, with how far down it reaches in the section's own pixels, and
+  // each table row with whether it is inside its page's box.
+  function measure() {
+    return (async () => {
+      const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      const pages = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"));
+      const past = [];
+      const rows = [];
+      for (let index = 0; index < pages.length; index += 1) {
+        const page = pages[index];
+        page.scrollIntoView({ block: "start" });
+        // The reader looks at a page with a section of fixed height two
+        // frames after it comes on screen, and marks it (__ldKept).
+        const fixed = Array.from(page.children).some((node) => node.nodeName === "ARTICLE" && node.style.height);
+        const zoomed = document.documentElement.dataset.zoom !== "100";
+        for (let wait = 0; wait < 60 && fixed && zoomed && !page.__ldKept; wait += 1) {
+          await frame();
+        }
+        await frame();
+        const pageBox = page.getBoundingClientRect();
+        Array.from(page.children).filter((node) => node.nodeName === "ARTICLE").forEach((article, section) => {
+          const box = article.getBoundingClientRect();
+          for (const node of article.children) {
+            const outside = Array.from(node.getClientRects()).filter((rect) => rect.width > 0 && rect.left >= box.right - 0.5);
+            if (outside.length) {
+              past.push(`page ${index + 1}, section ${section + 1}: "${(node.textContent || "").trim().slice(0, 40)}"`);
+            }
+          }
+        });
+        page.querySelectorAll("tr").forEach((row) => {
+          const box = row.getBoundingClientRect();
+          rows.push({ text: (row.cells[0]?.textContent || "").trim(), inside: box.left < pageBox.right - 0.5 && box.bottom <= pageBox.bottom + 0.5 });
+        });
+      }
+      document.getElementById("docScroller").scrollTop = 0;
+      return { pages: pages.length, past, rows };
+    })();
+  }
+
+  for (const [file, make] of Object.entries(documents)) {
+    test(`${file}: nothing lies past a page's edge at ${ZOOMS.join(", ")}%`, async () => {
+      await withHost({ viewport: { width: 1280, height: 860 } }, async (host) => {
+        const { bytes, report } = await make();
+        await host.openDocument({ bytes, report, fileName: file });
+        for (const zoom of ZOOMS) {
+          await zoomTo(host, zoom);
+          const seen = await host.page.evaluate(measure);
+          assert.deepEqual(seen.past, [], `${file} at ${zoom}%: blocks past the page's edge`);
+          const hidden = seen.rows.filter((row) => !row.inside).map((row) => row.text);
+          assert.deepEqual(hidden, [], `${file} at ${zoom}%: table rows outside their page`);
+        }
+      });
+    });
+  }
+
+  // Every row of the long table shows at each zoom: rows 1 to 90 in order.
+  test("wide-tables.docx: every row of the long table is on a page at each zoom", async () => {
+    await withHost({ viewport: { width: 1280, height: 860 } }, async (host) => {
+      const { bytes, report, longRows } = await makeTablesDocx();
+      await host.openDocument({ bytes, report, fileName: "wide-tables.docx" });
+      const expected = Array.from({ length: longRows }, (_, index) => `Row ${index + 1}`);
+      for (const zoom of [100, ...ZOOMS]) {
+        await zoomTo(host, zoom);
+        const seen = await host.page.evaluate(measure);
+        const shown = seen.rows.filter((row) => row.inside && /^Row \d+$/.test(row.text)).map((row) => row.text);
+        assert.deepEqual(shown, expected, `wide-tables.docx at ${zoom}%: rows shown`);
+      }
+    });
+  });
+
+  // A window narrow enough that the page fits at 80%: the zoom the reader
+  // picks itself, not one stepped to.
+  test("margin-sections.docx: nothing lies past a page's edge at the fit zoom of a narrow window", async () => {
+    await withHost({ viewport: { width: 720, height: 860 } }, async (host) => {
+      const { bytes, report } = await makeMarginSectionsDocx();
+      await host.openDocument({ bytes, report, fileName: "margin-sections.docx" });
+      const zoom = await host.page.evaluate(() => Number(document.documentElement.dataset.zoom));
+      assert.ok(zoom < 100, `the window fits the page below 100% (${zoom}%)`);
+      const seen = await host.page.evaluate(measure);
+      assert.deepEqual(seen.past, [], `margin-sections.docx at the fit zoom ${zoom}%: blocks past the page's edge`);
+    });
+  });
+
+  // At 100% the pages are as 0.3.2 laid them out: each page 1056 px (11 in)
+  // high, and each section of a split page at the height it was measured
+  // at ("" for a section that kept its own height). The same when the
+  // document opens and after zooming through 50% to 150% and back.
+  const AT_100 = {
+    "wide-tables.docx": [["888px"], [""]],
+    "margin-sections.docx": [["", "720px"], ["816px"], ["816px"]],
+    "figure-section.docx": [["864px"], ["", "", "336px"]],
+    "two-column-floats.docx": [["", "829px"], ["805px"], ["866px"], ["921px"]]
+  };
+
+  test("the pages at 100% are 0.3.2's, when a document opens and after zooming out and back", async () => {
+    await withHost({ viewport: { width: 1280, height: 860 } }, async (host) => {
+      const snapshot = () => host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"))
+        .map((page) => ({
+          height: page.offsetHeight,
+          sections: Array.from(page.children).filter((node) => node.nodeName === "ARTICLE").map((article) => article.style.height)
+        })));
+      for (const [file, make] of Object.entries(documents)) {
+        const expected = AT_100[file].map((sections) => ({ height: 1056, sections }));
+        const { bytes, report } = await make();
+        await host.openDocument({ bytes, report, fileName: file });
+        assert.equal(await host.page.evaluate(() => document.documentElement.dataset.zoom), "100");
+        assert.deepEqual(await snapshot(), expected, `${file}: the pages at 100% when it opens`);
+        for (const zoom of ZOOMS) {
+          await zoomTo(host, zoom);
+          await host.page.evaluate(measure);
+        }
+        await zoomTo(host, 100);
+        assert.deepEqual(await snapshot(), expected, `${file}: the pages at 100% after zooming to 50% and 150% and back`);
+      }
+    });
+  });
+});
