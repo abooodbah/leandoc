@@ -3,6 +3,16 @@
 All notable LeanDoc changes are recorded here. The project follows semantic
 versioning.
 
+## [0.3.3] - 2026-11-19
+
+### Fixed
+
+- Nothing is cut off the bottom of a page at zooms other than 100%. The last
+  lines of a column or the last rows of a table could lie past the page's
+  edge, hidden; in one test document rows 35 to 60 of a long table never
+  showed at 90%. Such a page now grows taller so that all of its text shows.
+  At 100% pages are laid out as in 0.3.2.
+
 ## [0.3.2] - 2026-11-16
 
 ### Changed

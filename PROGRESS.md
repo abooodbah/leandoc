@@ -109,6 +109,14 @@ Decisions taken here (the owner can change them):
   `$XDG_CONFIG_HOME/leandoc/settings.ini` group `[Reader]`, macOS
   `NSUserDefaults` (`LeanDocTheme`, `LeanDocPageColor`).
 
+## LeanDoc 0.3.3
+
+- The 0.3.3 version bump: the zoom fix of #47 (a section of a split page
+  grows at zooms other than 100% until its text is back inside it, a port
+  of the Android app's keepOnPage), released as a patch. Then the release
+  tag, the Store package workflow for the tag, and the post-release pull
+  request.
+
 ## LeanDoc 0.3.2
 
 - The 0.3.2 version bump: the Store name change of #43 (the MSIX manifest
