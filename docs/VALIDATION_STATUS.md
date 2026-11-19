@@ -5,7 +5,7 @@
 [execution plan](EXECUTION_PLAN.md)) and published from `main`; the Linux
 session, GitHub Actions runners for Windows, macOS, and Linux, and the reader
 in headless Chromium<br>
-**Current public release:** LeanDoc 0.3.2
+**Current public release:** LeanDoc 0.3.3
 
 This page records the result of every ID in the [test plan](TEST_PLAN.md),
 with the evidence rules of [ACCEPTANCE.md](ACCEPTANCE.md). The defects found
@@ -13,6 +13,47 @@ and how each was fixed are in the [test report](TEST_REPORT.md). Every
 figure below is a test-gate figure from a cloud session or a CI runner. None
 of them is a product claim: published figures come only from the owner's
 laptop run of `tests/owner/`.
+
+## v0.3.3 publication
+
+LeanDoc 0.3.3, a patch release, is published on
+[GitHub Releases](https://github.com/abooodbah/leandoc/releases/tag/v0.3.3).
+It carries one reader fix (#47): at zooms other than 100%, a section of a
+split page grows until its text is back inside it, so nothing is cut off the
+bottom of the page; at 100% pages are laid out as in 0.3.2. The native code
+is the same as in 0.3.2. The annotated tag `v0.3.3` is on
+`1992a7a8ef52b678a3adb5d79114acb653bf0e6e`, the merge commit of #48, created
+by "Tag a release"
+([run 44588683172](https://github.com/abooodbah/leandoc/actions/runs/44588683172)).
+Tag build
+[run 44588736785](https://github.com/abooodbah/leandoc/actions/runs/44588736785)
+published the release; its job "Windows screenshots (UI-01, light reading)",
+which the release does not wait for, failed when LeanDoc.exe stopped starting
+on the runner after 10 captures (exit code 0xC0000142); run again, it
+passed.
+This is the first release with build provenance attestations:
+`gh attestation verify <file> --repo abooodbah/leandoc` succeeded for the
+three assets below, signed by `build.yml@refs/tags/v0.3.3`. The Store package
+workflow
+([run 44593317945](https://github.com/abooodbah/leandoc/actions/runs/44593317945))
+built `LeanDoc-v0.3.3-x64.msix` (1,070,715 bytes, SHA-256
+`321078593b9ae6cf57b69f14f9ed763c53d3060e8a41b58ff6257bac2b41ea68`), version
+0.3.3.0, Identity Name `LeanAppsStudio.LeanDoc`, display name `LeanDoc Word
+Viewer`, with no placeholder identity values.
+
+| Asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `LeanDoc-v0.3.3-windows-x64.zip` | 998,164 | `e6dba2cdb971a2a20ae5fb048d0f512911482ef3ebb6f3c789f3f8ff80806b42` |
+| `LeanDoc-v0.3.3-linux-x86_64.deb` | 649,710 | `5e72fdbaa583c327d40e12f00827ea5fd4d6c27fb6d082a5670bc0dc29d8fbd8` |
+| `LeanDoc-v0.3.3-macos-universal-preview.zip` | 836,688 | `ff90cc2c99de2db5601ebe25201868df2ff290605f71d980f444933faf7f5ee7` |
+
+The downloaded files matched their sidecars; the Windows ZIP's `LeanDoc.exe`
+is 582,656 bytes, as in 0.3.2.
+
+| Check | Result |
+| --- | --- |
+| Pull requests in 0.3.3 | #47 (zoom fix, tests first), #48 (version bump) |
+| Distribution | Scoop and Homebrew moved to 0.3.3, winget pull request microsoft/winget-pkgs#484316 opened, Chocolatey package pushed (in moderation), all on 2026-11-19. The Store update is not submitted yet. |
 
 ## v0.3.2 publication
 
