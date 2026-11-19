@@ -4620,6 +4620,49 @@ describe("text stays on its page at any zoom", () => {
     });
   });
 
+  // The observer reports each page that comes on screen, and the page on
+  // screen when the zoom changes. Here no scroll event reaches the reader,
+  // so the observer alone looks at the pages.
+  test("pages are looked at by the observer when no scroll event arrives", async () => {
+    const noScrollEvents = `window.addEventListener("scroll", (event) => event.stopImmediatePropagation(), true);`;
+    await withHost({ viewport: { width: 1280, height: 860 }, initScript: noScrollEvents }, async (host) => {
+      for (const [file, make] of Object.entries(documents)) {
+        const { bytes, report } = await make();
+        await host.openDocument({ bytes, report, fileName: file });
+        for (const zoom of [90, 80, 110]) {
+          await zoomTo(host, zoom);
+          const seen = await host.page.evaluate(measure);
+          assert.deepEqual(seen.past, [], `${file} at ${zoom}% with no scroll events: blocks past the page's edge`);
+        }
+        await zoomTo(host, 100);
+      }
+    });
+  });
+
+  // An observer can miss a page scrolled to at once; a scroll looks at the
+  // waiting pages in the window too. Here the observer never reports.
+  test("pages are looked at on scroll when the observer reports nothing", async () => {
+    const silentObserver = `window.IntersectionObserver = class {
+      observe() {} unobserve() {} disconnect() {} takeRecords() { return []; }
+    };`;
+    await withHost({ viewport: { width: 1280, height: 860 }, initScript: silentObserver }, async (host) => {
+      for (const [file, make] of Object.entries(documents)) {
+        const { bytes, report } = await make();
+        await host.openDocument({ bytes, report, fileName: file });
+        for (const zoom of [90, 80, 110]) {
+          await zoomTo(host, zoom);
+          await host.page.evaluate(() => {
+            const scroller = document.getElementById("docScroller");
+            scroller.scrollTop = scroller.scrollHeight;
+          });
+          const seen = await host.page.evaluate(measure);
+          assert.deepEqual(seen.past, [], `${file} at ${zoom}% with a silent observer: blocks past the page's edge`);
+        }
+        await zoomTo(host, 100);
+      }
+    });
+  });
+
   // At 100% the pages are as 0.3.2 laid them out: each page 1056 px (11 in)
   // high, and each section of a split page at the height it was measured
   // at ("" for a section that kept its own height). The same when the
@@ -4633,20 +4676,30 @@ describe("text stays on its page at any zoom", () => {
 
   test("the pages at 100% are 0.3.2's, when a document opens and after zooming out and back", async () => {
     await withHost({ viewport: { width: 1280, height: 860 } }, async (host) => {
-      const snapshot = () => host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"))
-        .map((page) => ({
+      // Five frames on, so that a page the reader looked at would show it
+      // (__ldKept): at 100% no page is looked at.
+      const snapshot = () => host.page.evaluate(async () => {
+        for (let wait = 0; wait < 5; wait += 1) {
+          await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        }
+        return Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx")).map((page) => ({
           height: page.offsetHeight,
-          sections: Array.from(page.children).filter((node) => node.nodeName === "ARTICLE").map((article) => article.style.height)
-        })));
+          sections: Array.from(page.children).filter((node) => node.nodeName === "ARTICLE").map((article) => article.style.height),
+          lookedAt: !!page.__ldKept
+        }));
+      });
       for (const [file, make] of Object.entries(documents)) {
-        const expected = AT_100[file].map((sections) => ({ height: 1056, sections }));
+        const expected = AT_100[file].map((sections) => ({ height: 1056, sections, lookedAt: false }));
         const { bytes, report } = await make();
         await host.openDocument({ bytes, report, fileName: file });
         assert.equal(await host.page.evaluate(() => document.documentElement.dataset.zoom), "100");
         assert.deepEqual(await snapshot(), expected, `${file}: the pages at 100% when it opens`);
+        // The documents open one after another in the same window: each new
+        // one is looked at, not the pages of the one before.
         for (const zoom of ZOOMS) {
           await zoomTo(host, zoom);
-          await host.page.evaluate(measure);
+          const seen = await host.page.evaluate(measure);
+          assert.deepEqual(seen.past, [], `${file} at ${zoom}%: blocks past the page's edge`);
         }
         await zoomTo(host, 100);
         assert.deepEqual(await snapshot(), expected, `${file}: the pages at 100% after zooming to 50% and 150% and back`);
