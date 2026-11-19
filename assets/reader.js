@@ -3563,9 +3563,182 @@
     nearPending = [];
   }
 
+  // Text kept on its page at any zoom. Pages are split at 100%, and a
+  // section of a split page keeps the height it was measured at; what does
+  // not fit in that height goes to a column beside the section, past the
+  // page's edge, which the page clips (reader.css). Drawn at another zoom,
+  // lines and table rows can take a little more room: at 90% rows 35 to 60
+  // of a long table went there and never showed. A section with text past
+  // its edge grows until the text is back inside it, and its page grows
+  // with it. Pages are looked at two frames after they come on screen, once
+  // drawn, and the ones on screen again after each change of zoom. At 100%
+  // nothing is looked at, and each grown section gets its measured height
+  // back. The Android app's android-host.js does the same for its fit zoom.
+  var KEPT = "__ldKept";
+  var MEASURED_HEIGHT = "__ldMeasuredHeight";
+  var ON_SCREEN = "__ldOnScreen";
+  var KEEP_STEPS = 12;
+  var keepPages = null;
+  var keepGrown = [];
+  var keepObserver = null;
+  var keepZoom = 1;
+
+  function stopKeepingOnPage() {
+    if (keepObserver) {
+      keepObserver.disconnect();
+      keepObserver = null;
+    }
+    keepPages = null;
+    keepGrown = [];
+    keepZoom = 1;
+  }
+
+  // How far, in the section's own CSS pixels, its content reaches into
+  // columns past its right edge, or 0. Boxes are compared with the
+  // section's own box, so the zoom cancels out.
+  function overflowPastEdge(article) {
+    var box = article.getBoundingClientRect();
+    if (!(box.height > 0) || !(box.width > 0)) {
+      return 0;
+    }
+    var top = Infinity;
+    var bottom = -Infinity;
+    for (var node = article.lastElementChild; node; node = node.previousElementSibling) {
+      var rects = node.getClientRects();
+      var past = false;
+      for (var index = 0; index < rects.length; index += 1) {
+        var rect = rects[index];
+        if (rect.width > 0 && rect.left >= box.right - 0.5) {
+          past = true;
+          top = Math.min(top, rect.top);
+          bottom = Math.max(bottom, rect.bottom);
+        }
+      }
+      if (!past) {
+        break;
+      }
+    }
+    if (!(bottom > top)) {
+      return 0;
+    }
+    return (bottom - top) * article.offsetHeight / box.height;
+  }
+
+  function growToFit(article) {
+    for (var step = 0; step < KEEP_STEPS; step += 1) {
+      var over = overflowPastEdge(article);
+      var height = parseFloat(article.style.height);
+      if (!over || !(height > 0)) {
+        return;
+      }
+      if (!(MEASURED_HEIGHT in article)) {
+        article[MEASURED_HEIGHT] = article.style.height;
+        keepGrown.push(article);
+      }
+      article.style.height = height + Math.ceil(over / columnCount(article)) + 1 + "px";
+    }
+  }
+
+  function keepTextOnPage(page) {
+    if (page[KEPT] || keepZoom === 1) {
+      return;
+    }
+    page[KEPT] = true;
+    for (var article = page.firstElementChild; article; article = article.nextElementSibling) {
+      if (article.nodeName === "ARTICLE" && article.style.height) {
+        growToFit(article);
+      }
+    }
+  }
+
+  function keepTextOnPageWhenDrawn(page) {
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(function () {
+        if (page[ON_SCREEN] && keepPages && keepPages.indexOf(page) >= 0) {
+          keepTextOnPage(page);
+        }
+      });
+    });
+  }
+
+  function keepTextOnPages(factor) {
+    var zoom = Math.abs(factor - 1) < 0.001 ? 1 : factor;
+    if (zoom === keepZoom) {
+      return;
+    }
+    keepZoom = zoom;
+    keepGrown.splice(0).forEach(function (article) {
+      article.style.height = article[MEASURED_HEIGHT];
+      delete article[MEASURED_HEIGHT];
+    });
+    if (zoom === 1 && !keepPages) {
+      return;
+    }
+    if (!keepPages) {
+      keepPages = Array.prototype.filter.call(elements.docBody.querySelectorAll(".docx-wrapper > section.docx"), function (page) {
+        for (var child = page.firstElementChild; child; child = child.nextElementSibling) {
+          if (child.nodeName === "ARTICLE" && child.style.height) {
+            return true;
+          }
+        }
+        return false;
+      });
+    }
+    keepPages.forEach(function (page) {
+      page[KEPT] = false;
+    });
+    if (zoom === 1 || !keepPages.length) {
+      return;
+    }
+    if (typeof IntersectionObserver !== "function") {
+      keepPages.forEach(keepTextOnPage);
+      return;
+    }
+    if (!keepObserver) {
+      keepObserver = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          entry.target[ON_SCREEN] = entry.isIntersecting;
+          if (entry.isIntersecting) {
+            keepTextOnPageWhenDrawn(entry.target);
+          }
+        });
+      }, { root: elements.docScroller });
+      keepPages.forEach(function (page) {
+        keepObserver.observe(page);
+      });
+      return;
+    }
+    keepPages.forEach(function (page) {
+      if (page[ON_SCREEN]) {
+        keepTextOnPageWhenDrawn(page);
+      }
+    });
+  }
+
+  // The observer can miss a page scrolled to at once (matchPagesNearWindow);
+  // each scroll also looks at the waiting pages in the window.
+  function keepPagesInWindow() {
+    if (!keepObserver || keepZoom === 1) {
+      return;
+    }
+    var view = null;
+    keepPages.forEach(function (page) {
+      if (page[KEPT]) {
+        return;
+      }
+      view = view || elements.docScroller.getBoundingClientRect();
+      var box = page.getBoundingClientRect();
+      if (box.bottom > view.top && box.top < view.bottom) {
+        page[ON_SCREEN] = true;
+        keepTextOnPageWhenDrawn(page);
+      }
+    });
+  }
+
   function attachDocument(nodes, view, serial, hyphenate) {
     clearSearch();
     stopMatchingNear();
+    stopKeepingOnPage();
     root.dataset.view = view;
     elements.docBody.toggleAttribute("data-ld-hyphenate", !!hyphenate);
     revokeBlobUrls(blobUrls);
@@ -4279,6 +4452,7 @@
       var identity = Math.abs(factor - 1) < 0.001;
       if (supportsZoom) {
         wrapper.style.zoom = identity ? "" : String(factor);
+        keepTextOnPages(factor);
       } else {
         // Without CSS zoom: scale, and reserve the scaled size for scrolling.
         wrapper.style.transformOrigin = factor < 1 ? "50% 0" : "0 0";
@@ -4887,6 +5061,7 @@
   elements.docScroller.addEventListener("scroll", scheduleOutlineUpdate, { passive: true });
   elements.docScroller.addEventListener("scroll", scheduleOutlineSettle, { passive: true });
   elements.docScroller.addEventListener("scroll", matchPagesNearWindow, { passive: true });
+  elements.docScroller.addEventListener("scroll", keepPagesInWindow, { passive: true });
   elements.docScroller.addEventListener("blur", function () {
     elements.docScroller.classList.remove("quiet-focus");
   });
