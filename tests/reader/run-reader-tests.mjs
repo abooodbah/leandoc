@@ -21,6 +21,7 @@ import {
   makeSoftHyphenDocx, makeTightHyphenDocx, makeWideLinesDocx
 } from "./make-numbered-docx.mjs";
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
+import { makeKeptParagraphDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeWordMetricsDocx } from "./make-saved-pages-docx.mjs";
 import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
 
@@ -75,6 +76,17 @@ async function openFixture(host, file, options = {}) {
   const rendered = await host.openDocument({ bytes, report, fileName: file, ...options, report: { ...report } });
   return { rendered, report };
 }
+
+test("A kept paragraph taller than a page continues onto fresh pages", async () => {
+  await withHost({}, async (host) => {
+    const fixture = await makeKeptParagraphDocx();
+    const rendered = await host.openDocument({ ...fixture, fileName: "kept-lines.docx" });
+    assert.equal(rendered.pages, 3);
+    const text = await host.page.locator("#docBody article").allTextContents();
+    assert.deepEqual(text.join("").match(/Kept line \d+\./g),
+      Array.from({ length: 40 }, (_, i) => `Kept line ${i + 1}.`));
+  });
+});
 
 function nextRendered(host) {
   const seen = host.ofType("rendered").length;
