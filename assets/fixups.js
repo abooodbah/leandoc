@@ -2567,7 +2567,8 @@
       return entry.target === "span" && entry.values && entry.values["font-size"];
     }));
     eachModelElement(roots, function (element) {
-      if (element.type === "paragraph") {
+      switch (element.type) {
+      case "paragraph":
         if (!element.styleName && defaultParagraph) {
           element.styleName = defaultParagraph.id;
         }
@@ -2584,17 +2585,28 @@
           element.cssStyle["text-align"] = logicalTextAlign(element.cssStyle["text-align"]);
         }
         markPageFields(element, stats);
-      } else if (element.type === "run") {
+        break;
+      case "run":
         if (element.cssStyle && element.cssStyle["font-family"]) {
           element.cssStyle["font-family"] = resolveThemeFonts(element.cssStyle["font-family"], slots);
         }
         fixRun(element, stats);
         fixNoteReferenceRun(element, stats);
         markNoteReferences(element);
-      } else if (element.type === "symbol") {
+        break;
+      case "noBreakHyphen":
+        // The renderer otherwise emits an empty word-break opportunity.
+        element.type = "text";
+        element.text = "\u2011";
+        break;
+      case "symbol":
         fixSymbolElement(element, stats);
-      } else if (element.type === "table" && fitAutoTable(element)) {
-        stats.fittedTables += 1;
+        break;
+      case "table":
+        if (fitAutoTable(element)) {
+          stats.fittedTables += 1;
+        }
+        break;
       }
     });
 
