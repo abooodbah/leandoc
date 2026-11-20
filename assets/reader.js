@@ -1291,8 +1291,8 @@
   // whole, a 204 pt numbered paragraph left most of a column empty.
   // The range of a paragraph that stays on the page when it is split, or
   // null when it moves whole.
-  function keptPart(paragraph, over) {
-    if (paragraph.nodeName !== "P" || /(^|\s)ld-keep-lines(\s|$)/.test(paragraph.className)) {
+  function keptPart(paragraph, over, freshPage) {
+    if (paragraph.nodeName !== "P" || (!freshPage && /(^|\s)ld-keep-lines(\s|$)/.test(paragraph.className))) {
       return null;
     }
     var point = firstPointPast(paragraph, over);
@@ -1391,8 +1391,8 @@
     }
   }
 
-  function splitParagraph(paragraph, over) {
-    var kept = keptPart(paragraph, over);
+  function splitParagraph(paragraph, over, freshPage) {
+    var kept = keptPart(paragraph, over, freshPage);
     if (!kept) {
       return null;
     }
@@ -2131,7 +2131,9 @@
     var continued = null;
     if (!layout.whole) {
       var over = layout.tests[layout.index];
-      continued = start.nodeName === "TABLE" ? splitTable(start, over) : splitParagraph(start, over);
+      // A kept paragraph can move whole once. If it already starts the page,
+      // split it at a line boundary so the rest stays on the paper.
+      continued = start.nodeName === "TABLE" ? splitTable(start, over) : splitParagraph(start, over, start === first);
     }
     if (continued) {
       start = continued;
