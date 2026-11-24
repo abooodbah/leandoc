@@ -90,6 +90,16 @@ The macOS build is not notarized by Apple, so macOS blocks the first launch.
 Open LeanDoc once, then choose **Open Anyway** under System Settings > Privacy &
 Security. Later launches open normally.
 
+### Arch Linux (AUR)
+
+[leandoc-bin](https://aur.archlinux.org/packages/leandoc-bin) is a community
+package that installs the Linux `.deb` from each GitHub release. It is
+maintained outside this repository, so it can lag a release by a few days.
+
+```bash
+yay -S leandoc-bin
+```
+
 ### Android (closed test)
 
 LeanDoc for Android is in a closed test on Google Play before its public release.
