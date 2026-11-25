@@ -20,6 +20,7 @@ import { makeBigDocx } from "./make-big-docx.mjs";
 import { makeFloatsDocx } from "./make-floats-docx.mjs";
 import { makeBodyDocx, makeStyles } from "./make-body-docx.mjs";
 import { BODY_TEXT, HEADER_TEXT, makeAlternatePictureDocx } from "./make-alternate-picture-docx.mjs";
+import { AFTER_TEXT, BEFORE_TEXT, FRAME_POINTS, LAST_TEXT, makeChartFrameDocx } from "./make-chart-frame-docx.mjs";
 import {
   makeBreakLinesDocx, makeCancelledNumberingDocx, makeEmptyMarkNoteDocx, makeEquationDocx, makeNumberedDocx, makeSmallCapsDocx,
   makeSoftHyphenDocx, makeTightHyphenDocx, makeWideLinesDocx
@@ -322,6 +323,48 @@ describe("a picture fill inside AlternateContent (RENDER-01)", { skip: !process.
         `the header picture has its image: ${JSON.stringify(state.pictures)}`);
       assert.ok(state.pictures.some((picture) => !picture.inHeader && picture.src),
         `the body picture has its image: ${JSON.stringify(state.pictures)}`);
+    });
+  });
+});
+
+// A chart LeanDoc does not draw goes through the core as the hosts send it.
+// The core keeps the drawing's frame and removes the chart, so the page
+// keeps the space Word gives the chart: an empty box of its extent, with the
+// next paragraph below it. A drawing whose a:graphic held only a chart in an
+// AlternateContent is left without an empty a:graphic, which docx-preview
+// cannot read: the document renders.
+describe("a chart's frame through leandoc-inspect (RENDER-01)", { skip: !process.env.LEANDOC_INSPECT && "LEANDOC_INSPECT is not set" }, () => {
+  test("renders as an empty box of the chart's extent", async () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), "leandoc-chart-frame-"));
+    const source = path.join(directory, "chart-frame.docx");
+    writeFileSync(source, await makeChartFrameDocx());
+    const inspect = process.env.LEANDOC_INSPECT;
+    const lines = execFileSync(inspect, [source], { encoding: "utf8" }).trim().split("\n");
+    const report = JSON.parse(lines[lines.length - 1]);
+    const sanitized = path.join(directory, "sanitized.docx");
+    execFileSync(inspect, ["--write-sanitized", sanitized, source], { stdio: "pipe" });
+    await withHost({}, async (host) => {
+      const rendered = await host.openDocument({ bytes: readFileSync(sanitized), report, fileName: "chart-frame.docx" });
+      assert.equal(rendered.type, "rendered", `the document renders: ${JSON.stringify(rendered)}`);
+      const state = await host.page.evaluate(([before, after, last]) => {
+        const paragraphs = Array.from(document.querySelectorAll("#docBody article p"));
+        const find = (text) => paragraphs.find((p) => p.textContent.includes(text));
+        const frame = find(before).nextElementSibling;
+        const box = Array.from(frame.querySelectorAll("div")).find((node) => node.style.display === "inline-block");
+        const rect = box ? box.getBoundingClientRect() : null;
+        return {
+          frame: rect ? { width: rect.width, height: rect.height, bottom: rect.bottom, children: box.childElementCount } : null,
+          after: find(after).getBoundingClientRect().top,
+          last: !!find(last),
+          text: document.querySelector("#docBody").textContent
+        };
+      }, [BEFORE_TEXT, AFTER_TEXT, LAST_TEXT]);
+      assert.ok(state.frame, "the chart's frame is drawn");
+      assert.equal(state.frame.children, 0, "the frame is empty");
+      assert.ok(Math.abs(state.frame.width - FRAME_POINTS.width * 4 / 3) <= 1, `the frame is ${state.frame.width} px wide; the chart is 576 px`);
+      assert.ok(Math.abs(state.frame.height - FRAME_POINTS.height * 4 / 3) <= 1, `the frame is ${state.frame.height} px tall; the chart is 336 px`);
+      assert.ok(state.after >= state.frame.bottom - 1, `the paragraph after the chart starts at ${state.after}, inside the frame (ends at ${state.frame.bottom})`);
+      assert.ok(state.last, "the text after the second chart is shown");
     });
   });
 });

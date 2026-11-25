@@ -791,6 +791,68 @@ void TestSanitizing() {
                !Contains(output, "relIds") && !Contains(output, "rId4"),
            "a SmartArt graphic keeps its frame and loses its references");
 
+    // docx-preview reads a:graphic's a:graphicData and pic:pic's pic:blipFill
+    // without checking that they are there, and the whole render failed on
+    // an a:graphic or a pic:pic without them. A chart in an AlternateContent
+    // that is the only child of either left it empty; so does a file that
+    // writes it empty. Such an element goes, and the drawing keeps its frame.
+    const std::string chartData =
+        "<a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/chart\">"
+        "<c:chart xmlns:c=\"http://schemas.openxmlformats.org/drawingml/2006/chart\" r:id=\"rId9\"/>"
+        "</a:graphicData>";
+    const std::string inlineStart =
+        "<w:p><w:r><w:t>T</w:t><w:drawing><wp:inline><wp:extent cx=\"5486400\" cy=\"3200400\"/>"
+        "<wp:docPr id=\"6\" name=\"G\"/>";
+    const std::string inlineEnd = "</wp:inline></w:drawing></w:r></w:p>";
+    output = SanitizedBody(
+        inlineStart +
+        "<a:graphic><mc:AlternateContent><mc:Choice Requires=\"c\">" + chartData +
+        "</mc:Choice></mc:AlternateContent></a:graphic>" + inlineEnd);
+    Expect(Contains(output, "<wp:extent cx=\"5486400\" cy=\"3200400\"/>") &&
+               !Contains(output, "a:graphic") && !Contains(output, "c:chart"),
+           "an a:graphic emptied by a forbidden AlternateContent goes, and the frame stays");
+    output = SanitizedBody(inlineStart + "<a:graphic/>" + inlineEnd);
+    Expect(Contains(output, "<wp:extent cx=\"5486400\" cy=\"3200400\"/>") &&
+               !Contains(output, "a:graphic"),
+           "an empty a:graphic goes, and the frame stays");
+    const std::string pictureData =
+        "<a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">";
+    const std::string pictureDataEnd = "</a:graphicData></a:graphic>";
+    output = SanitizedBody(
+        inlineStart + pictureData +
+        "<pic:pic><mc:AlternateContent><mc:Choice Requires=\"wps\"><pic:blipFill><a:blip/>"
+        "<c:chart xmlns:c=\"http://schemas.openxmlformats.org/drawingml/2006/chart\" r:id=\"rId9\"/>"
+        "</pic:blipFill></mc:Choice><mc:Fallback><pic:blipFill><a:blip/>"
+        "<dgm:relIds xmlns:dgm=\"http://schemas.openxmlformats.org/drawingml/2006/diagram\" r:dm=\"rId4\"/>"
+        "</pic:blipFill></mc:Fallback></mc:AlternateContent></pic:pic>" +
+        pictureDataEnd + inlineEnd);
+    Expect(Contains(output, "<wp:extent cx=\"5486400\" cy=\"3200400\"/>") &&
+               !Contains(output, "pic:pic") && !Contains(output, "c:chart") &&
+               !Contains(output, "relIds"),
+           "a pic:pic emptied by a forbidden AlternateContent goes, and the frame stays");
+    output = SanitizedBody(inlineStart + pictureData + "<pic:pic/>" + pictureDataEnd + inlineEnd);
+    Expect(Contains(output, "<wp:extent cx=\"5486400\" cy=\"3200400\"/>") &&
+               !Contains(output, "pic:pic"),
+           "a pic:pic without pic:blipFill goes, and the frame stays");
+    // docx-preview also reads pic:blipFill's a:blip and pic:pic's pic:spPr
+    // without checking. A chart's graphicData that also held such a picture
+    // had gone with its drawing; with the frame kept, the picture went to
+    // docx-preview and failed the render.
+    output = SanitizedBody(
+        inlineStart + pictureData + "<pic:pic><pic:blipFill/><pic:spPr/></pic:pic>" + pictureDataEnd +
+        inlineEnd);
+    Expect(!Contains(output, "pic:pic"), "a pic:pic whose pic:blipFill has no a:blip goes");
+    output = SanitizedBody(
+        inlineStart +
+        "<a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/chart\">"
+        "<c:chart xmlns:c=\"http://schemas.openxmlformats.org/drawingml/2006/chart\" r:id=\"rId9\"/>"
+        "<pic:pic><pic:nvPicPr><pic:cNvPr id=\"1\" name=\"p\"/></pic:nvPicPr><pic:blipFill><a:blip/>"
+        "</pic:blipFill></pic:pic></a:graphicData></a:graphic>" +
+        inlineEnd);
+    Expect(Contains(output, "<wp:extent cx=\"5486400\" cy=\"3200400\"/>") &&
+               !Contains(output, "pic:pic") && !Contains(output, "c:chart"),
+           "a pic:pic without pic:spPr beside a chart goes, and the frame stays");
+
     // Inside a picture (pic:pic), docx-preview reads blipFill and spPr only as
     // direct children, so the core resolves an AlternateContent there the way
     // docx-preview resolves one elsewhere: to its Fallback, or to the Choice
