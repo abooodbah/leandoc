@@ -10,6 +10,9 @@
 // - "picture": a paragraph that holds only an inline picture, 90 pt tall.
 // - "empty": a code listing, Consolas 8 pt at single spacing, with an empty
 //   paragraph between its lines whose mark is 8 pt Consolas.
+// - "box": a VML text box wrapped square (w10:wrap type="square") that is
+//   as wide as the column, 10 pt below the top of its anchor paragraph and
+//   150 pt tall, then a paragraph of text.
 //
 // All text is made up. Returns bytes and a report.
 import { createRequire } from "node:module";
@@ -101,6 +104,15 @@ const PARTS = {
     codeLine("&lt;listing first=\"line\"&gt;"),
     `<w:p><w:pPr>${CODE_LINE}<w:rPr>${CONSOLAS(16)}</w:rPr></w:pPr></w:p>`,
     codeLine("&lt;/listing&gt;")
+  ],
+  box: () => [
+    `<w:p><w:r><w:pict><v:shape id="Box1" o:spid="_x0000_s1026" type="#_x0000_t202" ` +
+      `style="position:absolute;left:0;text-align:left;margin-left:0;margin-top:10pt;width:468pt;height:150pt;z-index:251659264;` +
+      `mso-wrap-style:square;mso-position-horizontal:absolute;mso-position-horizontal-relative:text;` +
+      `mso-position-vertical:absolute;mso-position-vertical-relative:text" stroked="f">` +
+      `<v:textbox><w:txbxContent><w:p>${text("Calendar box heron.")}</w:p></w:txbxContent></v:textbox>` +
+      `<w10:wrap type="square"/></v:shape></w:pict></w:r></w:p>`,
+    `<w:p>${text("After the box lynx.")}</w:p>`
   ]
 };
 

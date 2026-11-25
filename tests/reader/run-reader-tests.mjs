@@ -4949,4 +4949,24 @@ describe("fonts, pictures, and text boxes take the space Word gives them", () =>
       near(heights[1], 8 * 1.1701 * 4 / 3, 0.5, "the empty paragraph");
     });
   });
+
+  // A text box wrapped square that spans the column leaves no room beside
+  // it, so Word sets the next paragraph below it: 10 pt below its anchor's
+  // top and 150 pt tall. The box had taken no space and the paragraph after
+  // it printed under the box's text.
+  test("a box wrapped square as wide as the column pushes the text after it below it", async () => {
+    await withHost({}, async (host) => {
+      await open(host, "box");
+      const result = await host.page.evaluate(() => {
+        const article = document.querySelector("#docBody article");
+        const after = Array.from(article.querySelectorAll("p")).find((p) => p.textContent.includes("After the box lynx."));
+        const box = Array.from(document.querySelectorAll("#docBody *")).find((node) => node.textContent.includes("Calendar box heron.") &&
+          !Array.from(node.children).some((child) => child.textContent.includes("Calendar box heron.")) && node.closest("p")).closest(".ld-float, svg, div");
+        const top = article.getBoundingClientRect().top;
+        return { after: after.getBoundingClientRect().top - top, boxBottom: box.getBoundingClientRect().bottom - top };
+      });
+      assert.ok(result.after >= 150 * 4 / 3 - 1, `the paragraph after the box starts ${result.after} px below the text's top; the box is 200 px tall`);
+      assert.ok(result.after >= result.boxBottom - 1, `the paragraph after the box starts at ${result.after} px, inside the box (ends at ${result.boxBottom} px)`);
+    });
+  });
 });
