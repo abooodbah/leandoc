@@ -28,7 +28,7 @@ import { makeKeptParagraphDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeSavedRowsDocx, makeWordMetricsDocx, rowText } from "./make-saved-pages-docx.mjs";
 import { makeColumnStartsDocx, makeKeepRulesDocx, makePageBreakBeforeDocx, makeSectionPagesDocx, makeStyleChainDocx } from "./make-page-rules-docx.mjs";
 import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
-import { MONO_TEXT, makeFontsBoxesDocx } from "./make-fonts-boxes-docx.mjs";
+import { ARABIC_TEXT, LATIN_TEXT, MONO_TEXT, makeFontsBoxesDocx } from "./make-fonts-boxes-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
 let browser;
@@ -4967,6 +4967,27 @@ describe("fonts, pictures, and text boxes take the space Word gives them", () =>
       });
       assert.ok(result.after >= 150 * 4 / 3 - 1, `the paragraph after the box starts ${result.after} px below the text's top; the box is 200 px tall`);
       assert.ok(result.after >= result.boxBottom - 1, `the paragraph after the box starts at ${result.after} px, inside the box (ends at ${result.boxBottom} px)`);
+    });
+  });
+
+  // Word sets a run marked w:rtl in the complex-script font and size of its
+  // style (w:rFonts/@w:cs, w:szCs): Traditional Arabic at 15 pt here. The
+  // Arabic text took the style's 11 pt Times New Roman.
+  test("a right-to-left run takes the complex-script font and size", async () => {
+    await withHost({}, async (host) => {
+      await open(host, "complex");
+      const runs = await host.page.evaluate(([arabic, latin]) => {
+        const style = (text) => {
+          const span = Array.from(document.querySelectorAll("#docBody span")).find((node) => node.textContent.trim() === text);
+          const computed = getComputedStyle(span);
+          return { size: parseFloat(computed.fontSize), family: computed.fontFamily.split(",")[0].replace(/["']/g, "").trim() };
+        };
+        return { arabic: style(arabic), latin: style(latin) };
+      }, [ARABIC_TEXT, LATIN_TEXT]);
+      near(runs.arabic.size, 20, 0.1, "the Arabic run's size");
+      assert.equal(runs.arabic.family, "Traditional Arabic");
+      near(runs.latin.size, 11 * 4 / 3, 0.1, "the Latin run's size");
+      assert.equal(runs.latin.family, "Times New Roman");
     });
   });
 });

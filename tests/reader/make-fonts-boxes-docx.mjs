@@ -13,6 +13,9 @@
 // - "box": a VML text box wrapped square (w10:wrap type="square") that is
 //   as wide as the column, 10 pt below the top of its anchor paragraph and
 //   150 pt tall, then a paragraph of text.
+// - "complex": a right-to-left run of Arabic in a style whose complex-script
+//   font is Traditional Arabic at 15 pt (w:rFonts/@w:cs, w:szCs), and a
+//   left-to-right run after it in the style's 11 pt Times New Roman.
 //
 // All text is made up. Returns bytes and a report.
 import { createRequire } from "node:module";
@@ -58,6 +61,8 @@ const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Times New Roman"/></w:rPr></w:rPrDefault><w:pPrDefault/></w:docDefaults>
 <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/>
 <w:pPr><w:spacing w:after="200" w:line="276" w:lineRule="auto"/></w:pPr><w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:customStyle="1" w:styleId="ArabicBody"><w:name w:val="Arabic Body"/><w:basedOn w:val="Normal"/>
+<w:pPr><w:bidi/></w:pPr><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Traditional Arabic"/><w:sz w:val="22"/><w:szCs w:val="30"/></w:rPr></w:style>
 </w:styles>`;
 
 const SETTINGS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -70,6 +75,8 @@ const SECTION = `<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440
 const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNoAAAAggCBd81ytgAAAABJRU5ErkJggg==", "base64");
 
 export const MONO_TEXT = "0123456789".repeat(5);
+export const ARABIC_TEXT = "\u0646\u0635 \u062a\u062c\u0631\u064a\u0628\u064a";
+export const LATIN_TEXT = "Latin lynx";
 
 const CONSOLAS = (size) => `<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"/><w:sz w:val="${size}"/><w:szCs w:val="${size}"/>`;
 const CODE_LINE = `<w:spacing w:after="0" w:line="240" w:lineRule="auto"/>`;
@@ -113,6 +120,10 @@ const PARTS = {
       `<v:textbox><w:txbxContent><w:p>${text("Calendar box heron.")}</w:p></w:txbxContent></v:textbox>` +
       `<w10:wrap type="square"/></v:shape></w:pict></w:r></w:p>`,
     `<w:p>${text("After the box lynx.")}</w:p>`
+  ],
+  complex: () => [
+    `<w:p><w:pPr><w:pStyle w:val="ArabicBody"/></w:pPr><w:r><w:rPr><w:rtl/></w:rPr><w:t xml:space="preserve">${ARABIC_TEXT}</w:t></w:r>` +
+      `<w:r><w:t xml:space="preserve"> ${LATIN_TEXT}</w:t></w:r></w:p>`
   ]
 };
 
