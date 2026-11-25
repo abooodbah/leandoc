@@ -3282,8 +3282,48 @@
     return Math.abs(spacing) >= 0.001 ? spacing : 0;
   }
 
+  // A line that holds only pictures is as tall as its tallest picture in
+  // Word. In CSS a picture sits on the baseline and the paragraph's font
+  // adds its descent and half its leading below it: a Calibri line at 1.15
+  // grew 5.6 px under each picture. Such a picture is aligned to the
+  // bottom of its line instead. Lines with text keep the baseline.
+  var PICTURE_LINE_CLASS = "ld-picture-line";
+
+  function fitPictureLines(container) {
+    if (!container.querySelectorAll) {
+      return;
+    }
+    var paragraphs = new Set();
+    container.querySelectorAll("p img").forEach(function (image) {
+      paragraphs.add(image.closest("p"));
+    });
+    paragraphs.forEach(function (paragraph) {
+      if (!paragraph || /\S/.test(paragraph.textContent) ||
+          paragraph.querySelector(ATOMIC_SELECTOR.replace("img, ", "") + ", br")) {
+        return;
+      }
+      var pictures = [];
+      var inline = Array.prototype.every.call(paragraph.querySelectorAll("img"), function (image) {
+        var holder = image.parentElement;
+        var picture = holder && holder.nodeName === "DIV" && holder.style.display === "inline-block" ? holder : image;
+        if (picture.style.float || picture.style.position === "absolute" ||
+            (picture !== image && (image.style.position === "absolute" || holder.parentElement.closest("p") !== paragraph))) {
+          return false;
+        }
+        pictures.push(picture);
+        return true;
+      });
+      if (inline && pictures.length) {
+        pictures.forEach(function (picture) {
+          picture.classList.add(PICTURE_LINE_CLASS);
+        });
+      }
+    });
+  }
+
   // Line heights and line breaks as Word makes them, before pages are split.
   function matchWordLines(container) {
+    fitPictureLines(container);
     matchStandInWidths(container);
     fitParagraphsToRuns(container);
     setSingleLines(container);

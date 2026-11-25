@@ -1315,6 +1315,12 @@ body {
   break-inside: avoid;
 }
 
+/* A picture alone on its line ends at the line's bottom, with no descent
+   below it (reader.js fitPictureLines). */
+#docBody .ld-picture-line {
+  vertical-align: bottom;
+}
+
 /* A tab is as wide as the distance to its stop (reader.js setTabStops). */
 #docBody span.ld-tab {
   display: inline-block;
