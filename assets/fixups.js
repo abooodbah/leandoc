@@ -1132,6 +1132,137 @@
     return count;
   }
 
+  // Runs Word sets in the complex-script font: those marked w:rtl or w:cs.
+  // Word takes their font from w:rFonts/@w:cs (or @w:cstheme) and their size
+  // from w:szCs; docx-preview reads neither, so right-to-left text in a
+  // style of 11 pt Times New Roman with a complex-script size of 15 pt was
+  // set at 11 pt. Each value is resolved as Word does: the run, its character style, the paragraph's
+  // style, then the document defaults. Body paragraphs only, paired with the
+  // XML; a paragraph whose runs do not pair one to one is left alone.
+  var RUN_CONTAINERS = /^(hyperlink|smartTag|ins|del|sdt|sdtContent)$/;
+
+  function xmlRuns(container, out) {
+    Array.prototype.forEach.call(container.children || [], function (child) {
+      if (child.localName === "r") {
+        out.push(child);
+      } else if (RUN_CONTAINERS.test(child.localName)) {
+        xmlRuns(child, out);
+      }
+    });
+    return out;
+  }
+
+  function modelRuns(element, out) {
+    (element.children || []).forEach(function (child) {
+      if (!child || typeof child !== "object") {
+        return;
+      }
+      if (child.type === "run") {
+        out.push(child);
+      } else if (!/^(paragraph|table|drawing|vmlPicture|image)$/.test(child.type || "")) {
+        modelRuns(child, out);
+      }
+    });
+    return out;
+  }
+
+  function complexScriptRuns(modelBody, xmlBody, stylesRoot, slots, defaultId) {
+    // A document that marks no run rtl or cs has nothing to do.
+    var marked = [xmlBody, stylesRoot].some(function (root) {
+      return !!root && (!root.getElementsByTagNameNS ||
+        root.getElementsByTagNameNS("*", "rtl").length + root.getElementsByTagNameNS("*", "cs").length > 0);
+    });
+    if (!marked) {
+      return 0;
+    }
+    var modelParagraphs = [];
+    var xmlParagraphs = [];
+    modelBlocks(modelBody ? modelBody.children : [], modelParagraphs, []);
+    if (xmlBody) {
+      xmlBlocks(xmlBody, false, xmlParagraphs, []);
+    }
+    if (!xmlBody || xmlParagraphs.length !== modelParagraphs.length) {
+      return 0;
+    }
+    var byId = {};
+    elementsNamed(stylesRoot, "style").forEach(function (style) {
+      byId[getAttr(style, "styleId")] = style;
+    });
+    var docDefaults = stylesRoot ? childNamed(stylesRoot, "docDefaults") : null;
+    var rPrDefault = docDefaults ? childNamed(docDefaults, "rPrDefault") : null;
+    var defaults = rPrDefault ? childNamed(rPrDefault, "rPr") : null;
+    function fromStyle(id, read, depth) {
+      var style = id ? byId[id] : null;
+      if (!style || depth > 32) {
+        return null;
+      }
+      var value = read(childNamed(style, "rPr"));
+      var base = childNamed(style, "basedOn");
+      return value !== null ? value : base ? fromStyle(getAttr(base, "val"), read, depth + 1) : null;
+    }
+    function resolve(rPr, runStyle, paragraphStyle, read) {
+      var value = read(rPr);
+      if (value === null) {
+        value = fromStyle(runStyle, read, 0);
+      }
+      if (value === null) {
+        value = fromStyle(paragraphStyle, read, 0);
+      }
+      return value !== null ? value : read(defaults);
+    }
+    function flag(name) {
+      return function (rPr) {
+        var element = rPr ? childNamed(rPr, name) : null;
+        return element ? isOn(element) : null;
+      };
+    }
+    function size(rPr) {
+      var element = rPr ? childNamed(rPr, "szCs") : null;
+      var value = element ? parseFloat(getAttr(element, "val")) : NaN;
+      return value > 0 ? value / 2 : null;
+    }
+    function font(rPr) {
+      var fonts = rPr ? childNamed(rPr, "rFonts") : null;
+      var name = fonts ? getAttr(fonts, "cs") : null;
+      if (name) {
+        return /\s/.test(name) ? "'" + name.replace(/'/g, "") + "'" : name;
+      }
+      var theme = fonts ? getAttr(fonts, "cstheme") : null;
+      return theme ? resolveThemeFonts("var(--docx-" + theme + "-font)", slots) : null;
+    }
+    var count = 0;
+    xmlParagraphs.forEach(function (paragraph, index) {
+      var properties = childNamed(paragraph, "pPr");
+      var name = properties && childNamed(properties, "pStyle");
+      var paragraphStyle = (name && getAttr(name, "val")) || defaultId || "";
+      var sources = xmlRuns(paragraph, []);
+      var runs = modelRuns(modelParagraphs[index], []);
+      if (!sources.length || sources.length !== runs.length) {
+        return;
+      }
+      sources.forEach(function (source, position) {
+        var rPr = childNamed(source, "rPr");
+        var styleElement = rPr ? childNamed(rPr, "rStyle") : null;
+        var runStyle = styleElement ? getAttr(styleElement, "val") : null;
+        if (!resolve(rPr, runStyle, paragraphStyle, flag("rtl")) && !resolve(rPr, runStyle, paragraphStyle, flag("cs"))) {
+          return;
+        }
+        var run = runs[position];
+        var points = resolve(rPr, runStyle, paragraphStyle, size);
+        var family = resolve(rPr, runStyle, paragraphStyle, font);
+        run.cssStyle = run.cssStyle || {};
+        if (points) {
+          run.cssStyle["font-size"] = points + "pt";
+        }
+        if (family && !/var\(/.test(family)) {
+          run.cssStyle["font-family"] = withFontFallback(family);
+        }
+        count += 1;
+      });
+    });
+    return count;
+  }
+
   // Word gives no height to an empty paragraph that only carries the break
   // into a continuous section: in Word's own PDF of a pandoc-style paper the
   // heading after the title, the table after a two-column section, and the
@@ -2573,7 +2704,7 @@
   function prepareModel(doc) {
     var stats = { bullets: 0, symbols: 0, paragraphs: 0, paired: false, bidiVisualTables: 0,
       noteReferences: 0, pageFields: 0, autoHyphenation: false, sectionBreakParagraphs: 0, fittedTables: 0,
-      fixedTables: 0, markSizes: 0, emptyMarkFonts: 0, contextualSpacing: 0, savedPageStarts: 0, droppedPageStarts: 0,
+      fixedTables: 0, markSizes: 0, emptyMarkFonts: 0, complexScriptRuns: 0, contextualSpacing: 0, savedPageStarts: 0, droppedPageStarts: 0,
       widowControlOff: 0, keepLines: 0, keepNext: 0, defaultPageSetups: 0, reservedPictures: 0,
       fontStandIns: 0, floats: 0, inheritedHeaders: 0, tabs: 0, defaultTabStop: 36, customMarkNotes: [], numberedCustomMarkNotes: [] };
     if (!doc) {
@@ -2789,6 +2920,8 @@
     stats.bidiVisualTables = annotation.bidiVisualTables;
     stats.borderedTables = annotation.borderedTables;
     stats.emptyMarkFonts = applyEmptyMarkFonts(modelBody, xmlBody, slots);
+    stats.complexScriptRuns = complexScriptRuns(modelBody, xmlBody, partRoot(doc.stylesPart), slots,
+      defaultParagraph && defaultParagraph.id);
     stats.contextualSpacing = applyContextualSpacing(modelBody, xmlBody, partRoot(doc.stylesPart),
       defaultParagraph && defaultParagraph.id);
     var rules = markPageBreakRules(modelBody, xmlBody, partRoot(doc.stylesPart),
