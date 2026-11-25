@@ -33,6 +33,7 @@ import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, make
 import { ARABIC_TEXT, LATIN_TEXT, MONO_TEXT, makeFontsBoxesDocx } from "./make-fonts-boxes-docx.mjs";
 import { makeEmptyTableDocx, makeExactRowDocx, makePaddedRowDocx, makeTallRowDocx } from "./make-table-geometry-docx.mjs";
 import { makeColumnBreakDocx } from "./make-column-break-docx.mjs";
+import { makeListLabelDocx } from "./make-list-label-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
 let browser;
@@ -3610,6 +3611,33 @@ describe("page view ends a page at a column break in a one-column section", () =
       assert.ok(pages[0].includes("Opening line two.") && !pages[0].includes("Heading after"), pages[0]);
       assert.ok(pages[1].startsWith("Heading after the column break"), pages[1]);
       assert.ok(pages[1].includes("Right column text."), pages[1]);
+    });
+  });
+});
+
+// docx-preview prints the tab after a numbering label as a space, where a
+// line can break: a word longer than the line, such as a long URL, moved
+// to the line after its bullet, which stood alone, and each
+// such item took a line more than in Word, which breaks the word on the
+// label's line.
+describe("page view keeps a list item's first word on its label's line", () => {
+  test("a word longer than the line starts on its bullet's line", async () => {
+    await withHost({}, async (host) => {
+      const fixture = await makeListLabelDocx();
+      await host.openDocument({ ...fixture, fileName: "list-labels.docx" });
+      const result = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody article p"))
+        .filter((paragraph) => paragraph.textContent.trim())
+        .map((paragraph) => {
+          const range = document.createRange();
+          const text = paragraph.querySelector("span").firstChild;
+          range.setStart(text, 0);
+          range.setEnd(text, 1);
+          return { text: paragraph.textContent.slice(0, 5), top: Math.round(range.getBoundingClientRect().top - paragraph.getBoundingClientRect().top) };
+        }));
+      assert.deepEqual(result, [
+        { text: "http:", top: 0 }, { text: "Short", top: 0 },
+        { text: "http:", top: 0 }, { text: "Short", top: 0 }
+      ]);
     });
   });
 });
