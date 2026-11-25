@@ -1092,6 +1092,46 @@
     return empty;
   }
 
+  // An empty paragraph is a line of its mark's font (w:pPr/w:rPr/w:rFonts)
+  // in Word; docx-preview reads only the mark's size, so an empty line whose
+  // mark is 8 pt Consolas was drawn in its style's 11 pt Calibri, 5 px
+  // taller. Body paragraphs only, paired with the XML.
+  function applyEmptyMarkFonts(modelBody, xmlBody, slots) {
+    var modelParagraphs = [];
+    var xmlParagraphs = [];
+    modelBlocks(modelBody ? modelBody.children : [], modelParagraphs, []);
+    if (xmlBody) {
+      xmlBlocks(xmlBody, false, xmlParagraphs, []);
+    }
+    if (!xmlBody || xmlParagraphs.length !== modelParagraphs.length) {
+      return 0;
+    }
+    var count = 0;
+    xmlParagraphs.forEach(function (element, index) {
+      var model = modelParagraphs[index];
+      if (!isEmptyParagraph(model)) {
+        return;
+      }
+      var properties = childNamed(element, "pPr");
+      var mark = properties && childNamed(properties, "rPr");
+      var fonts = mark && childNamed(mark, "rFonts");
+      if (!fonts) {
+        return;
+      }
+      var name = getAttr(fonts, "ascii") || getAttr(fonts, "hAnsi");
+      var theme = getAttr(fonts, "asciiTheme") || getAttr(fonts, "hAnsiTheme");
+      var family = name ? (/\s/.test(name) ? "'" + name.replace(/'/g, "") + "'" : name)
+        : theme ? resolveThemeFonts("var(--docx-" + theme + "-font)", slots) : "";
+      if (!family || /var\(/.test(family)) {
+        return;
+      }
+      model.cssStyle = model.cssStyle || {};
+      model.cssStyle["font-family"] = withFontFallback(family);
+      count += 1;
+    });
+    return count;
+  }
+
   // Word gives no height to an empty paragraph that only carries the break
   // into a continuous section: in Word's own PDF of a pandoc-style paper the
   // heading after the title, the table after a two-column section, and the
@@ -2471,7 +2511,7 @@
   function prepareModel(doc) {
     var stats = { bullets: 0, symbols: 0, paragraphs: 0, paired: false, bidiVisualTables: 0,
       noteReferences: 0, pageFields: 0, autoHyphenation: false, sectionBreakParagraphs: 0, fittedTables: 0,
-      fixedTables: 0, markSizes: 0, contextualSpacing: 0, savedPageStarts: 0, droppedPageStarts: 0,
+      fixedTables: 0, markSizes: 0, emptyMarkFonts: 0, contextualSpacing: 0, savedPageStarts: 0, droppedPageStarts: 0,
       widowControlOff: 0, keepLines: 0, keepNext: 0, defaultPageSetups: 0, reservedPictures: 0,
       fontStandIns: 0, floats: 0, inheritedHeaders: 0, tabs: 0, defaultTabStop: 36, customMarkNotes: [], numberedCustomMarkNotes: [] };
     if (!doc) {
@@ -2641,7 +2681,7 @@
         if (!element.styleName && defaultParagraph) {
           element.styleName = defaultParagraph.id;
         }
-        if (spansSized && applyMarkSize(element, styleById, defaultSize)) {
+        if ((spansSized || isEmptyParagraph(element)) && applyMarkSize(element, styleById, defaultSize)) {
           stats.markSizes += 1;
         }
         if (element.cssStyle && element.cssStyle.hyphens === "auto" && !stats.autoHyphenation) {
@@ -2686,6 +2726,7 @@
     stats.paired = annotation.paired;
     stats.bidiVisualTables = annotation.bidiVisualTables;
     stats.borderedTables = annotation.borderedTables;
+    stats.emptyMarkFonts = applyEmptyMarkFonts(modelBody, xmlBody, slots);
     stats.contextualSpacing = applyContextualSpacing(modelBody, xmlBody, partRoot(doc.stylesPart),
       defaultParagraph && defaultParagraph.id);
     var rules = markPageBreakRules(modelBody, xmlBody, partRoot(doc.stylesPart),
