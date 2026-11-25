@@ -2723,6 +2723,20 @@ describe("page view keeps and starts pages as Word does", () => {
       assert.ok(texts[1].startsWith("Block D line 1."), texts[1].slice(0, 40));
     });
   });
+
+  // Where nearly every paragraph keeps with the next, a page held one
+  // paragraph: the page view moved the whole chain of kept
+  // paragraphs before the first one past the page, back to the page's first
+  // block. A chain longer than a page cannot stay together, and Word breaks
+  // it where the page ends.
+  test("paragraphs kept with the next fill their pages when the chain is longer than a page", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeKeepRulesDocx({ chain: true });
+      await host.openDocument({ bytes, report, fileName: "keep-chain.docx" });
+      const texts = await pageTexts(host);
+      assert.deepEqual(texts.map((text) => (text.match(/Kept line \d+\./g) || []).length), [36, 36, 8]);
+    });
+  });
 });
 
 describe("text past a saved page start continues on that page across a section boundary", () => {
