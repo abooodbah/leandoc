@@ -1832,3 +1832,12 @@ body {
 #docBody .ld-exact-cell {
   overflow: hidden;
 }
+
+/* Word drops the 14 pt of HTML auto spacing above the first paragraph of a
+   page after the first (fixups.js applyAutoSpacing). A paragraph with an
+   outline level (a heading) keeps it (fixups.js leaves it unmarked). That
+   exception rests on comparing the reader's pages with Word's, not on a
+   measurement in Word. */
+#docBody .docx-wrapper > section.docx:not(:first-of-type) > article:first-of-type > p.ld-auto-top:first-child {
+  margin-top: 0 !important;
+}

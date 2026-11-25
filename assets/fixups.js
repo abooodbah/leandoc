@@ -2362,7 +2362,7 @@
   // An attribute of a paragraph's w:spacing as Word resolves it: each
   // attribute on its own, from the paragraph, then its style chain, then the
   // document defaults. Returns the attribute's text, or null.
-  function spacingAttributeResolver(stylesRoot, attribute) {
+  function spacingAttributeResolver(stylesRoot, attribute, property) {
     var byId = {};
     elementsNamed(stylesRoot, "style").forEach(function (style) {
       if (getAttr(style, "type") === "paragraph") {
@@ -2370,7 +2370,7 @@
       }
     });
     function own(properties) {
-      var spacing = properties && childNamed(properties, "spacing");
+      var spacing = properties && childNamed(properties, property || "spacing");
       return spacing ? getAttr(spacing, attribute) : null;
     }
     var defaults = stylesRoot ? childNamed(stylesRoot, "docDefaults") : null;
@@ -2471,6 +2471,7 @@
     }
     var before = spacingAttributeResolver(stylesRoot, "beforeAutospacing");
     var after = spacingAttributeResolver(stylesRoot, "afterAutospacing");
+    var outline = spacingAttributeResolver(stylesRoot, "val", "outlineLvl");
     var list = numberingResolver(stylesRoot);
     function styleOf(element) {
       var properties = childNamed(element, "pPr");
@@ -2483,7 +2484,9 @@
       var top = isOnValue(before(element, style));
       var bottom = isOnValue(after(element, style));
       if (top || bottom) {
-        auto.set(element, { model: modelParagraphs[index], top: top, bottom: bottom, list: list(element, style) });
+        var level = outline(element, style);
+        auto.set(element, { model: modelParagraphs[index], top: top, bottom: bottom, list: list(element, style),
+          heading: level !== null && parseInt(level, 10) < 9 });
       }
     });
     if (!auto.size) {
@@ -2511,6 +2514,9 @@
       var model = entry.model;
       model.cssStyle = model.cssStyle || {};
       if (entry.top) {
+        if (entry.top === true && !entry.heading) {
+          addClass(model, "ld-auto-top");
+        }
         model.cssStyle["margin-top"] = entry.top === true ? HTML_AUTO_SPACING : entry.top;
       }
       if (entry.bottom) {
