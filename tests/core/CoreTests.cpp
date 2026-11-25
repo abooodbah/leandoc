@@ -1201,6 +1201,197 @@ void TestDisplayedFeatures() {
 
 
 // The link rule every host applies before the operating system sees a link.
+// ---------------------------------------------------------------------------
+// Chart and SmartArt frames
+
+const std::string kChartNs = "http://schemas.openxmlformats.org/drawingml/2006/chart";
+const std::string kDiagramNs = "http://schemas.openxmlformats.org/drawingml/2006/diagram";
+const std::string kRelationshipType = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/";
+
+std::string ChartData(const std::string& reference = "rIdChart") {
+    return "<a:graphicData uri=\"" + kChartNs + "\"><c:chart xmlns:c=\"" + kChartNs + "\" r:id=\"" +
+           reference + "\"/></a:graphicData>";
+}
+
+std::string InlineFrame(const std::string& graphicData) {
+    return "<w:p><w:r><w:drawing><wp:inline><wp:extent cx=\"5486400\" cy=\"3200400\"/>"
+           "<wp:docPr id=\"6\" name=\"G\"/><a:graphic>" + graphicData +
+           "</a:graphic></wp:inline></w:drawing></w:r></w:p>";
+}
+
+int Count(const std::string& haystack, const std::string& needle) {
+    int count = 0;
+    for (std::size_t at = haystack.find(needle); at != std::string::npos;
+         at = haystack.find(needle, at + needle.size())) {
+        ++count;
+    }
+    return count;
+}
+
+// A package whose document, header, and footnote each hold `story`, with a
+// chart part, a SmartArt data part, an embedded object, and an alternative
+// format chunk that every part's relationships name.
+std::map<std::string, std::string> SanitizedStories(const std::string& story) {
+    const std::string relationships =
+        "<Relationship Id=\"rIdChart\" Type=\"" + kRelationshipType + "chart\" Target=\"charts/chart1.xml\"/>"
+        "<Relationship Id=\"rIdDm\" Type=\"" + kRelationshipType + "diagramData\" Target=\"diagrams/data1.xml\"/>"
+        "<Relationship Id=\"rIdOle\" Type=\"" + kRelationshipType + "oleObject\" Target=\"embeddings/oleObject1.bin\"/>"
+        "<Relationship Id=\"rIdPkg\" Type=\"" + kRelationshipType + "package\" Target=\"embeddings/sheet1.xlsx\"/>"
+        "<Relationship Id=\"rIdAlt\" Type=\"" + kRelationshipType + "aFChunk\" Target=\"afchunk.htm\"/>";
+    const std::string rels =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+        relationships + "</Relationships>";
+    const std::string body =
+        story + "<w:p><w:r><w:footnoteReference w:id=\"2\"/></w:r></w:p>"
+        "<w:sectPr><w:headerReference w:type=\"default\" r:id=\"rIdHdr\"/></w:sectPr>";
+    auto entries = MinimalDocx(
+        body,
+        relationships +
+            "<Relationship Id=\"rIdHdr\" Type=\"" + kRelationshipType + "header\" Target=\"header1.xml\"/>"
+            "<Relationship Id=\"rIdFn\" Type=\"" + kRelationshipType + "footnotes\" Target=\"footnotes.xml\"/>",
+        "<Override PartName=\"/word/header1.xml\" ContentType=\"application/"
+        "vnd.openxmlformats-officedocument.wordprocessingml.header+xml\"/>"
+        "<Override PartName=\"/word/footnotes.xml\" ContentType=\"application/"
+        "vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml\"/>"
+        "<Override PartName=\"/word/charts/chart1.xml\" ContentType=\"application/"
+        "vnd.openxmlformats-officedocument.drawingml.chart+xml\"/>"
+        "<Override PartName=\"/word/diagrams/data1.xml\" ContentType=\"application/"
+        "vnd.openxmlformats-officedocument.drawingml.diagramData+xml\"/>");
+    const std::string document = DocumentXml("");
+    const std::string namespaces = document.substr(document.find("<w:document ") + 12,
+                                                   document.find("><w:body>") - document.find("<w:document ") - 12);
+    entries.push_back({"word/header1.xml", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><w:hdr " +
+                                               namespaces + ">" + story + "</w:hdr>"});
+    entries.push_back({"word/_rels/header1.xml.rels", rels});
+    entries.push_back({"word/footnotes.xml",
+                       "<?xml version=\"1.0\" encoding=\"UTF-8\"?><w:footnotes " + namespaces +
+                           "><w:footnote w:id=\"2\">" + story + "</w:footnote></w:footnotes>"});
+    entries.push_back({"word/_rels/footnotes.xml.rels", rels});
+    entries.push_back({"word/charts/chart1.xml",
+                       "<c:chartSpace xmlns:c=\"" + kChartNs + "\"><c:chart/></c:chartSpace>"});
+    entries.push_back({"word/charts/_rels/chart1.xml.rels", rels});
+    entries.push_back({"word/diagrams/data1.xml",
+                       "<dgm:dataModel xmlns:dgm=\"" + kDiagramNs + "\"/>"});
+    entries.push_back({"word/embeddings/oleObject1.bin", std::string("\xd0\xcf\x11\xe0", 4)});
+    entries.push_back({"word/embeddings/sheet1.xlsx", "PK"});
+    entries.push_back({"word/afchunk.htm", "<p>chunk</p>"});
+    const core::OpenResult result = OpenEntries(entries);
+    Expect(result.ok, "the package with charts in every story opens");
+    if (!result.ok) {
+        return {};
+    }
+    ExpectNothingForbidden(result.sanitizedPackage, "chart stories");
+    return Unzip(result.sanitizedPackage);
+}
+
+// No chart, diagram, embedding, or alternative-format part is written, and no
+// relationship names one.
+void ExpectNoChartParts(const std::map<std::string, std::string>& parts, const std::string& label) {
+    for (const auto& [name, data] : parts) {
+        Expect(!Contains(name, "charts/") && !Contains(name, "diagrams/") &&
+                   !Contains(name, "embeddings/") && !Contains(name, ".htm"),
+               label + ": part " + name + " is not written");
+        if (!Contains(name, ".rels")) {
+            continue;
+        }
+        for (const char* type : {"/chart\"", "/diagramData\"", "/diagramLayout\"", "/diagramQuickStyle\"",
+                                 "/diagramColors\"", "/oleObject\"", "/package\"", "/aFChunk\"",
+                                 "charts/", "diagrams/", "embeddings/"}) {
+            Expect(!Contains(data, type), label + ": " + name + " names " + type);
+        }
+    }
+}
+
+void TestChartFrames() {
+    const char* extent = "<wp:extent cx=\"5486400\" cy=\"3200400\"/>";
+
+    // Office 2016's chartex.
+    std::string output = SanitizedBody(InlineFrame(
+        "<a:graphicData uri=\"http://schemas.microsoft.com/office/drawing/2014/chartex\">"
+        "<cx:chart xmlns:cx=\"http://schemas.microsoft.com/office/drawing/2014/chartex\" "
+        "r:id=\"rIdChart\"/></a:graphicData>"));
+    Expect(Contains(output, extent) && !Contains(output, "cx:chart") && !Contains(output, "rIdChart"),
+           "a chartex chart keeps its frame and loses its reference");
+
+    // Strict namespaces.
+    output = SanitizedBody(
+        "<w:p><w:r><w:drawing><wp:inline><wp:extent cx=\"5486400\" cy=\"3200400\"/>"
+        "<wp:docPr id=\"6\" name=\"G\"/><sa:graphic xmlns:sa=\"http://purl.oclc.org/ooxml/drawingml/main\">"
+        "<sa:graphicData uri=\"http://purl.oclc.org/ooxml/drawingml/chart\">"
+        "<sc:chart xmlns:sc=\"http://purl.oclc.org/ooxml/drawingml/chart\" "
+        "xmlns:sr=\"http://purl.oclc.org/ooxml/officeDocument/relationships\" sr:id=\"rIdChart\"/>"
+        "</sa:graphicData></sa:graphic></wp:inline></w:drawing></w:r></w:p>" +
+        InlineFrame("<a:graphicData uri=\"http://purl.oclc.org/ooxml/drawingml/diagram\">"
+                    "<sd:relIds xmlns:sd=\"http://purl.oclc.org/ooxml/drawingml/diagram\" "
+                    "r:dm=\"rIdDm\"/></a:graphicData>"));
+    Expect(Count(output, extent) == 2 && !Contains(output, "sc:chart") && !Contains(output, "relIds") &&
+               !Contains(output, "rIdChart") && !Contains(output, "rIdDm"),
+           "Strict charts and diagrams keep their frames and lose their references");
+
+    // A floating chart.
+    output = SanitizedBody(
+        "<w:p><w:r><w:drawing><wp:anchor distT=\"0\" distB=\"0\" distL=\"114300\" distR=\"114300\" "
+        "simplePos=\"0\" relativeHeight=\"1\" behindDoc=\"0\" locked=\"0\" layoutInCell=\"1\" "
+        "allowOverlap=\"1\"><wp:simplePos x=\"0\" y=\"0\"/><wp:positionH relativeFrom=\"column\">"
+        "<wp:posOffset>0</wp:posOffset></wp:positionH><wp:positionV relativeFrom=\"paragraph\">"
+        "<wp:posOffset>0</wp:posOffset></wp:positionV>" + std::string(extent) +
+        "<wp:wrapSquare wrapText=\"bothSides\"/><wp:docPr id=\"7\" name=\"G\"/><a:graphic>" + ChartData() +
+        "</a:graphic></wp:anchor></w:drawing></w:r></w:p>");
+    Expect(Contains(output, "<wp:anchor") && Contains(output, extent) && Contains(output, "wp:wrapSquare") &&
+               !Contains(output, "c:chart") && !Contains(output, "rIdChart"),
+           "a floating chart keeps its frame and loses its reference");
+
+    // A group, a canvas, and a locked canvas holding a chart; the group also
+    // holds a text box with an embedded object and an alternative-format chunk.
+    const std::string chartFrame =
+        "<wpg:graphicFrame xmlns:wpg=\"http://schemas.microsoft.com/office/word/2010/wordprocessingGroup\">"
+        "<a:graphic>" + ChartData() + "</a:graphic></wpg:graphicFrame>";
+    const std::string textBox =
+        "<wps:wsp><wps:txbx><w:txbxContent><w:p><w:r><w:t>Box text heron</w:t></w:r><w:r><w:object>"
+        "<o:OLEObject r:id=\"rIdOle\" ProgID=\"Excel.Sheet.12\"/></w:object></w:r></w:p>"
+        "<w:altChunk r:id=\"rIdAlt\"/><w:p/></w:txbxContent></wps:txbx></wps:wsp>";
+    const std::string group =
+        "<wpg:wgp xmlns:wpg=\"http://schemas.microsoft.com/office/word/2010/wordprocessingGroup\">" +
+        chartFrame + textBox + "</wpg:wgp>";
+    output = SanitizedBody(
+        InlineFrame("<a:graphicData uri=\"http://schemas.microsoft.com/office/word/2010/wordprocessingGroup\">" +
+                    group + "</a:graphicData>") +
+        InlineFrame("<a:graphicData uri=\"http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas\">"
+                    "<wpc:wpc xmlns:wpc=\"http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas\">" +
+                    group + "</wpc:wpc></a:graphicData>") +
+        InlineFrame("<a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/lockedCanvas\">"
+                    "<lc:lockedCanvas xmlns:lc=\"http://schemas.openxmlformats.org/drawingml/2006/lockedCanvas\">"
+                    "<a:graphicFrame><a:graphic>" + ChartData() + "</a:graphic></a:graphicFrame>"
+                    "</lc:lockedCanvas></a:graphicData>"));
+    Expect(Count(output, extent) == 3 && !Contains(output, "c:chart") && !Contains(output, "rIdChart") &&
+               !Contains(output, "w:object") && !Contains(output, "OLEObject") &&
+               !Contains(output, "altChunk") && !Contains(output, "rIdOle") && !Contains(output, "rIdAlt") &&
+               Count(output, "Box text heron") == 2,
+           "charts in a group, a canvas, and a locked canvas lose their references; the group's "
+           "text box keeps its text and loses its object and chunk");
+
+    // Charts and SmartArt graphics in the document, a header, and a footnote;
+    // the package keeps none of their parts or relationships.
+    const std::string story =
+        InlineFrame(ChartData()) +
+        InlineFrame("<a:graphicData uri=\"" + kDiagramNs + "\"><dgm:relIds xmlns:dgm=\"" + kDiagramNs +
+                    "\" r:dm=\"rIdDm\" r:lo=\"rIdDm\" r:qs=\"rIdDm\" r:cs=\"rIdDm\"/></a:graphicData>");
+    const auto parts = SanitizedStories(story);
+    for (const char* name : {"word/document.xml", "word/header1.xml", "word/footnotes.xml"}) {
+        const auto part = parts.find(name);
+        Expect(part != parts.end(), std::string(name) + " is in the sanitized package");
+        if (part == parts.end()) {
+            continue;
+        }
+        Expect(Count(part->second, extent) == 2 && !Contains(part->second, "c:chart") &&
+                   !Contains(part->second, "relIds") && !Contains(part->second, "rIdChart") &&
+                   !Contains(part->second, "rIdDm"),
+               std::string(name) + ": the chart and SmartArt frames stay without their references");
+    }
+    ExpectNoChartParts(parts, "chart stories");
+}
+
 void TestLinks() {
     using leandoc::core::NormalizeExternalLink;
     auto link = [](std::string_view href) {
@@ -1255,6 +1446,7 @@ int main(int argc, char** argv) {
     TestDeletedParagraphMarks();
     TestDisplayedFeatures();
     TestLinks();
+    TestChartFrames();
     TestClassification(fixtures);
     TestPerformance(fixtures);
     std::cout << checks - failures << " of " << checks << " checks passed\n";
