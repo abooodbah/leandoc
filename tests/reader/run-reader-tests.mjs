@@ -26,7 +26,7 @@ import {
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { makeKeptParagraphDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeSavedRowsDocx, makeWordMetricsDocx, rowText } from "./make-saved-pages-docx.mjs";
-import { makeStyleChainDocx } from "./make-page-rules-docx.mjs";
+import { makeKeepRulesDocx, makeStyleChainDocx } from "./make-page-rules-docx.mjs";
 import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
@@ -2705,6 +2705,22 @@ describe("page view keeps and starts pages as Word does", () => {
       assert.equal(rendered.pages, 2);
       assert.ok(texts[0].endsWith("Clause line 36."), texts[0].slice(-40));
       assert.equal(texts[1], "Unstyled line.");
+    });
+  });
+
+  // Paragraphs in heading styles: docx-preview names each paragraph's class
+  // after its style, and the page view kept every paragraph whose style name
+  // holds "heading" with the next, though only w:keepNext does that in Word.
+  // A page that ended in a run of such paragraphs moved them all to the next
+  // page.
+  test("a paragraph in a heading style that does not keep with the next stays on its page", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeKeepRulesDocx();
+      await host.openDocument({ bytes, report, fileName: "keep-heading.docx" });
+      const texts = await pageTexts(host);
+      assert.equal(texts.length, 2);
+      assert.ok(texts[0].endsWith("Clause C line 10."), texts[0].slice(-40));
+      assert.ok(texts[1].startsWith("Block D line 1."), texts[1].slice(0, 40));
     });
   });
 });
