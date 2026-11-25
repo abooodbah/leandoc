@@ -3218,38 +3218,68 @@
   // Runs set in an Aptos font that is not installed are drawn in Calibri
   // (or Carlito); letter spacing brings them to Aptos's average width (see
   // Fixups.standInSpacing). Lines in Arial, the old stand-in, were 5.6%
-  // longer than Word's and Aptos documents ran pages long.
+  // longer than Word's and Aptos documents ran pages long. Runs in a
+  // missing monospaced font (Fixups.monoAdvance) are spaced by the
+  // difference between its advance and the one of the stand-in drawn.
   function matchStandInWidths(container) {
     if (!container.querySelectorAll) {
       return;
     }
     var calibri = !isNaN(installedLineHeight("Calibri")) || !isNaN(installedLineHeight("Carlito"));
-    if (!calibri) {
-      return;
-    }
     var changes = [];
     container.querySelectorAll("p, span").forEach(function (element) {
       if (!hasOwnText(element)) {
         return;
       }
-      var family = firstFamily(getComputedStyle(element).fontFamily);
-      var spacing = Fixups.standInSpacing(family);
+      var stack = getComputedStyle(element).fontFamily;
+      var family = firstFamily(stack);
+      var spacing = calibri ? Fixups.standInSpacing(family) : 0;
       if (spacing) {
         changes.push([element, family, spacing]);
+      } else if (Fixups.monoAdvance(family)) {
+        changes.push([element, family, stack]);
       }
     });
     // Probed before any write, so the probe lays out a clean page.
     var missing = new Map();
+    var advances = new Map();
     changes.forEach(function (change) {
       if (!missing.has(change[1])) {
         missing.set(change[1], isNaN(installedLineHeight(change[1])));
       }
-    });
-    changes.forEach(function (change) {
-      if (missing.get(change[1])) {
-        change[0].classList.add(lineClass("letter-spacing", change[2] + "em"));
+      if (typeof change[2] === "string" && missing.get(change[1]) && !advances.has(change[2])) {
+        advances.set(change[2], monoStandInSpacing(change[1], change[2]));
       }
     });
+    changes.forEach(function (change) {
+      var spacing = typeof change[2] === "string" ? advances.get(change[2]) : change[2];
+      if (missing.get(change[1]) && spacing) {
+        change[0].classList.add(lineClass("letter-spacing", spacing + "em"));
+      }
+    });
+  }
+
+  // The letter spacing, in em, that gives the family the stand-in of `stack`
+  // draws the advance of `family`; 0 when the stand-in is not monospaced.
+  function monoStandInSpacing(family, stack) {
+    var box = document.createElement("div");
+    box.style.cssText = "position:absolute;left:0;top:0;width:0;height:0;overflow:hidden;" +
+      "contain:strict;visibility:hidden";
+    var probe = document.createElement("span");
+    probe.style.cssText = "position:absolute;white-space:pre;font-size:1000px;display:inline-block";
+    probe.style.fontFamily = stack;
+    box.appendChild(probe);
+    document.body.appendChild(box);
+    probe.textContent = "0000000000";
+    var digits = probe.getBoundingClientRect().width / 10000;
+    probe.textContent = "iiiiiiiiii";
+    var narrow = probe.getBoundingClientRect().width / 10000;
+    document.body.removeChild(box);
+    if (!(digits > 0) || Math.abs(digits - narrow) > 0.001) {
+      return 0;
+    }
+    var spacing = Math.round((Fixups.monoAdvance(family) - digits) * 10000) / 10000;
+    return Math.abs(spacing) >= 0.001 ? spacing : 0;
   }
 
   // Line heights and line breaks as Word makes them, before pages are split.

@@ -220,6 +220,20 @@
     return Object.prototype.hasOwnProperty.call(STAND_IN_SPACING, key) ? STAND_IN_SPACING[key] : 0;
   }
 
+  // The advance of every character of a monospaced family, in em, from the
+  // font's own metrics: Consolas is 1126 units of 2048. Its stand-ins are
+  // wider (DejaVu Sans Mono and Liberation Mono 0.6 em, 9.5% more), so code
+  // lines wrapped where Word's did not. The reader measures the stand-in it
+  // draws and spaces its letters by the difference.
+  var MONO_ADVANCES = {
+    "consolas": 1126 / 2048
+  };
+
+  function monoAdvance(family) {
+    var key = String(family || "").replace(/^['"]|['"]$/g, "").trim().toLowerCase();
+    return Object.prototype.hasOwnProperty.call(MONO_ADVANCES, key) ? MONO_ADVANCES[key] : 0;
+  }
+
   // Stand-ins the document's font table names (w:altName), which Word uses
   // when a font is missing: an ACM template's Linux Libertine O names Times
   // New Roman, and the browser had drawn the next family in the list, a
@@ -2859,6 +2873,7 @@
     mapBulletText: mapBulletText,
     withFontFallback: withFontFallback,
     standInSpacing: standInSpacing,
+    monoAdvance: monoAdvance,
     logicalTextAlign: logicalTextAlign,
     mapNumberFormat: mapNumberFormat,
     classifyHref: classifyHref,
