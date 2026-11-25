@@ -3087,11 +3087,13 @@
     var changes = [];
     container.querySelectorAll("p").forEach(function (paragraph) {
       var largest = 0;
+      var smallest = Infinity;
       var family = "";
       [paragraph].concat(Array.prototype.slice.call(paragraph.querySelectorAll("span"))).forEach(function (element) {
         if (hasOwnText(element)) {
           var style = getComputedStyle(element);
           var size = parseFloat(style.fontSize) || 0;
+          smallest = Math.min(smallest, size);
           if (size > largest) {
             largest = size;
             family = style.fontFamily;
@@ -3102,7 +3104,11 @@
         return;
       }
       var own = getComputedStyle(paragraph);
-      var size = parseFloat(own.fontSize) > largest + 0.01 ? largest + "px" : "";
+      var ownSize = parseFloat(own.fontSize);
+      // A paragraph whose text is all one size larger than its mark takes
+      // that size too, unless it is numbered (its label keeps the mark's).
+      var grows = ownSize < largest - 0.01 && smallest > largest - 0.01 && !/(^|\s)docx-num-/.test(paragraph.className);
+      var size = ownSize > largest + 0.01 || grows ? largest + "px" : "";
       var font = family && own.fontFamily !== family ? family : "";
       // docx-preview gives a paragraph a min-height of its style's size
       // (w:sz), so that an empty one keeps a line; with text, the floor held
