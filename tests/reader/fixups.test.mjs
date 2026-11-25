@@ -71,6 +71,13 @@ test("Inline symbol text maps completely or reports what is missing", () => {
   assert.equal(Fixups.mapSymbolText("plain", "").changed, false);
 });
 
+test("A nonbreaking hyphen stays in the text of a compound word", () => {
+  const children = [{ type: "text", text: "north" }, { type: "noBreakHyphen" }, { type: "text", text: "bound" }];
+  const paragraph = { type: "paragraph", children: [{ type: "run", children }] };
+  Fixups.prepareModel({ documentPart: { body: { children: [paragraph] } }, parts: [] });
+  assert.deepEqual(children[1], { type: "text", text: "\u2011" });
+});
+
 test("Missing fonts get fallbacks after the document's family", () => {
   assert.equal(Fixups.withFontFallback("Calibri"), "Calibri, Carlito, sans-serif");
   assert.equal(Fixups.withFontFallback("'Times New Roman'"), "'Times New Roman', \"Liberation Serif\", Tinos, Times, serif");

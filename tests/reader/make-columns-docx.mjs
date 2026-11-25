@@ -167,6 +167,15 @@ export async function makeTablesDocx({ longRows = 90 } = {}) {
   return { bytes, longRows, report: report(bytes, []) };
 }
 
+export async function makeKeptParagraphDocx() {
+  const lines = Array.from({ length: 40 }, (_, i) =>
+    `<w:r>${i ? "<w:br/>" : ""}<w:t>Kept line ${i + 1}.</w:t></w:r>`);
+  const bytes = await packDocx(`<w:document xmlns:w="${W}"><w:body>
+<w:p><w:pPr><w:keepLines/><w:widowControl w:val="0"/><w:spacing w:before="0" w:after="0" w:line="360" w:lineRule="exact"/></w:pPr>${lines.join("")}</w:p>
+<w:sectPr><w:pgSz w:w="7200" w:h="7200"/><w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720"/></w:sectPr></w:body></w:document>`);
+  return { bytes, report: report(bytes, []) };
+}
+
 // One-line paragraphs with exact 12 pt lines and `after` twips of spacing after,
 // in one section with no page break. With 880 twips, a page's twelfth line ends
 // above the bottom margin while its spacing after reaches past it.

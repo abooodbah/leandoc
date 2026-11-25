@@ -2591,6 +2591,10 @@
         fixRun(element, stats);
         fixNoteReferenceRun(element, stats);
         markNoteReferences(element);
+      } else if (element.type === "noBreakHyphen") {
+        // The renderer otherwise emits an empty word-break opportunity.
+        element.type = "text";
+        element.text = "\u2011";
       } else if (element.type === "symbol") {
         fixSymbolElement(element, stats);
       } else if (element.type === "table" && fitAutoTable(element)) {
