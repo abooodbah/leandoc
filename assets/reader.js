@@ -2630,6 +2630,55 @@
     rest.parentNode.removeChild(rest);
   }
 
+  // Word 2007 saved a page start at the top of each column of a section
+  // with columns, not only at each page, and docx-preview starts a page at
+  // every one, so each page held one column's text. Word starts a page only once its columns are
+  // full. A page whose last section has columns and continues on the next
+  // page at a saved start, but whose text ends before that section's last
+  // column or in its upper half, ended at a column start: the next page's
+  // text continues on it.
+  var COLUMN_JOIN_FILL = 0.5;
+
+  function endsAtColumnStart(page, following) {
+    if (!startsAtSavedBreak(following) || page.style.cssText !== following.style.cssText) {
+      return false;
+    }
+    var articles = childrenNamed(page, "ARTICLE");
+    var last = articles[articles.length - 1];
+    var first = childrenNamed(following, "ARTICLE")[0];
+    var count = last ? columnCount(last) : 1;
+    // splitPage leaves a column section that fits with its columns filled in
+    // order, at the height it was measured at.
+    if (count < 2 || columnCount(first) !== count || !last.style.height) {
+      return false;
+    }
+    var block = last.lastElementChild;
+    var rects = block ? block.getClientRects() : [];
+    if (!rects.length) {
+      return false;
+    }
+    var box = last.getBoundingClientRect();
+    var rect = rects[rects.length - 1];
+    return rect.left < box.right - columnWidth(last) - 1 ||
+      rect.bottom <= box.top + (box.bottom - box.top) * COLUMN_JOIN_FILL;
+  }
+
+  // Puts the text of `page` in front of the text of `following`, which takes
+  // its place, header and footer included, and removes `page`.
+  function joinColumnPage(page, following) {
+    ["HEADER", "FOOTER"].forEach(function (name) {
+      var own = childrenNamed(page, name)[0];
+      var theirs = childrenNamed(following, name)[0];
+      if (own && theirs) {
+        following.replaceChild(own, theirs);
+      }
+    });
+    if (page[CHROME]) {
+      following[CHROME] = page[CHROME];
+    }
+    flowInto(page, following);
+  }
+
   // Splitting runs in slices of about SLICE_MS and lets the window handle
   // input and paint between them, as the other long steps of a render do
   // (P-04). A newer render stops it: it resolves null.
@@ -2694,6 +2743,12 @@
             settlePending();
             flowInto(next, pages[index]);
             next = null;
+          } else if (!next && budget > 0 && index < pages.length && endsAtColumnStart(cursor, pages[index])) {
+            settlePending();
+            joinColumnPage(cursor, pages[index]);
+            result.pop();
+            cursor = null;
+            continue;
           }
           if (next) {
             result.push(next);
