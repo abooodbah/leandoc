@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -36,6 +37,10 @@ sys.path.insert(0, str(ROOT / "tests" / "perf"))
 
 from leandoc_driver import Build, HostError, Session, sample_tree, wait_for_no_leftovers, xdotool  # noqa: E402
 import make_report  # noqa: E402
+
+# The host opens the reader with its interface language in the query; any
+# other address means the page navigated.
+READER_URL = re.compile(r"leandoc://app/reader\.html\?lang=(en|zh-CN|ja)")
 
 FEATURES = ROOT / "tests" / "fixtures" / "features"
 SECURITY = ROOT / "tests" / "fixtures" / "security"
@@ -617,7 +622,8 @@ def u10(ctx):
                   f"the dropped .docx opens in a tab: {dropped.result}, {tabs} tabs, {name}")
             check(refused.result == "refused" and "LeanDoc opens .docx" in toast,
                   f"the unsupported file shows a status: {refused.result}, {toast!r}")
-            check(url == "leandoc://app/reader.html" and after_tabs == 2, "the page never navigates")
+            check(READER_URL.fullmatch(url or "") is not None and after_tabs == 2,
+                  f"the page never navigates: {url}")
         return f"dropped .docx opened as tab 2; .txt refused with '{toast}'"
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -731,7 +737,7 @@ def u13(ctx):
               f"mailto opened without attach=: {launched}")
         check(launched[2] == "browser http://example.org/" and len(launched) == 3,
               f"javascript: and file: are inert: {launched}")
-        check(url == "leandoc://app/reader.html", "the reader never navigates")
+        check(READER_URL.fullmatch(url or "") is not None, f"the reader never navigates: {url}")
         return f"opened {launched}"
     finally:
         desktop.close()
