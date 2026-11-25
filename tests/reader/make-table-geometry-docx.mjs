@@ -13,6 +13,9 @@
 //
 // makePaddedRowDocx: a one-column row of one-line paragraphs in a cell with a
 // bottom margin, crossing the foot of the first page.
+//
+// makeClippedRowDocx: a row of exact height whose cell holds more lines than
+// fit in it.
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -143,4 +146,14 @@ export async function makePaddedRowDocx({ before = 30, bottom = 120 } = {}) {
   const table = `<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="9360" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr>` +
     `<w:tblGrid><w:gridCol w:w="9360"/></w:tblGrid><w:tr>${cell(9360, lines.join(""), margin)}</w:tr></w:tbl>`;
   return pack([...filler("Opening", before), table, ...filler("Closing", 4)]);
+}
+
+// A row exactly 60 pt (80 px) tall whose cell holds ten 16 px lines: Word
+// shows the first five and hides the rest.
+export async function makeClippedRowDocx() {
+  const exact = `<w:trPr><w:trHeight w:val="1200" w:hRule="exact"/></w:trPr>`;
+  const table = `<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="9360" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr>` +
+    `<w:tblGrid><w:gridCol w:w="4680"/><w:gridCol w:w="4680"/></w:tblGrid>` +
+    `<w:tr>${exact}${cell(4680, lines("Clipped", 10))}${cell(4680, paragraph("Short cell."))}</w:tr></w:tbl>`;
+  return pack([paragraph("Before the table."), table, paragraph("After the table.")]);
 }

@@ -31,7 +31,7 @@ import { makeColumnStartsDocx, makeKeepRulesDocx, makePageBreakBeforeDocx, makeS
 import { makeTableEdgeDocx } from "./make-table-edge-docx.mjs";
 import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
 import { ARABIC_TEXT, LATIN_TEXT, MONO_TEXT, makeFontsBoxesDocx } from "./make-fonts-boxes-docx.mjs";
-import { makeEmptyTableDocx, makeExactRowDocx, makePaddedRowDocx, makeTallRowDocx } from "./make-table-geometry-docx.mjs";
+import { makeClippedRowDocx, makeEmptyTableDocx, makeExactRowDocx, makePaddedRowDocx, makeTallRowDocx } from "./make-table-geometry-docx.mjs";
 import { makeColumnBreakDocx } from "./make-column-break-docx.mjs";
 import { makeListLabelDocx } from "./make-list-label-docx.mjs";
 
@@ -3583,6 +3583,33 @@ describe("page view breaks tables, lists, and footers as Word does", () => {
   // Word does not break a row of exact height across pages: it started a
   // page with such a row where the page view had split it between its
   // lines, leaving the rest of its height past the page.
+  // A row of exact height is that tall in Word whatever it holds: text
+  // that does not fit is hidden. Grown to its text, such a row ran taller
+  // than Word's.
+  test("a row of exact height keeps its height and hides what does not fit", async () => {
+    await withHost({}, async (host) => {
+      const fixture = await makeClippedRowDocx();
+      await host.openDocument({ ...fixture, fileName: "clipped-row.docx" });
+      const result = await host.page.evaluate(() => {
+        const row = document.querySelector("#docBody table").rows[0];
+        const after = Array.from(document.querySelectorAll("#docBody p")).find((p) => p.textContent === "After the table.");
+        const cell = row.cells[0].getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(Array.from(row.cells[0].querySelectorAll("span")).find((span) => span.textContent === "Clipped line 10"));
+        const last = range.getBoundingClientRect();
+        const hit = document.elementFromPoint(last.left + 2, last.top + last.height / 2);
+        return {
+          height: Math.round(row.getBoundingClientRect().height),
+          gap: Math.round(after.getBoundingClientRect().top - row.getBoundingClientRect().bottom),
+          lastShown: last.top < cell.bottom || (!!hit && row.cells[0].contains(hit))
+        };
+      });
+      assert.ok(Math.abs(result.height - 80) <= 1.5, `row ${result.height} px`);
+      assert.ok(result.gap < 4, `text after the table starts ${result.gap} px below the row`);
+      assert.equal(result.lastShown, false);
+    });
+  });
+
   test("a row of exact height moves whole", async () => {
     await withHost({}, async (host) => {
       const fixture = await makeExactRowDocx();
