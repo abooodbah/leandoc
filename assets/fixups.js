@@ -1276,21 +1276,81 @@
     return /^(f|false|0|off)$/i.test(String(value || ""));
   }
 
+  // Word sets no text beside a box wrapped square (or tight, or through)
+  // where the column leaves less than this on both of its sides, in points;
+  // such a box takes its lines whole, as one wrapped top and bottom does.
+  var MIN_WRAP_ROOM = 72;
+
+  // The width of the text of each body paragraph, in points, from the
+  // section the paragraph is in (w:pgSz, w:pgMar); null in a section of
+  // several columns or one whose page is not given.
+  function columnWidths(xmlBody, xmlParagraphs) {
+    function width(sectPr) {
+      var size = sectPr && childNamed(sectPr, "pgSz");
+      var margins = sectPr && childNamed(sectPr, "pgMar");
+      var columns = sectPr && childNamed(sectPr, "cols");
+      var page = parseFloat(getAttr(size, "w"));
+      if (!(page > 0) || !margins || (parseInt(getAttr(columns, "num"), 10) || 1) > 1) {
+        return null;
+      }
+      return (page - (parseFloat(getAttr(margins, "left")) || 0) - (parseFloat(getAttr(margins, "right")) || 0) -
+        (parseFloat(getAttr(margins, "gutter")) || 0)) / 20;
+    }
+    var widths = new Array(xmlParagraphs.length);
+    var last = width(childNamed(xmlBody, "sectPr"));
+    var current = last;
+    for (var index = xmlParagraphs.length - 1; index >= 0; index -= 1) {
+      var properties = childNamed(xmlParagraphs[index], "pPr");
+      var sectPr = properties && childNamed(properties, "sectPr");
+      if (sectPr && xmlParagraphs[index].parentNode === xmlBody) {
+        current = width(sectPr);
+      }
+      widths[index] = current;
+    }
+    return widths;
+  }
+
+  // Whether a box wrapped square leaves no room for text beside it in a
+  // section whose text is `column` points wide.
+  function fillsColumn(style, width, column) {
+    if (!(column > 0)) {
+      return false;
+    }
+    var relative = vmlStyleValue(style, "mso-position-horizontal-relative") || "text";
+    if (!/^(text|margin|char)$/.test(relative)) {
+      return false;
+    }
+    var horizontal = vmlStyleValue(style, "mso-position-horizontal");
+    var left = horizontal === "center" ? (column - width) / 2
+      : horizontal === "right" || horizontal === "outside" ? column - width
+      : horizontal === "left" || horizontal === "inside" ? 0
+      : vmlLength(style, "margin-left") * (/margin-left\s*:\s*-/i.test(style) ? -1 : 1);
+    var right = column - left - width;
+    return Math.max(left, right) < MIN_WRAP_ROOM;
+  }
+
   // How a VML shape floats, or null when it is not a text box Word wraps
   // top and bottom. "top" and "bottom" boxes are positioned against the
-  // page or its margins; any other box sits in the text at its anchor.
-  function floatPlacement(shape) {
+  // page or its margins; any other box sits in the text at its anchor. A
+  // box wrapped square that fills its column (MIN_WRAP_ROOM) floats as one
+  // wrapped top and bottom. Such a box had taken no space, and the text
+  // after it was set under the box's text.
+  function floatPlacement(shape, column) {
     var style = shape ? getAttr(shape, "style") || "" : "";
     if (!/position\s*:\s*absolute/i.test(style)) {
       return null;
     }
     var wrap = childNamed(shape, "wrap");
     var textbox = childNamed(shape, "textbox");
-    if (!wrap || getAttr(wrap, "type") !== "topAndBottom" || !textbox || !childNamed(textbox, "txbxContent")) {
+    var type = wrap ? getAttr(wrap, "type") : null;
+    if (!type || !textbox || !childNamed(textbox, "txbxContent")) {
       return null;
     }
     var width = vmlLength(style, "width");
     if (!(width > 0)) {
+      return null;
+    }
+    if (type !== "topAndBottom" && !(/^(square|tight|through)$/.test(type) && fillsColumn(style, width, column))) {
       return null;
     }
     var relative = vmlStyleValue(style, "mso-position-vertical-relative") || "text";
@@ -1376,6 +1436,7 @@
       return 0;
     }
     var floated = 0;
+    var columns = null;
     modelParagraphs.forEach(function (paragraph, index) {
       var pictures = [];
       eachModelElement(paragraph.children || [], function (element) {
@@ -1390,8 +1451,9 @@
       if (sources.length !== pictures.length) {
         return;
       }
+      columns = columns || columnWidths(xmlBody, xmlParagraphs);
       pictures.forEach(function (picture, position) {
-        var placement = floatPlacement(vmlShape(sources[position]));
+        var placement = floatPlacement(vmlShape(sources[position]), columns[index]);
         var content = placement ? textBoxContent(picture) : null;
         if (!content || !content.length) {
           return;
