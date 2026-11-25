@@ -1288,6 +1288,35 @@
     return hidden;
   }
 
+  // Word ends the page at a column break (w:br w:type="column") in a section
+  // of one column; docx-preview drew nothing for it, so a heading that
+  // starts with one ran on from the text before it. A column break in a
+  // section with columns is left as it is.
+  function columnBreaksAsPages(body) {
+    var section = [];
+    var count = 0;
+    function close(props) {
+      var columns = props && props.columns && props.columns.numberOfColumns;
+      if (!(columns > 1)) {
+        eachModelElement(section, function (element) {
+          if (element.type === "break" && element.break === "column") {
+            element.break = "page";
+            count += 1;
+          }
+        });
+      }
+      section = [];
+    }
+    ((body && body.children) || []).forEach(function (block) {
+      section.push(block);
+      if (block && block.type === "paragraph" && block.sectionProps) {
+        close(block.sectionProps);
+      }
+    });
+    close(body && body.props);
+    return count;
+  }
+
   // VML lengths in points ("466.3pt", "6in", ".4pt").
   var VML_UNITS = { pt: 1, in: 72, px: 0.75, cm: 72 / 2.54, mm: 72 / 25.4, pc: 12 };
 
@@ -2887,7 +2916,7 @@
 
   function prepareModel(doc) {
     var stats = { bullets: 0, symbols: 0, paragraphs: 0, paired: false, bidiVisualTables: 0,
-      noteReferences: 0, pageFields: 0, autoHyphenation: false, sectionBreakParagraphs: 0, fittedTables: 0,
+      noteReferences: 0, pageFields: 0, autoHyphenation: false, sectionBreakParagraphs: 0, columnBreakPages: 0, fittedTables: 0,
       fixedTables: 0, markSizes: 0, emptyMarkFonts: 0, complexScriptRuns: 0, contextualSpacing: 0, savedPageStarts: 0, droppedPageStarts: 0,
       widowControlOff: 0, keepLines: 0, keepNext: 0, defaultPageSetups: 0, reservedPictures: 0,
       fontStandIns: 0, floats: 0, inheritedHeaders: 0, tabs: 0, defaultTabStop: 36, customMarkNotes: [], numberedCustomMarkNotes: [] };
@@ -3131,6 +3160,7 @@
       });
     }
     stats.sectionBreakParagraphs = hideSectionBreakParagraphs(doc.documentPart && doc.documentPart.body);
+    stats.columnBreakPages = columnBreaksAsPages(doc.documentPart && doc.documentPart.body);
     stats.defaultPageSetups = fillDocumentPageSetup(doc.documentPart && doc.documentPart.body);
     stats.inheritedHeaders = inheritHeaderFooters(doc.documentPart && doc.documentPart.body);
     stats.titleSections = markTitleSections(doc.documentPart && doc.documentPart.body);
