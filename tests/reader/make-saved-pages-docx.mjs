@@ -178,6 +178,24 @@ export async function makeSavedRowsDocx({ rows = 100, perPage = 30 } = {}) {
   return { bytes, rows, perPage, report: report(bytes) };
 }
 
+// makeContentsDocx: `entries` contents lines at 1.15 spacing whose page
+// numbers stand at a right stop with a dot leader, then the same lines at a
+// right stop with no leader.
+export const CONTENTS_ENTRY = "Contents entry";
+
+export async function makeContentsDocx({ entries = 40 } = {}) {
+  const line = (index, leader) => `<w:p><w:pPr><w:tabs><w:tab w:val="right"${leader ? ` w:leader="dot"` : ""} w:pos="9350"/></w:tabs>` +
+    `<w:spacing w:after="100" w:line="276" w:lineRule="auto"/></w:pPr>${run(`${CONTENTS_ENTRY} ${index}`)}<w:r><w:tab/></w:r>${run(String(index + 2))}</w:p>`;
+  const body = [];
+  [true, false].forEach((leader) => {
+    for (let index = 1; index <= entries; index += 1) {
+      body.push(line(index, leader));
+    }
+  });
+  const bytes = await pack(wrap(body));
+  return { bytes, report: report(bytes) };
+}
+
 export async function makeWordMetricsDocx() {
   const major = `<w:rFonts w:asciiTheme="majorBidi" w:hAnsiTheme="majorBidi" w:cstheme="majorBidi"/>`;
   const small = `<w:sz w:val="20"/><w:szCs w:val="20"/>`;

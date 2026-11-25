@@ -25,7 +25,9 @@ import {
 } from "./make-numbered-docx.mjs";
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { makeKeptParagraphDocx } from "./make-columns-docx.mjs";
-import { lineText, makeSavedPagesDocx, makeSavedRowsDocx, makeWordMetricsDocx, rowText } from "./make-saved-pages-docx.mjs";
+import {
+  CONTENTS_ENTRY, lineText, makeContentsDocx, makeSavedPagesDocx, makeSavedRowsDocx, makeWordMetricsDocx, rowText
+} from "./make-saved-pages-docx.mjs";
 import { makeColumnStartsDocx, makeKeepRulesDocx, makePageBreakBeforeDocx, makeSectionPagesDocx, makeStyleChainDocx } from "./make-page-rules-docx.mjs";
 import { makeTableEdgeDocx } from "./make-table-edge-docx.mjs";
 import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
@@ -2788,6 +2790,26 @@ describe("page view keeps and starts pages as Word does", () => {
       assert.equal(rendered.pages, 3);
       assert.deepEqual(texts.map((text) => (text.match(/Column line \d+\./g) || []).length), [72, 72, 72]);
       assert.deepEqual(texts.map((text) => text.match(/Column line \d+\./)[0]), ["Column line 1.", "Column line 73.", "Column line 145."]);
+    });
+  });
+});
+
+// A dot leader is a box that clips its dots. Set on the bottom of the text,
+// it reached above the line by the line's leading, and a line with a leader
+// was taller than the same line without one. Word's line is as tall as its text.
+test("a contents line with a dot leader is as tall as one without", async () => {
+  await withHost({}, async (host) => {
+    const { bytes, report } = await makeContentsDocx({ entries: 40 });
+    await host.openDocument({ bytes, report, fileName: "contents.docx" });
+    const lines = await host.page.evaluate((entry) => Array.from(document.querySelectorAll("#docBody article > p"))
+      .filter((p) => p.textContent.startsWith(entry))
+      .map((p) => ({ leader: !!p.querySelector(".ld-tab-leader"), height: p.getBoundingClientRect().height })), CONTENTS_ENTRY);
+    const leader = lines.filter((line) => line.leader).map((line) => line.height);
+    const plain = lines.filter((line) => !line.leader).map((line) => line.height);
+    assert.equal(leader.length, 40);
+    assert.equal(plain.length, 40);
+    leader.concat(plain).forEach((height) => {
+      assert.ok(Math.abs(height - plain[0]) <= 0.1, `a contents line is ${height} px tall; one without a leader is ${plain[0]} px`);
     });
   });
 });
