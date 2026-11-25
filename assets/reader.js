@@ -3955,6 +3955,38 @@
     });
   }
 
+  // docx-preview starts a page at a paragraph with "page break before" even
+  // where the document starts or a page break comes just before it, and
+  // leaves a page with nothing on it. Word starts no page there: the
+  // paragraph is at the top of a page already, and a blank page showed
+  // before it. The page goes, and its header and footer,
+  // which docx-preview chose for its place (a section's first page, an even
+  // page), go to the page after it.
+  function dropEmptyPages(pages) {
+    return pages.filter(function (page, index) {
+      var next = pages[index + 1];
+      var articles = childrenNamed(page, "ARTICLE");
+      if (!next || !articles.length || articles.some(function (article) {
+        return article.firstChild;
+      })) {
+        return true;
+      }
+      ["HEADER", "FOOTER"].forEach(function (name) {
+        var own = childrenNamed(page, name)[0];
+        var theirs = childrenNamed(next, name)[0];
+        if (own && theirs) {
+          next.replaceChild(own, theirs);
+        } else if (own) {
+          next.insertBefore(own, name === "HEADER" ? next.firstChild : null);
+        } else if (theirs) {
+          next.removeChild(theirs);
+        }
+      });
+      page.parentNode.removeChild(page);
+      return false;
+    });
+  }
+
   function attachDocument(nodes, view, serial, hyphenate) {
     clearSearch();
     stopMatchingNear();
@@ -3977,9 +4009,9 @@
     var wrapper = body.filter(function (node) {
       return node.classList && node.classList.contains("docx-wrapper");
     })[0];
-    var pages = wrapper ? Array.prototype.filter.call(wrapper.children, function (child) {
+    var pages = dropEmptyPages(wrapper ? Array.prototype.filter.call(wrapper.children, function (child) {
       return child.nodeName === "SECTION";
-    }) : [];
+    }) : []);
     elements.docStyles.replaceChildren.apply(elements.docStyles, styles);
     markTitlePages(pages);
     if (pages.length <= PROGRESSIVE_PAGES) {
