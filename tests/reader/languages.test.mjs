@@ -318,9 +318,18 @@ for (const language of ["en", "ja", "zh-CN"]) {
             console.log(`# skipped: no CJK font is installed, so ${language} glyph rendering is not checked`);
             return;
           }
+          // DevTools' CSS agent fetches the page's stylesheet again outside
+          // page routing, which the recording proxy sees as one CONNECT to the
+          // app origin. That request is the test tool's, not the reader's, so
+          // it is taken off the record here, and nothing else may be added.
+          const before = networkAttempts.length;
           const session = await host.page.context().newCDPSession(host.page);
           await session.send("DOM.enable");
           await session.send("CSS.enable");
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          const added = networkAttempts.splice(before);
+          assert.ok(added.every((attempt) => attempt === "CONNECT app.leandoc.invalid:443 HTTP/1.1"),
+            `only DevTools' stylesheet fetch reached the network (${JSON.stringify(added)})`);
           const { root } = await session.send("DOM.getDocument");
           for (const selector of ["#settingsTitle", "#openButton", "#fidelityText"]) {
             const { nodeId } = await session.send("DOM.querySelector", { nodeId: root.nodeId, selector });

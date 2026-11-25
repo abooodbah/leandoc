@@ -3,6 +3,7 @@
 #import "LDAppDelegate.h"
 #import "LDDocument.h"
 #import "LDEditor.h"
+#import "LDLanguage.h"
 #import "LDSchemeHandler.h"
 #import "LDTiming.h"
 
@@ -13,6 +14,7 @@
 #include "core/ReaderSettings.h"
 
 #include <optional>
+#include <string>
 
 namespace {
 
@@ -276,7 +278,12 @@ static BOOL LDIsAllowedMenuItem(NSMenuItem *item) {
 
 - (void)loadReader {
     _readerReady = NO;
-    NSURL *readerURL = [NSURL URLWithString:LDReaderURLString];
+    // reader.html?lang=<language>, so the first paint is translated.
+    NSString *system = LDSystemLanguage();
+    const std::string address = leandoc::settings::ReaderUrl(
+        LDReaderURLString.UTF8String, LDLanguageSetting(),
+        system.UTF8String != nullptr ? system.UTF8String : "");
+    NSURL *readerURL = [NSURL URLWithString:@(address.c_str())];
     [_webView loadRequest:[NSURLRequest requestWithURL:readerURL
                                            cachePolicy:NSURLRequestReloadIgnoringLocalCacheData
                                        timeoutInterval:15.0]];
@@ -341,6 +348,8 @@ static BOOL LDIsAllowedMenuItem(NSMenuItem *item) {
         @"version" : @LEANDOC_VERSION_STRING,
         @"editor" : @{@"kind" : editor.kind, @"label" : editor.label},
         @"tabs" : @NO,
+        @"language" : @(leandoc::settings::LanguageName(LDLanguageSetting())),
+        @"systemLanguage" : LDSystemLanguage(),
     }];
 }
 
@@ -462,6 +471,23 @@ static BOOL LDIsAllowedMenuItem(NSMenuItem *item) {
                 id controller = window.windowController;
                 if ([controller isKindOfClass:LDDocumentWindowController.class]) {
                     [controller sendTheme];
+                }
+            }
+        }
+    } else if ([type isEqualToString:@"setLanguage"]) {
+        NSString *language = StringValue(body, @"language");
+        if (language != nil && language.UTF8String != nullptr &&
+            leandoc::settings::IsLanguageName(language.UTF8String)) {
+            [NSUserDefaults.standardUserDefaults
+                setObject:@(leandoc::settings::LanguageName(
+                              leandoc::settings::ParseLanguage(language.UTF8String)))
+                   forKey:LDLanguageKey];
+            // The menus follow the choice, and so does every other window.
+            [Delegate() installMainMenu];
+            for (NSWindow *window in NSApp.windows) {
+                id controller = window.windowController;
+                if (controller != self && [controller isKindOfClass:LDDocumentWindowController.class]) {
+                    [controller sendHost];
                 }
             }
         }
@@ -604,8 +630,10 @@ static BOOL LDIsAllowedMenuItem(NSMenuItem *item) {
          "  var offOrigin = performance.getEntriesByType('resource').filter(function (entry) {"
          "    return entry.name.indexOf(origin) !== 0 && !/^(blob|data):/i.test(entry.name);"
          "  }).length;"
+         "  var open = document.getElementById('openButton');"
          "  return JSON.stringify({state: root.dataset.renderState || '', pages: pages,"
-         "    text: text, offOrigin: offOrigin, csp: window.__leandocCspViolations || 0});"
+         "    text: text, offOrigin: offOrigin, csp: window.__leandocCspViolations || 0,"
+         "    lang: root.lang, open: open ? open.textContent : ''});"
          "}())";
     [_webView evaluateJavaScript:script
                completionHandler:^(id result, NSError *error) {
@@ -619,7 +647,15 @@ static BOOL LDIsAllowedMenuItem(NSMenuItem *item) {
                      JSONObjectWithData:[summary dataUsingEncoding:NSUTF8StringEncoding]
                                 options:0
                                   error:nil];
-                 const BOOL success = [values isKindOfClass:NSDictionary.class] &&
+                 // The page shows the interface language the host resolved,
+                 // and a language other than English is translated.
+                 NSString *expected = @(LDInterfaceLanguage());
+                 const BOOL translated =
+                     [values isKindOfClass:NSDictionary.class] &&
+                     [values[@"lang"] isEqual:expected] &&
+                     ([expected isEqualToString:@"en"] || ![values[@"open"] isEqual:@"Open"]);
+                 const BOOL success = translated &&
+                                      [values isKindOfClass:NSDictionary.class] &&
                                       [values[@"state"] isEqual:@"ready"] &&
                                       [values[@"pages"] integerValue] >= 1 &&
                                       [values[@"text"] integerValue] > 0 &&

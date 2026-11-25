@@ -36,7 +36,7 @@ namespace {
 
 constexpr wchar_t kAppHost[] = L"app.leandoc.invalid";
 constexpr wchar_t kAppOrigin[] = L"https://app.leandoc.invalid/";
-constexpr wchar_t kReaderUrl[] = L"https://app.leandoc.invalid/reader.html";
+constexpr char kReaderUrlUtf8[] = "https://app.leandoc.invalid/reader.html";
 // The whole app origin is answered by the host through WebResourceRequested:
 // reader assets from the assets directory and each tab's sanitized package
 // from memory under /pkg/. A WebView2 folder mapping cannot be used for the
@@ -409,12 +409,13 @@ LRESULT LeanDocApp::HandleWindowMessage(UINT message, WPARAM wParam, LPARAM lPar
     }
 }
 
-void LeanDocApp::Fail(const wchar_t* message) {
+void LeanDocApp::Fail(const interface_text::NativeText& message) {
     if (smokeTest_) {
-        CompleteSmoke(false, WideToUtf8(message));
+        CompleteSmoke(false, message.english);
         return;
     }
-    MessageBoxW(window_, message, L"LeanDoc could not start", MB_OK | MB_ICONERROR);
+    MessageBoxW(window_, Text(message).c_str(), Text(interface_text::kCouldNotStart).c_str(),
+                MB_OK | MB_ICONERROR);
 }
 
 void LeanDocApp::InitializeWebView() {
@@ -443,8 +444,7 @@ void LeanDocApp::InitializeWebView() {
         Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
             [this](HRESULT result, ICoreWebView2Environment* environment) -> HRESULT {
                 if (FAILED(result) || environment == nullptr) {
-                    Fail(L"LeanDoc needs the Microsoft Edge WebView2 Runtime. Install or "
-                         L"repair WebView2, then try again.");
+                    Fail(interface_text::kNeedsWebView2);
                     return S_OK;
                 }
                 environment_ = environment;
@@ -454,7 +454,7 @@ void LeanDocApp::InitializeWebView() {
                         [this](HRESULT controllerResult,
                                ICoreWebView2Controller* controller) -> HRESULT {
                             if (FAILED(controllerResult) || controller == nullptr) {
-                                Fail(L"Windows could not create LeanDoc's reader surface.");
+                                Fail(interface_text::kNoReaderSurface);
                                 return S_OK;
                             }
                             controller_ = controller;
@@ -471,7 +471,7 @@ void LeanDocApp::InitializeWebView() {
             })
             .Get());
     if (FAILED(startResult)) {
-        Fail(L"LeanDoc could not initialize the WebView2 Runtime.");
+        Fail(interface_text::kWebView2Failed);
     }
 }
 
@@ -616,7 +616,7 @@ void LeanDocApp::ConfigureWebView() {
                 const std::wstring uri = rawUri == nullptr ? L"" : rawUri;
                 CoTaskMemFree(rawUri);
                 // Only the reader page itself, as on Linux and macOS.
-                if (EqualsInsensitive(uri, kReaderUrl) ||
+                if (settings::IsReaderUrl(WideToUtf8(uri), kReaderUrlUtf8) ||
                     EqualsInsensitive(uri, L"about:blank")) {
                     return S_OK;
                 }
@@ -708,7 +708,7 @@ void LeanDocApp::NavigateToReader() {
         return;
     }
     readerReady_ = false;
-    webView_->Navigate(kReaderUrl);
+    webView_->Navigate(ReaderUrl().c_str());
 }
 
 void LeanDocApp::HandleProcessFailed(COREWEBVIEW2_PROCESS_FAILED_KIND kind) {
@@ -1088,11 +1088,13 @@ void LeanDocApp::OpenDocumentDialog() {
         SendStatus("Windows could not open the file picker.", "error");
         return;
     }
+    const std::wstring documents = Text(interface_text::kWordDocuments);
+    const std::wstring allFiles = Text(interface_text::kAllFiles);
     const COMDLG_FILTERSPEC filters[] = {
-        {L"Word documents", L"*.docx;*.dotx;*.docm;*.dotm;*.doc;*.rtf;*.odt"},
-        {L"All files", L"*.*"}};
+        {documents.c_str(), L"*.docx;*.dotx;*.docm;*.dotm;*.doc;*.rtf;*.odt"},
+        {allFiles.c_str(), L"*.*"}};
     dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
-    dialog->SetTitle(L"Open documents");
+    dialog->SetTitle(Text(interface_text::kOpenTitle).c_str());
     DWORD options = 0;
     dialog->GetOptions(&options);
     dialog->SetOptions(options | FOS_FILEMUSTEXIST | FOS_FORCEFILESYSTEM | FOS_ALLOWMULTISELECT);
@@ -1176,7 +1178,11 @@ void LeanDocApp::SendHost() {
     json += EditorKindName(editor_.kind);
     json += "\",\"label\":\"";
     core::AppendJsonString(json, editor_.label);
-    json += "\"},\"tabs\":true}";
+    json += "\"},\"tabs\":true,\"language\":\"";
+    json += settings::LanguageName(language_);
+    json += "\",\"systemLanguage\":\"";
+    core::AppendJsonString(json, systemLanguage_);
+    json += "\"}";
     PostJson(json);
 }
 
@@ -1310,6 +1316,14 @@ void LeanDocApp::HandleWebMessage(ICoreWebView2WebMessageReceivedEventArgs* argu
             SaveSettings();
             SendTheme();
         }
+    } else if (*type == "setLanguage") {
+        // The page has already switched; the host saves the choice and uses
+        // it for its own dialogs and the next time it opens the reader.
+        const auto language = host_json::GetString(*message, "language");
+        if (language && settings::IsLanguageName(*language)) {
+            language_ = settings::ParseLanguage(*language);
+            SaveSettings();
+        }
     } else if (*type == "setView") {
         const auto view = host_json::GetString(*message, "view");
         if (view && (*view == "page" || *view == "reading")) {
@@ -1433,7 +1447,9 @@ void LeanDocApp::StartSmokeProbe() {
     text: text,
     offOrigin: offOrigin.length,
     firstOffOrigin: offOrigin[0] || "",
-    csp: window.__leandocCspViolations || 0
+    csp: window.__leandocCspViolations || 0,
+    lang: root.lang,
+    open: (document.getElementById("openButton") || {}).textContent || ""
   });
 }())
 )JS";
@@ -1453,7 +1469,14 @@ void LeanDocApp::StartSmokeProbe() {
                     CompleteSmoke(false, "the DOM probe returned " + outer);
                     return S_OK;
                 }
+                // The page shows the interface language the host resolved, and
+                // a language other than English is translated.
+                const std::string lang = host_json::GetString(values, "lang").value_or("");
+                const bool translated =
+                    lang == InterfaceLanguage() &&
+                    (lang == "en" || host_json::GetString(values, "open").value_or("Open") != "Open");
                 const bool success =
+                    translated &&
                     host_json::GetString(values, "state").value_or("") == "ready" &&
                     host_json::GetUnsigned(values, "pages").value_or(0) >= 1 &&
                                      host_json::GetUnsigned(values, "text").value_or(0) > 0 &&
@@ -1497,6 +1520,24 @@ void LeanDocApp::LoadSettings() {
                      &bytes) == ERROR_SUCCESS) {
         pageColor_ = settings::ParsePageColor(WideToUtf8(value));
     }
+    bytes = sizeof(value);
+    if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"Language", RRF_RT_REG_SZ, nullptr, value,
+                     &bytes) == ERROR_SUCCESS) {
+        language_ = settings::ParseLanguage(WideToUtf8(value));
+    }
+    // The smoke tests stand a choice in with LEANDOC_SMOKE_LANGUAGE; it is
+    // never saved (SaveSettings does nothing in smoke mode).
+    if (smokeTest_) {
+        const std::wstring smokeLanguage = EnvironmentValue(L"LEANDOC_SMOKE_LANGUAGE");
+        if (!smokeLanguage.empty()) {
+            language_ = settings::ParseLanguage(WideToUtf8(smokeLanguage));
+        }
+    }
+    wchar_t locale[LOCALE_NAME_MAX_LENGTH] = {};
+    if (LCIDToLocaleName(MAKELCID(GetUserDefaultUILanguage(), SORT_DEFAULT), locale,
+                         LOCALE_NAME_MAX_LENGTH, 0) > 0) {
+        systemLanguage_ = WideToUtf8(locale);
+    }
     DWORD recentBytes = 0;
     if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"Recent", RRF_RT_REG_MULTI_SZ, nullptr,
                      nullptr, &recentBytes) == ERROR_SUCCESS &&
@@ -1533,6 +1574,9 @@ void LeanDocApp::SaveSettings() const {
     const std::wstring pageColor = Utf8ToWide(settings::PageColorName(pageColor_));
     RegSetValueExW(key, L"PageColor", 0, REG_SZ, reinterpret_cast<const BYTE*>(pageColor.c_str()),
                    static_cast<DWORD>((pageColor.size() + 1) * sizeof(wchar_t)));
+    const std::wstring language = Utf8ToWide(settings::LanguageName(language_));
+    RegSetValueExW(key, L"Language", 0, REG_SZ, reinterpret_cast<const BYTE*>(language.c_str()),
+                   static_cast<DWORD>((language.size() + 1) * sizeof(wchar_t)));
     std::wstring multi;
     for (const std::wstring& path : recent_) {
         multi += path;
@@ -1542,6 +1586,18 @@ void LeanDocApp::SaveSettings() const {
     RegSetValueExW(key, L"Recent", 0, REG_MULTI_SZ, reinterpret_cast<const BYTE*>(multi.data()),
                    static_cast<DWORD>(multi.size() * sizeof(wchar_t)));
     RegCloseKey(key);
+}
+
+const char* LeanDocApp::InterfaceLanguage() const {
+    return settings::ResolveInterfaceLanguage(language_, systemLanguage_);
+}
+
+std::wstring LeanDocApp::Text(const interface_text::NativeText& text) const {
+    return Utf8ToWide(interface_text::Localized(text, InterfaceLanguage()));
+}
+
+std::wstring LeanDocApp::ReaderUrl() const {
+    return Utf8ToWide(settings::ReaderUrl(kReaderUrlUtf8, language_, systemLanguage_));
 }
 
 void LeanDocApp::AddRecent(const std::wstring& path) {

@@ -2,6 +2,7 @@
 
 #import "LDDocument.h"
 #import "LDDocumentWindowController.h"
+#import "LDLanguage.h"
 #import "LDTiming.h"
 
 #include <cstdio>
@@ -80,60 +81,66 @@ NSMenuItem *MenuItem(NSString *title, SEL action, NSString *keyEquivalent, id ta
     _commandLinePaths = [paths copy];
 }
 
+// Built again when the reader picks another language, so the menus follow it.
 - (void)installMainMenu {
+    using namespace leandoc::interface_text;
     NSMenu *mainMenu = [[NSMenu alloc] initWithTitle:@""];
 
     NSMenuItem *applicationRoot = [[NSMenuItem alloc] initWithTitle:@"LeanDoc"
                                                             action:nil
                                                      keyEquivalent:@""];
     NSMenu *applicationMenu = [[NSMenu alloc] initWithTitle:@"LeanDoc"];
-    [applicationMenu addItem:MenuItem(@"About LeanDoc",
+    [applicationMenu addItem:MenuItem(LDText(kMenuAbout),
                                       @selector(orderFrontStandardAboutPanel:), @"", NSApp)];
     [applicationMenu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *services = [[NSMenuItem alloc] initWithTitle:@"Services"
+    NSMenuItem *services = [[NSMenuItem alloc] initWithTitle:LDText(kMenuServices)
                                                      action:nil
                                               keyEquivalent:@""];
-    services.submenu = [[NSMenu alloc] initWithTitle:@"Services"];
+    services.submenu = [[NSMenu alloc] initWithTitle:LDText(kMenuServices)];
     NSApp.servicesMenu = services.submenu;
     [applicationMenu addItem:services];
     [applicationMenu addItem:NSMenuItem.separatorItem];
-    [applicationMenu addItem:MenuItem(@"Hide LeanDoc", @selector(hide:), @"h", NSApp)];
+    [applicationMenu addItem:MenuItem(LDText(kMenuHide), @selector(hide:), @"h", NSApp)];
     NSMenuItem *hideOthers =
-        MenuItem(@"Hide Others", @selector(hideOtherApplications:), @"h", NSApp);
+        MenuItem(LDText(kMenuHideOthers), @selector(hideOtherApplications:), @"h", NSApp);
     hideOthers.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagOption;
     [applicationMenu addItem:hideOthers];
-    [applicationMenu addItem:MenuItem(@"Show All", @selector(unhideAllApplications:), @"", NSApp)];
+    [applicationMenu addItem:MenuItem(LDText(kMenuShowAll), @selector(unhideAllApplications:), @"", NSApp)];
     [applicationMenu addItem:NSMenuItem.separatorItem];
-    [applicationMenu addItem:MenuItem(@"Quit LeanDoc", @selector(terminate:), @"q", NSApp)];
+    [applicationMenu addItem:MenuItem(LDText(kMenuQuit), @selector(terminate:), @"q", NSApp)];
     applicationRoot.submenu = applicationMenu;
     [mainMenu addItem:applicationRoot];
 
     // The reader handles its own shortcuts (find, zoom, theme, view, editor)
     // with Command on macOS, so the menus only add what AppKit must own.
-    NSMenuItem *fileRoot = [[NSMenuItem alloc] initWithTitle:@"File" action:nil keyEquivalent:@""];
-    NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:@"File"];
-    [fileMenu addItem:MenuItem(@"Open…", @selector(openDocument:), @"o",
+    NSMenuItem *fileRoot = [[NSMenuItem alloc] initWithTitle:LDText(kMenuFile)
+                                                     action:nil
+                                              keyEquivalent:@""];
+    NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:LDText(kMenuFile)];
+    [fileMenu addItem:MenuItem(LDText(kMenuOpen), @selector(openDocument:), @"o",
                                NSDocumentController.sharedDocumentController)];
     [fileMenu addItem:NSMenuItem.separatorItem];
-    [fileMenu addItem:MenuItem(@"Close", @selector(performClose:), @"w", nil)];
+    [fileMenu addItem:MenuItem(LDText(kMenuClose), @selector(performClose:), @"w", nil)];
     fileRoot.submenu = fileMenu;
     [mainMenu addItem:fileRoot];
 
-    NSMenuItem *editRoot = [[NSMenuItem alloc] initWithTitle:@"Edit" action:nil keyEquivalent:@""];
-    NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edit"];
-    [editMenu addItem:MenuItem(@"Copy", @selector(copy:), @"c", nil)];
-    [editMenu addItem:MenuItem(@"Select All", @selector(selectAll:), @"a", nil)];
+    NSMenuItem *editRoot = [[NSMenuItem alloc] initWithTitle:LDText(kMenuEdit)
+                                                     action:nil
+                                              keyEquivalent:@""];
+    NSMenu *editMenu = [[NSMenu alloc] initWithTitle:LDText(kMenuEdit)];
+    [editMenu addItem:MenuItem(LDText(kMenuCopy), @selector(copy:), @"c", nil)];
+    [editMenu addItem:MenuItem(LDText(kMenuSelectAll), @selector(selectAll:), @"a", nil)];
     editRoot.submenu = editMenu;
     [mainMenu addItem:editRoot];
 
-    NSMenuItem *windowRoot = [[NSMenuItem alloc] initWithTitle:@"Window"
+    NSMenuItem *windowRoot = [[NSMenuItem alloc] initWithTitle:LDText(kMenuWindow)
                                                        action:nil
                                                 keyEquivalent:@""];
-    NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:@"Window"];
-    [windowMenu addItem:MenuItem(@"Minimize", @selector(performMiniaturize:), @"m", nil)];
-    [windowMenu addItem:MenuItem(@"Zoom", @selector(performZoom:), @"", nil)];
+    NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:LDText(kMenuWindow)];
+    [windowMenu addItem:MenuItem(LDText(kMenuMinimize), @selector(performMiniaturize:), @"m", nil)];
+    [windowMenu addItem:MenuItem(LDText(kMenuZoom), @selector(performZoom:), @"", nil)];
     [windowMenu addItem:NSMenuItem.separatorItem];
-    [windowMenu addItem:MenuItem(@"Bring All to Front", @selector(arrangeInFront:), @"", NSApp)];
+    [windowMenu addItem:MenuItem(LDText(kMenuBringAllToFront), @selector(arrangeInFront:), @"", NSApp)];
     windowRoot.submenu = windowMenu;
     NSApp.windowsMenu = windowMenu;
     [mainMenu addItem:windowRoot];

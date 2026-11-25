@@ -7,6 +7,7 @@
     window.webkit.messageHandlers.leandoc;
   var Fixups = window.LeanDocFixups;
   var Wording = window.LeanDocText;
+  var Strings = Wording && Wording.strings;
   var systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
   var root = document.documentElement;
   var elements = {
@@ -42,6 +43,7 @@
     status: document.getElementById("statusToast"),
     tabStrip: document.getElementById("tabStrip"),
     settingsButton: document.getElementById("settingsButton"),
+    settingsLanguage: document.getElementById("settingsLanguage"),
     settingsClose: document.getElementById("settingsClose"),
     settingsPanel: document.getElementById("settingsPanel"),
     settingsZoomFit: document.getElementById("settingsZoomFit"),
@@ -60,9 +62,6 @@
     zoomValue: document.getElementById("zoomValue")
   };
 
-  var EMPTY_TITLE = "Read Word documents without opening an office suite.";
-  var EMPTY_MESSAGE = "Open a .docx file to read it here. LeanDoc does not run " +
-    "macros or fetch anything the document points to.";
   var ZOOM_STEPS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
   var MAX_MATCHES = 5000;
 
@@ -113,6 +112,41 @@
   var RESIZE_SETTLE_MS = 150;
   var wheelTotal = 0;
   var settingsReturnFocus = null;
+  // The interface language, from the tables in fidelity.js. A host opens
+  // reader.html?lang=<language> so the first paint is already translated;
+  // its host message then brings the saved setting and the system language.
+  var languageSetting = "system";
+  var hostSystemLanguage = "";
+  var hostSavesLanguage = false;
+  var language = startLanguage();
+  // What the state pane, the line under the file name, and the recent list
+  // show, kept so a change of language can write them again.
+  var stateView = null;
+  var identityView = null;
+  var recentEntries = [];
+  var hostEditorName = "";
+
+  function startLanguage() {
+    var requested = "";
+    try {
+      requested = new URLSearchParams(window.location.search).get("lang") || "";
+    } catch (_error) {
+      requested = "";
+    }
+    if (!Strings) {
+      return "en";
+    }
+    return Strings.languages.indexOf(requested) >= 0
+      ? requested
+      : Strings.resolve("system", navigator.language);
+  }
+
+  function t(key, values) {
+    if (!Strings) {
+      return key === "status.rendererMissing" ? "LeanDoc could not load its document renderer." : key;
+    }
+    return Strings.text(language, key, values);
+  }
 
   function post(message) {
     var text = JSON.stringify(message);
@@ -202,12 +236,11 @@
       root.setAttribute("data-theme", currentTheme);
     }
     // The dot has one fixed colour per theme (.theme-swatch in the CSS).
-    elements.themeLabel.textContent = titleCase(currentTheme);
+    elements.themeLabel.textContent = t("theme." + currentTheme);
     elements.themeSwatch.dataset.swatch = currentTheme;
     var name = themeDisplayName(currentTheme);
-    elements.themeButton.setAttribute("aria-label",
-      "Theme: " + name + ". Activate to change theme.");
-    elements.themeButton.title = shortcut("Theme: " + name + " (Ctrl+Shift+T)");
+    elements.themeButton.setAttribute("aria-label", t("theme.buttonLabel", { name: name }));
+    elements.themeButton.title = shortcut(t("theme.buttonTitle", { name: name }));
     updateSettingsPanel();
     updatePageColorStyle();
   }
@@ -258,15 +291,11 @@
       (theme.length ? " #docBody .docx { " + theme.join("; ") + "; }" : "");
   }
 
-  function titleCase(name) {
-    return name.charAt(0).toUpperCase() + name.slice(1);
-  }
-
   // "Dusk", or "System (Dark)", so the name never depends on the dot's colour.
   function themeDisplayName(theme) {
     return theme === "system"
-      ? "System (" + (systemTheme.matches ? "Dark" : "Light") + ")"
-      : titleCase(theme);
+      ? t("theme.systemShown", { theme: t(systemTheme.matches ? "theme.dark" : "theme.light") })
+      : t("theme." + theme);
   }
 
   function cycleTheme() {
@@ -288,7 +317,7 @@
         button.textContent = label;
       });
     elements.editorButton.hidden = !label;
-    elements.editorButton.title = label ? shortcut(label + " (Ctrl+Shift+E)") : "";
+    elements.editorButton.title = label ? shortcut(t("editor.title", { label: label })) : "";
     elements.fidelityEditor.hidden = !label;
     var fallback = elements.statePane.dataset.state === "fallback";
     elements.stateEditorButton.hidden = !label || !fallback;
@@ -298,13 +327,13 @@
   }
 
   function updateShortcutTitles() {
-    elements.openButton.title = shortcut("Open a document (Ctrl+O)");
-    elements.settingsButton.title = shortcut("Settings and shortcuts (Ctrl+/)");
-    elements.viewPage.title = shortcut("Page view (Ctrl+Shift+V)");
-    elements.viewReading.title = shortcut("Reading view (Ctrl+Shift+V)");
-    elements.zoomIn.title = shortcut("Zoom in (Ctrl++)");
-    elements.zoomOut.title = shortcut("Zoom out (Ctrl+-)");
-    elements.findInput.title = shortcut("Find in document (Ctrl+F, F3)");
+    elements.openButton.title = shortcut(t("open.title"));
+    elements.settingsButton.title = shortcut(t("settings.buttonTitle"));
+    elements.viewPage.title = shortcut(t("view.pageTitle"));
+    elements.viewReading.title = shortcut(t("view.readingTitle"));
+    elements.zoomIn.title = shortcut(t("zoom.inTitle"));
+    elements.zoomOut.title = shortcut(t("zoom.outTitle"));
+    elements.findInput.title = shortcut(t("find.title"));
     applyTheme(currentTheme);
     updateEditorButtons();
     updateZoomLabel(effectiveZoom());
@@ -315,12 +344,91 @@
     host.version = String(data.version || "");
     var editor = data.editor && typeof data.editor === "object" ? data.editor : {};
     host.editorKind = String(editor.kind || "");
-    host.editorLabel = Wording.editorActionLabel(editor.label);
+    hostEditorName = typeof editor.label === "string" ? editor.label : "";
+    host.editorLabel = Wording.editorActionLabel(hostEditorName, language);
     host.tabs = data.tabs === true;
     isMac = host.platform === "macos" || (!host.platform && isMac);
     root.dataset.platform = host.platform;
+    // A host that saves the language sends the setting and the system
+    // language. An older one sends neither: the page keeps the language it
+    // started in and offers no choice that could not be saved.
+    hostSavesLanguage = typeof data.language === "string";
+    elements.settingsLanguage.hidden = !hostSavesLanguage;
+    if (hostSavesLanguage && Strings) {
+      languageSetting = Strings.normalizeSetting(data.language);
+      hostSystemLanguage = typeof data.systemLanguage === "string" ? data.systemLanguage : "";
+      var shown = Strings.resolve(languageSetting, systemLanguageTag());
+      if (shown !== language) {
+        language = shown;
+        translatePage();
+        return;
+      }
+    }
     updateShortcutTitles();
     renderTabs();
+    updateSettingsPanel();
+  }
+
+  function systemLanguageTag() {
+    return hostSystemLanguage || navigator.language || "";
+  }
+
+  function chooseLanguage(setting) {
+    if (!Strings) {
+      return;
+    }
+    languageSetting = Strings.normalizeSetting(setting);
+    post({ type: "setLanguage", language: languageSetting });
+    var shown = Strings.resolve(languageSetting, systemLanguageTag());
+    if (shown !== language) {
+      language = shown;
+      translatePage();
+    }
+  }
+
+  // The strings reader.html marks with data-i18n and data-i18n-<attribute>.
+  // At start this is all a non-English page needs: nothing else is drawn yet,
+  // and start-up writes the theme, titles, and zoom label after it.
+  function translateMarked() {
+    root.lang = language;
+    document.querySelectorAll("[data-i18n]").forEach(function (node) {
+      node.textContent = t(node.getAttribute("data-i18n"));
+    });
+    ["title", "aria-label", "placeholder"].forEach(function (name) {
+      document.querySelectorAll("[data-i18n-" + name + "]").forEach(function (node) {
+        node.setAttribute(name, t(node.getAttribute("data-i18n-" + name)));
+      });
+    });
+  }
+
+  // Writes every string on the page in the current language: the marked
+  // strings of reader.html, then everything the page wrote itself. It runs
+  // at start only when the language is not English, and on each change.
+  function translatePage() {
+    translateMarked();
+    host.editorLabel = Wording ? Wording.editorActionLabel(hostEditorName, language) : "";
+    updateShortcutTitles();
+    renderStateText();
+    renderIdentity();
+    renderRecent(recentEntries);
+    labelOutlineToggle();
+    labelFidelityDetails();
+    if (current && !current.fallback && displayed) {
+      updateFidelity(false);
+    }
+    elements.docBody.querySelectorAll('a[data-ld-link="none"]').forEach(function (link) {
+      link.setAttribute("title", t("link.blocked"));
+    });
+    outlineEntries.forEach(function (entry) {
+      if (!entry.text && entry.link) {
+        entry.link.textContent = t("outline.untitled");
+      }
+    });
+    renderTabs();
+    if (!elements.settingsPanel.hidden) {
+      renderShortcutList();
+    }
+    updateSettingsPanel();
   }
 
   function openInEditor() {
@@ -379,7 +487,8 @@
     }
   }
 
-  function showState(kind, eyebrow, title, message) {
+  // texts() gives { eyebrow, title, message } in the current language.
+  function showState(kind, texts) {
     if (displayed && current) {
       savedScroll.set(idKey(current.tab), scrollRatio());
     }
@@ -387,12 +496,8 @@
     elements.readerPane.hidden = true;
     elements.statePane.hidden = false;
     elements.statePane.dataset.state = kind;
-    elements.stateEyebrow.textContent = eyebrow;
-    elements.stateTitle.textContent = title;
-    elements.stateMessage.textContent = message;
-    elements.stateOpenButton.textContent = kind === "fallback"
-      ? "Open another document"
-      : "Open a document";
+    stateView = { kind: kind, texts: texts };
+    renderStateText();
     root.removeAttribute("data-has-document");
     elements.recentSection.hidden = kind !== "empty" ||
       !elements.recentList.childElementCount;
@@ -401,16 +506,42 @@
     root.dataset.renderState = kind;
   }
 
-  function setIdentity(name, meta, path) {
+  function renderStateText() {
+    if (!stateView) {
+      return;
+    }
+    var texts = stateView.texts();
+    elements.stateEyebrow.textContent = texts.eyebrow;
+    elements.stateTitle.textContent = texts.title;
+    elements.stateMessage.textContent = texts.message;
+    elements.stateOpenButton.textContent = t(stateView.kind === "fallback"
+      ? "fallback.openButton"
+      : "empty.openButton");
+  }
+
+  // The file name, and the line under it. An empty name is "Untitled", or
+  // LeanDoc itself when no document is open; meta() gives the line in the
+  // current language.
+  function setIdentity(name, meta, path, untitled) {
+    identityView = { name: name || "", meta: meta, path: path || "", untitled: untitled !== false };
+    renderIdentity();
+  }
+
+  function renderIdentity() {
+    if (!identityView) {
+      return;
+    }
+    var name = identityView.name || (identityView.untitled ? t("identity.untitled") : "");
     elements.fileName.textContent = name || "LeanDoc";
-    elements.fileName.title = path || "";
-    elements.fileMeta.textContent = meta || "";
+    elements.fileName.title = identityView.path;
+    elements.fileMeta.textContent = identityView.meta() || "";
     document.title = name ? name + " · LeanDoc" : "LeanDoc";
   }
 
   function renderRecent(recent) {
+    recentEntries = Array.isArray(recent) ? recent.slice(0, 10) : [];
     var fragment = document.createDocumentFragment();
-    (Array.isArray(recent) ? recent : []).slice(0, 10).forEach(function (entry) {
+    recentEntries.forEach(function (entry) {
       var path = entry && typeof entry.path === "string" ? entry.path : "";
       if (!path) {
         return;
@@ -426,7 +557,7 @@
       if (entry.id !== undefined && entry.id !== null && String(entry.id) !== "") {
         button.dataset.recentId = String(entry.id);
       }
-      button.setAttribute("aria-label", "Open " + name + ", " + path);
+      button.setAttribute("aria-label", t("recent.itemLabel", { name: name, path: path }));
       var nameNode = document.createElement("span");
       nameNode.className = "recent-name";
       nameNode.textContent = name;
@@ -444,9 +575,12 @@
     clearDocument();
     current = null;
     renderRecent(data.recent);
-    setIdentity("", "Word document reader", "");
-    elements.fileName.textContent = "LeanDoc";
-    showState("empty", "LeanDoc", EMPTY_TITLE, EMPTY_MESSAGE);
+    setIdentity("", function () {
+      return t("app.tagline");
+    }, "", false);
+    showState("empty", function () {
+      return { eyebrow: "LeanDoc", title: t("empty.title"), message: t("empty.message") };
+    });
   }
 
   function receiveFallback(data) {
@@ -463,21 +597,34 @@
       report: report,
       fallback: true
     };
-    var info = Wording.describeFallback(report);
-    setIdentity(current.fileName || "Untitled", "Not shown", current.displayPath);
-    showState("fallback", info.title, current.fileName || "Untitled", info.message);
+    var info = Wording.describeFallback(report, language);
+    var fallback = current;
+    setIdentity(fallback.fileName, notShown, fallback.displayPath);
+    showState("fallback", function () {
+      var shown = Wording.describeFallback(fallback.report, language);
+      return { eyebrow: shown.title, title: fallback.fileName || t("identity.untitled"), message: shown.message };
+    });
     elements.statePane.dataset.code = info.code;
   }
 
+  function notShown() {
+    return t("identity.notShown");
+  }
+
   function showRenderFailure() {
-    var name = current ? current.fileName || "Untitled" : "Untitled";
+    var name = current ? current.fileName : "";
     clearDocument();
     if (current) {
       current.fallback = true;
     }
-    setIdentity(name, "Not shown", current ? current.displayPath : "");
-    showState("fallback", "This document could not be shown", name,
-      "LeanDoc could not lay out this document.");
+    setIdentity(name, notShown, current ? current.displayPath : "");
+    showState("fallback", function () {
+      return {
+        eyebrow: t("fallback.notShownTitle"),
+        title: name || t("identity.untitled"),
+        message: t("fallback.layoutFailed")
+      };
+    });
     elements.statePane.dataset.code = "render-failed";
     root.dataset.renderState = "failed";
   }
@@ -598,8 +745,9 @@
       fallback: false
     };
     var size = formatBytes(report.sourceBytes);
-    setIdentity(current.fileName || "Untitled",
-      (size ? size + " · " : "") + "Opening", current.displayPath);
+    setIdentity(current.fileName, function () {
+      return (size ? size + " · " : "") + t("identity.opening");
+    }, current.displayPath);
     root.dataset.renderState = "loading";
     elements.docBody.setAttribute("aria-busy", "true");
 
@@ -3854,16 +4002,19 @@
     var pages = elements.docBody.querySelectorAll(".docx-wrapper > section.docx").length;
     expected.pages = pages;
     var size = formatBytes(expected.report.sourceBytes);
-    var meta = [];
-    if (size) {
-      meta.push(size);
-    }
-    if (currentView === "page") {
-      meta.push(pages === 1 ? "1 page" : pages + " pages");
-    } else {
-      meta.push("Reading view");
-    }
-    setIdentity(expected.fileName || "Untitled", meta.join(" · "), expected.displayPath);
+    var view = currentView;
+    setIdentity(expected.fileName, function () {
+      var meta = [];
+      if (size) {
+        meta.push(size);
+      }
+      if (view === "page") {
+        meta.push(pages === 1 ? t("identity.onePage") : t("identity.pages", { count: pages }));
+      } else {
+        meta.push(t("identity.readingView"));
+      }
+      return meta.join(" · ");
+    }, expected.displayPath);
 
     elements.statePane.hidden = true;
     elements.readerPane.hidden = false;
@@ -4018,7 +4169,7 @@
       // Anything else reads as plain text and cannot be activated.
       link.removeAttribute("href");
       link.dataset.ldLink = "none";
-      link.setAttribute("title", "LeanDoc opens only web and email links.");
+      link.setAttribute("title", t("link.blocked"));
     }
   }
 
@@ -4056,7 +4207,7 @@
   }
 
   function updateFidelity(firstRender) {
-    var info = current && current.report ? Wording.describeFidelity(current.report) : null;
+    var info = current && current.report ? Wording.describeFidelity(current.report, language) : null;
     if (!info) {
       elements.fidelityBar.hidden = true;
       return;
@@ -4071,9 +4222,10 @@
     }
     elements.fidelityCollapse.setAttribute("aria-expanded", collapsed ? "false" : "true");
     elements.fidelityCollapse.setAttribute("aria-label",
-      collapsed ? "Expand fidelity notes" : "Collapse fidelity notes");
-    elements.fidelityCollapse.title = collapsed ? "Expand" : "Collapse";
+      t(collapsed ? "fidelity.expandLabel" : "fidelity.collapseLabel"));
+    elements.fidelityCollapse.title = t(collapsed ? "fidelity.expand" : "fidelity.collapse");
     elements.fidelityDetails.hidden = collapsed;
+    labelFidelityDetails();
 
     var fragment = document.createDocumentFragment();
     info.items.forEach(function (item) {
@@ -4114,8 +4266,13 @@
   function toggleFidelityDetails() {
     var expanded = elements.fidelityDetails.getAttribute("aria-expanded") === "true";
     elements.fidelityDetails.setAttribute("aria-expanded", expanded ? "false" : "true");
-    elements.fidelityDetails.textContent = expanded ? "Details" : "Hide details";
+    labelFidelityDetails();
     elements.fidelityList.hidden = expanded;
+  }
+
+  function labelFidelityDetails() {
+    var expanded = elements.fidelityDetails.getAttribute("aria-expanded") === "true";
+    elements.fidelityDetails.textContent = t(expanded ? "fidelity.hideDetails" : "fidelity.details");
   }
 
   // Outline
@@ -4214,7 +4371,7 @@
       link.href = "#";
       link.dataset.index = String(outlineEntries.length);
       link.dataset.level = String(entry.level);
-      link.textContent = entry.text || "Untitled section";
+      link.textContent = entry.text || t("outline.untitled");
       link.title = entry.text;
       item.appendChild(link);
       fragment.appendChild(item);
@@ -4326,6 +4483,12 @@
     pinnedOutline = { index: index, scrollTop: elements.docScroller.scrollTop };
   }
 
+  function labelOutlineToggle() {
+    var label = t(elements.outline.hasAttribute("data-collapsed") ? "outline.show" : "outline.hide");
+    elements.outlineToggle.setAttribute("aria-label", label);
+    elements.outlineToggle.title = label;
+  }
+
   function toggleOutline() {
     var collapsed = !elements.outline.hasAttribute("data-collapsed");
     if (collapsed) {
@@ -4334,8 +4497,7 @@
       elements.outline.removeAttribute("data-collapsed");
     }
     elements.outlineToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
-    elements.outlineToggle.setAttribute("aria-label", collapsed ? "Show outline" : "Hide outline");
-    elements.outlineToggle.title = collapsed ? "Show outline" : "Hide outline";
+    labelOutlineToggle();
     if (zoomMode !== "fixed") {
       applyZoom(true);
     }
@@ -4408,13 +4570,9 @@
   function updateZoomLabel(factor) {
     var percent = Math.round(factor * 100) + "%";
     elements.zoomValue.textContent = percent;
-    var next = zoomMode === "fit" ? "100%" : "fit width";
     elements.zoomValue.setAttribute("aria-label",
-      "Zoom " + percent + (zoomMode === "fit" ? ", fit width" : "") +
-      ". Activate for " + next + ".");
-    elements.zoomValue.title = shortcut(zoomMode === "fit"
-      ? "Fit width. Activate for 100% (Ctrl+0 resets)"
-      : "Activate to fit width (Ctrl+0 resets)");
+      t(zoomMode === "fit" ? "zoom.valueLabelFit" : "zoom.valueLabelAuto", { percent: percent }));
+    elements.zoomValue.title = shortcut(t(zoomMode === "fit" ? "zoom.fitTitle" : "zoom.autoTitle"));
     elements.settingsZoomValue.textContent = percent;
     if (displayed) {
       elements.zoomOut.disabled = factor <= ZOOM_STEPS[0] + 0.001;
@@ -4816,21 +4974,22 @@
       return;
     }
     writeClipboardText(documentText()).then(function () {
-      announce("Document copied as text.");
-      showStatus("Document copied as text.", "info");
+      announce(t("copy.done"));
+      showStatus(t("copy.done"), "info");
     }, function () {
-      showStatus("LeanDoc could not copy to the clipboard.", "error");
+      showStatus(t("copy.failed"), "error");
     });
   }
 
   // Tabs
 
   function tabLabel(tab, duplicateNames) {
+    var name = tab.name || t("identity.untitled");
     if (!duplicateNames.has(tab.name.toLocaleLowerCase())) {
-      return tab.name;
+      return name;
     }
     var parts = tab.path.split(/[\\/]/).filter(Boolean);
-    return parts.length > 1 ? tab.name + " · " + parts[parts.length - 2] : tab.name;
+    return parts.length > 1 ? name + " · " + parts[parts.length - 2] : name;
   }
 
   function renderTabs() {
@@ -4863,7 +5022,7 @@
       close.className = "tab-close";
       // A tab may not contain a control (ARIA), so the close button is for
       // the pointer only; the keyboard closes a tab with Delete or Ctrl+W.
-      close.title = shortcut("Close (Ctrl+W)");
+      close.title = shortcut(t("tabs.closeTitle"));
       close.setAttribute("aria-hidden", "true");
       item.setAttribute("aria-keyshortcuts", isMac ? "Delete Meta+W" : "Delete Control+W");
       item.append(label, close);
@@ -4888,7 +5047,7 @@
       .map(function (tab) {
         return {
           id: tab.id,
-          name: String(tab.name || "Untitled"),
+          name: String(tab.name || ""),
           path: String(tab.path || "")
         };
       });
@@ -4990,7 +5149,7 @@
         receiveEmpty(data);
         break;
       case "status":
-        showStatus(String(data.message || ""), data.tone);
+        showStatus(Strings ? Strings.hostText(language, data.message) : String(data.message || ""), data.tone);
         break;
       default:
         break;
@@ -5203,9 +5362,9 @@
   }
 
   var readerShortcuts = [
-    { group: "Reader", keys: "Ctrl+O", label: "Open a document",
+    { group: "group.reader", keys: "Ctrl+O", label: "shortcut.open",
       match: plainModifier("o"), run: function () { post({ type: "open" }); } },
-    { group: "Reader", keys: "Ctrl+F", label: "Find in the document",
+    { group: "group.reader", keys: "Ctrl+F", label: "shortcut.find",
       match: plainModifier("f"),
       run: function () {
         if (!elements.findInput.disabled) {
@@ -5213,18 +5372,18 @@
           elements.findInput.select();
         }
       } },
-    { group: "Reader", keys: "F3", label: "Next match",
+    { group: "group.reader", keys: "F3", label: "shortcut.nextMatch",
       match: function (event) { return event.key === "F3" && !event.shiftKey; },
       run: function () { moveSearch(1); } },
-    { group: "Reader", keys: "Shift+F3", label: "Previous match",
+    { group: "group.reader", keys: "Shift+F3", label: "shortcut.previousMatch",
       match: function (event) { return event.key === "F3" && event.shiftKey; },
       run: function () { moveSearch(-1); } },
-    { group: "Reader", keys: "F5", label: "Reload from disk",
+    { group: "group.reader", keys: "F5", label: "shortcut.reload",
       match: function (event) { return event.key === "F5"; },
       run: function () { post({ type: "reload" }); } },
-    { group: "Reader", keys: "Ctrl+R", label: "Reload from disk",
+    { group: "group.reader", keys: "Ctrl+R", label: "shortcut.reload",
       match: plainModifier("r"), run: function () { post({ type: "reload" }); } },
-    { group: "Reader", keys: "Ctrl+Shift+V", label: "Switch page and reading view",
+    { group: "group.reader", keys: "Ctrl+Shift+V", label: "shortcut.switchView",
       // In the find box the keys paste as plain text.
       match: function (event) {
         return shiftModifier("v")(event) && event.target !== elements.findInput;
@@ -5234,56 +5393,56 @@
           setView(currentView === "page" ? "reading" : "page", true);
         }
       } },
-    { group: "Reader", keys: "Ctrl+Shift+T", label: "Change the theme",
+    { group: "group.reader", keys: "Ctrl+Shift+T", label: "shortcut.theme",
       match: shiftModifier("t"), run: cycleTheme },
-    { group: "Reader", keys: "Ctrl+Shift+E", label: "Open in the editor",
+    { group: "group.reader", keys: "Ctrl+Shift+E", label: "shortcut.editor",
       match: shiftModifier("e"), run: openInEditor },
-    { group: "Reader", keys: "Ctrl+Shift+C", label: "Copy all text",
+    { group: "group.reader", keys: "Ctrl+Shift+C", label: "shortcut.copy",
       match: shiftModifier("c"), run: copyAll },
-    { group: "Reader", keys: "Ctrl++", label: "Zoom in",
+    { group: "group.reader", keys: "Ctrl++", label: "shortcut.zoomIn",
       match: function (event) {
         return modifier(event) && !event.altKey && (event.key === "+" || event.key === "=");
       },
       run: function () { stepZoom(1); } },
-    { group: "Reader", keys: "Ctrl+-", label: "Zoom out",
+    { group: "group.reader", keys: "Ctrl+-", label: "shortcut.zoomOut",
       match: function (event) {
         return modifier(event) && !event.altKey && (event.key === "-" || event.key === "_");
       },
       run: function () { stepZoom(-1); } },
-    { group: "Reader", keys: "Ctrl+0", label: "Reset the zoom",
+    { group: "group.reader", keys: "Ctrl+0", label: "shortcut.zoomReset",
       match: function (event) { return modifier(event) && !event.altKey && event.key === "0"; },
       run: resetZoom },
-    { group: "Reader", keys: "Ctrl+/", label: "Settings and shortcuts",
+    { group: "group.reader", keys: "Ctrl+/", label: "shortcut.settings",
       match: function (event) { return modifier(event) && !event.altKey && event.key === "/"; },
       run: function () { openSettings(false); } },
-    { group: "Reader", keys: "F1", label: "Settings and shortcuts",
+    { group: "group.reader", keys: "F1", label: "shortcut.settings",
       match: function (event) { return event.key === "F1" && !modifier(event) && !event.altKey; },
       run: function () { openSettings(false); } },
-    { group: "Settings panel", keys: "Esc", label: "Close the settings panel",
+    { group: "group.settings", keys: "Esc", label: "shortcut.closePanel",
       match: function (event) { return event.key === "Escape" && !elements.settingsPanel.hidden; },
       run: function () { closeSettings(true); } },
-    { group: "Tabs", keys: "Ctrl+Tab", label: "Next tab", available: tabsAvailable,
+    { group: "group.tabs", keys: "Ctrl+Tab", label: "shortcut.nextTab", available: tabsAvailable,
       match: function (event) {
         return event.ctrlKey && !event.shiftKey && event.key === "Tab" && enoughTabs();
       },
       run: function () { cycleTab(1); } },
-    { group: "Tabs", keys: "Ctrl+Shift+Tab", label: "Previous tab", available: tabsAvailable,
+    { group: "group.tabs", keys: "Ctrl+Shift+Tab", label: "shortcut.previousTab", available: tabsAvailable,
       match: function (event) {
         return event.ctrlKey && event.shiftKey && event.key === "Tab" && enoughTabs();
       },
       run: function () { cycleTab(-1); } },
-    { group: "Tabs", keys: "Ctrl+Page Down", label: "Next tab", available: tabsAvailable,
+    { group: "group.tabs", keys: "Ctrl+Page Down", label: "shortcut.nextTab", available: tabsAvailable,
       match: function (event) { return event.ctrlKey && event.key === "PageDown" && enoughTabs(); },
       run: function () { cycleTab(1); } },
-    { group: "Tabs", keys: "Ctrl+Page Up", label: "Previous tab", available: tabsAvailable,
+    { group: "group.tabs", keys: "Ctrl+Page Up", label: "shortcut.previousTab", available: tabsAvailable,
       match: function (event) { return event.ctrlKey && event.key === "PageUp" && enoughTabs(); },
       run: function () { cycleTab(-1); } },
-    { group: "Tabs", keys: "Ctrl+W", label: "Close the tab", available: tabsAvailable,
+    { group: "group.tabs", keys: "Ctrl+W", label: "shortcut.closeTab", available: tabsAvailable,
       match: function (event) {
         return plainModifier("w")(event) && host.tabs && idKey(activeTabId) !== "";
       },
       run: function () { closeTab(activeTabId); } },
-    { group: "Tabs", keys: "Ctrl+1 to Ctrl+8", label: "Go to a tab by position",
+    { group: "group.tabs", keys: "key.tabRange", label: "shortcut.tabByPosition",
       available: tabsAvailable,
       match: function (event) {
         return modifier(event) && !event.shiftKey && !event.altKey && /^[1-8]$/.test(event.key) &&
@@ -5295,7 +5454,7 @@
           selectTab(target.id, false);
         }
       } },
-    { group: "Tabs", keys: "Ctrl+9", label: "Go to the last tab", available: tabsAvailable,
+    { group: "group.tabs", keys: "Ctrl+9", label: "shortcut.lastTab", available: tabsAvailable,
       match: function (event) {
         return modifier(event) && !event.shiftKey && !event.altKey && event.key === "9" &&
           enoughTabs();
@@ -5304,13 +5463,13 @@
   ];
 
   var findShortcuts = [
-    { group: "Find box", keys: "Enter", label: "Next match",
+    { group: "group.find", keys: "Enter", label: "shortcut.nextMatch",
       match: function (event) { return event.key === "Enter" && !event.shiftKey; },
       run: function () { moveSearch(1); } },
-    { group: "Find box", keys: "Shift+Enter", label: "Previous match",
+    { group: "group.find", keys: "Shift+Enter", label: "shortcut.previousMatch",
       match: function (event) { return event.key === "Enter" && event.shiftKey; },
       run: function () { moveSearch(-1); } },
-    { group: "Find box", keys: "Esc", label: "Clear the search",
+    { group: "group.find", keys: "Esc", label: "shortcut.clearSearch",
       match: function (event) { return event.key === "Escape"; },
       run: function () {
         elements.findInput.value = "";
@@ -5320,31 +5479,31 @@
   ];
 
   var tabStripShortcuts = [
-    { group: "Tab strip", keys: "Right arrow", label: "Next tab", available: tabsAvailable,
+    { group: "group.tabStrip", keys: "key.rightArrow", label: "shortcut.nextTab", available: tabsAvailable,
       match: function (event) { return event.key === "ArrowRight"; },
       run: function (_event, _id, index) { selectTab(tabs[(index + 1) % tabs.length].id, true); } },
-    { group: "Tab strip", keys: "Left arrow", label: "Previous tab", available: tabsAvailable,
+    { group: "group.tabStrip", keys: "key.leftArrow", label: "shortcut.previousTab", available: tabsAvailable,
       match: function (event) { return event.key === "ArrowLeft"; },
       run: function (_event, _id, index) {
         selectTab(tabs[(index - 1 + tabs.length) % tabs.length].id, true);
       } },
-    { group: "Tab strip", keys: "Home", label: "First tab", available: tabsAvailable,
+    { group: "group.tabStrip", keys: "Home", label: "shortcut.firstTab", available: tabsAvailable,
       match: function (event) { return event.key === "Home"; },
       run: function () { selectTab(tabs[0].id, true); } },
-    { group: "Tab strip", keys: "End", label: "Last tab", available: tabsAvailable,
+    { group: "group.tabStrip", keys: "End", label: "shortcut.lastTabStrip", available: tabsAvailable,
       match: function (event) { return event.key === "End"; },
       run: function () { selectTab(tabs[tabs.length - 1].id, true); } },
-    { group: "Tab strip", keys: "Delete", label: "Close the tab", available: tabsAvailable,
+    { group: "group.tabStrip", keys: "Delete", label: "shortcut.closeTab", available: tabsAvailable,
       match: function (event) { return event.key === "Delete"; },
       run: function (_event, id) { closeTab(id); } }
   ];
 
   // macOS handles these through its menu bar before the page sees them.
   var MAC_MENU_SHORTCUTS = [
-    { keys: "Cmd+W", label: "Close the window" },
-    { keys: "Cmd+M", label: "Minimize the window" },
-    { keys: "Cmd+H", label: "Hide LeanDoc" },
-    { keys: "Cmd+Q", label: "Quit LeanDoc" }
+    { keys: "Cmd+W", label: "shortcut.closeWindow" },
+    { keys: "Cmd+M", label: "shortcut.minimize" },
+    { keys: "Cmd+H", label: "shortcut.hide" },
+    { keys: "Cmd+Q", label: "shortcut.quit" }
   ];
 
   function findShortcut(table, event) {
@@ -5356,19 +5515,25 @@
     return null;
   }
 
+  // The keys of a table entry: printed key names, or a key.* string for the
+  // few with words in them ("Right arrow", "Ctrl+1 to Ctrl+8").
+  function shortcutKeys(keys) {
+    return shortcut(/^key\./.test(keys) ? t(keys) : keys);
+  }
+
   // Every shortcut this window acts on, in the order the panel shows them.
   function listedShortcuts() {
     var listed = [];
     [readerShortcuts, findShortcuts, tabStripShortcuts].forEach(function (table) {
       table.forEach(function (entry) {
         if (!entry.available || entry.available()) {
-          listed.push({ group: entry.group, keys: shortcut(entry.keys), label: entry.label });
+          listed.push({ group: t(entry.group), keys: shortcutKeys(entry.keys), label: t(entry.label) });
         }
       });
     });
     if (isMac) {
       MAC_MENU_SHORTCUTS.forEach(function (entry) {
-        listed.push({ group: "Menu", keys: entry.keys, label: entry.label });
+        listed.push({ group: t("group.menu"), keys: entry.keys, label: t(entry.label) });
       });
     }
     return listed;
@@ -5413,6 +5578,9 @@
     });
     elements.settingsPanel.querySelectorAll('input[name="settings-page"]').forEach(function (input) {
       input.checked = input.value === currentPageColor;
+    });
+    elements.settingsPanel.querySelectorAll('input[name="settings-language"]').forEach(function (input) {
+      input.checked = input.value === languageSetting;
     });
   }
 
@@ -5480,6 +5648,8 @@
     } else if (input.name === "settings-page") {
       applyPageColor(input.value);
       post({ type: "setPageColor", pageColor: currentPageColor });
+    } else if (input.name === "settings-language") {
+      chooseLanguage(input.value);
     }
   });
   elements.settingsZoomIn.addEventListener("click", function () {
@@ -5549,6 +5719,10 @@
     }
   });
 
+  root.lang = language;
+  if (language !== "en") {
+    translateMarked();
+  }
   applyTheme("system");
   updateShortcutTitles();
   setControlsEnabled(false);
@@ -5556,7 +5730,7 @@
   openStrictPackages();
   if (!window.docx || !Fixups || !Wording) {
     root.dataset.renderState = "failed";
-    showStatus("LeanDoc could not load its document renderer.", "error");
+    showStatus(t("status.rendererMissing"), "error");
   }
   post({ type: "ready" });
 }());

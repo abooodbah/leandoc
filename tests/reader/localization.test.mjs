@@ -27,7 +27,7 @@ const LANGUAGES = ["zh-CN", "ja"];
 // formats, runtimes and products it names, units, and the names on keys.
 const LATIN_NAMES = [
   "LeanDoc 0.1", "LeanDoc", "Word for the web", "Word 97-2003", "Word", "Microsoft Edge",
-  "WebView2", "Windows", "Linux", "macOS", "SmartArt", "ActiveX", "OpenDocument",
+  "WebView2 Runtime", "WebView2", "Windows", "Linux", "macOS", "SmartArt", "ActiveX", "OpenDocument",
   "Rich Text Format", "DDE", "DTD", "XML", "UTF-8", "MiB", "MB", "KB",
   "Ctrl", "Shift", "Cmd", "Esc", "Enter", "Tab", "Home", "End", "Delete", "Page Up",
   "Page Down", "F1", "F3", "F5",
@@ -248,13 +248,20 @@ function literalsAfter(source, call) {
   return found;
 }
 
-const englishValues = new Map(Object.entries(english).map(([key, value]) => [value, key]));
+// English text to its key; a message and a host string can share their
+// English, and the message key wins.
+const englishValues = new Map();
+Object.entries(english).forEach(([key, value]) => {
+  if (!englishValues.has(value) || /^(host|core)\./.test(key)) {
+    englishValues.set(value, key);
+  }
+});
 
 test("every status message a host sends has a translation", () => {
   const sources = {
     "src/windows/App.cpp": ["SendStatus("],
     "src/linux/LinuxApp.cpp": ["SendStatus("],
-    "macos/src/LDDocument.mm": ["broadcastStatus:", "DocumentError(NSFileReadUnsupportedSchemeError,"],
+    "macos/src/LDDocument.mm": ["broadcastStatus:"],
     "macos/src/LDDocumentWindowController.mm": ["showStatus:"],
     "macos/src/LDEditor.mm": ["completion("]
   };
@@ -285,20 +292,22 @@ test("every sentence the core and the hosts put in a report has a translation", 
     "src/core/Word.cpp", "src/windows/Platform.cpp"];
   const fixed = [];
   const codes = new Set();
+  const literals = /((?:"(?:[^"\\]|\\.)*"\s*)+)/.source;
+  const joined = (text) => [...text.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((part) => part[1]).join("");
   for (const file of sources) {
     const source = read(file);
-    for (const call of ["failure.Set(", "Set(", "fail(", "ReadFailure(", "errorMessage = "]) {
-      literalsAfter(source, call).forEach((message) => {
-        if (/^[a-z][a-z-]+$/.test(message)) {
-          codes.add(message);
-        } else if (/[A-Z].* /.test(message)) {
-          fixed.push(`${file}: ${message}`);
-        }
-      });
+    // Set("code", "sentence") and ReadFailure("code", "sentence"): a sentence
+    // followed by + is built with a number and needs its code's sentence.
+    for (const call of source.matchAll(new RegExp(`(?:Set|ReadFailure)\\(\\s*"([a-z][a-z-]+)",\\s*${literals}(\\+|[,)])`, "g"))) {
+      codes.add(call[1]);
+      if (call[3] !== "+") {
+        fixed.push(`${file}: ${joined(call[2])}`);
+      }
     }
-    // A code passed before a message: Set("code", ...).
-    for (const code of source.matchAll(/(?:Set|ReadFailure)\(\s*"([a-z][a-z-]+)"/g)) {
-      codes.add(code[1]);
+    for (const call of source.matchAll(new RegExp(`(?:\\bfail\\(|errorMessage = )\\s*${literals}(\\+|[;)])`, "g"))) {
+      if (call[2] !== "+") {
+        fixed.push(`${file}: ${joined(call[1])}`);
+      }
     }
   }
   assert.ok(fixed.length >= 15, `found the core's fixed sentences (${fixed.length})`);
@@ -391,7 +400,7 @@ test("the hosts' own strings come in English, Chinese, and Japanese", () => {
   scan("src/linux/LinuxApp.cpp", [/gtk_file_dialog_set_title\([^,]+,\s*"([^"]*)"/g, /gtk_file_filter_set_name\([^,]+,\s*"([^"]*)"/g]);
   scan("macos/src/LDAppDelegate.mm", [/MenuItem\(@"([^"]+)"/g, /initWithTitle:@"([^"]+)"/g]);
   scan("macos/src/LDDocumentController.mm", [/panel\.title = @"([^"]*)"/g]);
-  scan("macos/src/LDDocument.mm", [/DocumentError\(\s*NSFeatureUnsupportedError,\s*@"([^"]*)"/g]);
+  scan("macos/src/LDDocument.mm", [/DocumentError\(\s*NS\w+,\s*@"([^"]*)"/g]);
   assert.deepEqual(bare, [], "native strings that bypass InterfaceText.h");
 });
 
@@ -404,13 +413,14 @@ test("every host saves the language and opens the reader in it", () => {
   const windows = read("src/windows/App.cpp");
   assert.match(windows, /L"Language"/, "Windows saves Language beside Theme");
   assert.match(windows, /"setLanguage"/, "Windows handles setLanguage");
-  assert.match(windows, /\?lang=/, "Windows opens reader.html?lang=");
+  assert.match(windows, /settings::ReaderUrl\(/, "Windows opens reader.html?lang= through ReaderUrl");
   const linux = read("src/linux/LinuxApp.cpp");
   assert.match(linux, /"Reader",\s*"Language"/, "Linux saves [Reader] Language");
   assert.match(linux, /"setLanguage"/, "Linux handles setLanguage");
-  assert.match(linux, /\?lang=/, "Linux opens reader.html?lang=");
-  const mac = read("macos/src/LDDocumentWindowController.mm") + read("macos/src/LDAppDelegate.mm");
+  assert.match(linux, /settings::ReaderUrl\(/, "Linux opens reader.html?lang= through ReaderUrl");
+  const mac = read("macos/src/LDDocumentWindowController.mm") + read("macos/src/LDAppDelegate.mm") +
+    read("macos/src/LDLanguage.h");
   assert.match(mac, /LeanDocLanguage/, "macOS saves LeanDocLanguage");
   assert.match(mac, /setLanguage/, "macOS handles setLanguage");
-  assert.match(mac, /\?lang=/, "macOS opens reader.html?lang=");
+  assert.match(mac, /settings::ReaderUrl\(/, "macOS opens reader.html?lang= through ReaderUrl");
 });

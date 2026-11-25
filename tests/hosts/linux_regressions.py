@@ -119,7 +119,9 @@ def context_menu(build):
         check(actions <= {"0", "4", "14", "15", "16", "17", "18", "43"},
               f"only copy and edit actions remain: {sorted(actions)}")
         check(hits == [], f"no request reached the link target: {hits}")
-        check(location == "leandoc://app/reader.html", "the reader did not navigate")
+        # The host opens the reader with its interface language in the query.
+        check(re.fullmatch(r"leandoc://app/reader\.html\?lang=(en|zh-CN|ja)", location or "") is not None,
+              f"the reader did not navigate: {location}")
         print(f"context menu: actions {sorted(actions)}, requests {hits}", flush=True)
     finally:
         server.shutdown()
