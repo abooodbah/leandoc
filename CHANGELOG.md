@@ -3,6 +3,30 @@
 All notable LeanDoc changes are recorded here. The project follows semantic
 versioning.
 
+## [Unreleased]
+
+### Changed
+
+- Page view breaks pages much closer to where Word breaks them in long,
+  complex documents. A table row where Word started a page, or the line
+  where Word split a row, now starts the page. A style takes only the
+  styles it is based on, not the default paragraph style. A paragraph keeps
+  with the next only when the document asks for it. Section breaks that are
+  not continuous, and column breaks in a section of one column, start a
+  page. Charts and SmartArt graphics keep their space as empty frames, and
+  rows of exact height keep their height. Tabs, dot leaders, empty
+  paragraphs, lines that hold only a picture, list labels, right-to-left
+  text, HTML auto spacing and text in a missing Consolas take the space
+  Word gives them. In a document of more than 60 pages, a page that holds
+  the text of several pages is split after the first screen is shown, so
+  the first screen appears as soon as before.
+
+### Fixed
+
+- A document with a drawing whose graphic or picture data is missing now
+  opens, without that drawing. Before, the whole document failed to
+  display.
+
 ## [0.4.0] - 2026-11-25
 
 ### Added
