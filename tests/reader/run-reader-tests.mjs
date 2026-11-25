@@ -28,7 +28,9 @@ import {
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { makeKeptParagraphDocx } from "./make-columns-docx.mjs";
 import { AT_LEAST_LINES, CONTENTS_ENTRY, lineText, makeAtLeastDocx, makeContentsDocx, makeSavedPagesDocx, makeSavedRowsDocx, makeSavedSplitDocx, makeWordMetricsDocx, rowText, splitLineText } from "./make-saved-pages-docx.mjs";
-import { makeColumnStartsDocx, makeKeepRulesDocx, makePageBreakBeforeDocx, makeSectionPagesDocx, makeStyleChainDocx } from "./make-page-rules-docx.mjs";
+import {
+  makeColumnStartsDocx, makeKeepRulesDocx, makeLongDocx, makePageBreakBeforeDocx, makeSectionPagesDocx, makeStyleChainDocx
+} from "./make-page-rules-docx.mjs";
 import { makeTableEdgeDocx } from "./make-table-edge-docx.mjs";
 import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
 import { ARABIC_TEXT, LATIN_TEXT, MONO_TEXT, makeFontsBoxesDocx } from "./make-fonts-boxes-docx.mjs";
@@ -2901,6 +2903,24 @@ describe("page view keeps and starts pages as Word does", () => {
       assert.equal(rendered.pages, 3);
       assert.deepEqual(texts.map((text) => (text.match(/Column line \d+\./g) || []).length), [72, 72, 72]);
       assert.deepEqual(texts.map((text) => text.match(/Column line \d+\./)[0]), ["Column line 1.", "Column line 73.", "Column line 145."]);
+    });
+  });
+
+  // A document of more than 60 pages, as docx-preview made them, is not
+  // split, so where Word saved no page start for several of its pages, one
+  // page held their text. Pages that run far past the foot are split now.
+  test("a page far past its foot in a document of more than 60 pages is split", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeLongDocx();
+      const rendered = await host.openDocument({ bytes, report, fileName: "long-document.docx" });
+      const texts = await pageTexts(host);
+      assert.equal(rendered.pages, 64);
+      assert.deepEqual(texts.slice(61).map((text) => (text.match(/Long page line \d+\./g) || []).length), [36, 36, 28]);
+      assert.ok(texts[60].startsWith("Saved page 61 line 1."), texts[60].slice(0, 30));
+      // Every page is numbered among the 64.
+      const headers = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"))
+        .map((page) => Array.from(page.querySelectorAll(":scope > header")).map((node) => node.textContent.trim()).join("")));
+      assert.deepEqual([headers[0], headers[60], headers[61], headers[63]], ["Page 1 of 64", "Page 61 of 64", "Page 62 of 64", "Page 64 of 64"]);
     });
   });
 });

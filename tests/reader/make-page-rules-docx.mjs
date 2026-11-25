@@ -23,6 +23,12 @@
 // 72 to a page, with a saved page start (w:lastRenderedPageBreak) at the
 // top of every column, as Word 2007 saved them: Word prints 3 pages.
 //
+// makeLongDocx: 61 full pages of 36 lines, each after the first opening with
+// the page start Word saved, then a page of 100 lines that carries no saved
+// page start after its first line: Word prints that text on 3 pages (36, 36
+// and 28 lines), 64 pages in all. The header reads "Page N of M" (PAGE and
+// NUMPAGES fields).
+//
 // makePageBreakBeforeDocx: "Chapter one", a Heading 1 whose style breaks the
 // page before it, opens the document; 3 lines follow, then a paragraph that
 // holds only a page break, then "Chapter two" in Heading 1 and 3 lines. The
@@ -107,9 +113,11 @@ async function pack(body, styleXml, headers = []) {
 <w:document xmlns:w="${W}" xmlns:r="${R}"><w:body>${body.join("\n")}</w:body></w:document>`, options);
   zip.file("word/_rels/document.xml.rels", documentRels(headers), options);
   zip.file("word/styles.xml", styleXml, options);
-  headers.forEach((text, index) => {
+  // A header is its text, or { runs } for runs of its own.
+  headers.forEach((header, index) => {
+    const runs = typeof header === "string" ? run(header) : header.runs;
     zip.file(`word/header${index + 1}.xml`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:hdr xmlns:w="${W}"><w:p><w:pPr>${LINE}</w:pPr>${run(text)}</w:p></w:hdr>`, options);
+<w:hdr xmlns:w="${W}"><w:p><w:pPr>${LINE}</w:pPr>${runs}</w:p></w:hdr>`, options);
   });
   const bytes = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
   return {
@@ -205,4 +213,27 @@ export async function makeColumnStartsDocx() {
   }
   body.push(`<w:sectPr>${PAGE.replace('<w:cols w:space="720"/>', '<w:cols w:num="2" w:space="720"/>')}</w:sectPr>`);
   return pack(body, styleXml);
+}
+
+export async function makeLongDocx() {
+  const styleXml = styles(`<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/>
+<w:pPr>${LINE}</w:pPr></w:style>`);
+  const body = [];
+  const saved = (text) => `<w:r><w:lastRenderedPageBreak/><w:t xml:space="preserve">${text}</w:t></w:r>`;
+  for (let page = 1; page <= 61; page += 1) {
+    for (let line = 1; line <= 36; line += 1) {
+      const text = `Saved page ${page} line ${line}.`;
+      body.push(`<w:p>${page > 1 && line === 1 ? saved(text) : run(text)}</w:p>`);
+    }
+  }
+  for (let line = 1; line <= 100; line += 1) {
+    const text = `Long page line ${line}.`;
+    body.push(`<w:p>${line === 1 ? saved(text) : run(text)}</w:p>`);
+  }
+  body.push(section(`<w:headerReference w:type="default" r:id="rIdH1"/>`));
+  // "Page N of M", with the numbers Word last saved as the fields' results.
+  const field = (instruction, result) => `<w:r><w:fldChar w:fldCharType="begin"/></w:r>` +
+    `<w:r><w:instrText xml:space="preserve"> ${instruction} </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>` +
+    `${run(result)}<w:r><w:fldChar w:fldCharType="end"/></w:r>`;
+  return pack(body, styleXml, [{ runs: `${run("Page ")}${field("PAGE", "1")}${run(" of ")}${field("NUMPAGES", "64")}` }]);
 }
