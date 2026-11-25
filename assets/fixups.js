@@ -623,6 +623,10 @@
       } else {
         leading = false;
       }
+      if (getAttr(height, "hRule") === "exact") {
+        // The reader cuts its cells off at its height (clipExactRows).
+        addClass(modelRows[index], "ld-exact-row");
+      }
       if ((cantSplit && isOn(cantSplit)) || getAttr(height, "hRule") === "exact") {
         addClass(modelRows[index], "ld-cant-split");
         result.cantSplitRows += 1;

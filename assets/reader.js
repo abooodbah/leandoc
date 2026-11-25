@@ -2223,6 +2223,45 @@
   var documentCustomMarks = [];
   var documentNumberedCustomMarks = [];
 
+  // A row of exact height (w:hRule="exact", Fixups ld-exact-row) is that
+  // tall in Word whatever it holds, and text that does not fit is hidden.
+  // A table row grows to its cells in the browser, so such a row ran taller
+  // than Word's.
+  // Each cell's content goes in a box no taller than the row's room,
+  // which hides the rest. All sizes are read before any box is made, on
+  // the attached page, before its lines are measured (matchWordLines).
+  function clipExactRows(container) {
+    if (!container.querySelectorAll) {
+      return;
+    }
+    var rows = Array.prototype.slice.call(container.querySelectorAll("tr.ld-exact-row:not([data-ld-clipped])"));
+    var plans = rows.map(function (row) {
+      var height = /^([\d.]+)pt$/.exec(row.style.height || "");
+      row.setAttribute("data-ld-clipped", "");
+      if (!height) {
+        return null;
+      }
+      var total = parseFloat(height[1]) * 4 / 3;
+      return Array.prototype.map.call(row.cells, function (cell) {
+        var style = window.getComputedStyle(cell);
+        var room = total - (parseFloat(style.paddingTop) || 0) - (parseFloat(style.paddingBottom) || 0) -
+          (parseFloat(style.borderTopWidth) || 0) - (parseFloat(style.borderBottomWidth) || 0);
+        return { cell: cell, room: Math.max(0, room) };
+      });
+    });
+    plans.forEach(function (cells) {
+      (cells || []).forEach(function (plan) {
+        var box = document.createElement("div");
+        box.className = "ld-exact-cell";
+        box.style.maxHeight = plan.room + "px";
+        while (plan.cell.firstChild) {
+          box.appendChild(plan.cell.firstChild);
+        }
+        plan.cell.appendChild(box);
+      });
+    });
+  }
+
   function hideCustomMarks(container) {
     if (!container.querySelector) {
       return;
@@ -3675,6 +3714,7 @@
 
   // Line heights and line breaks as Word makes them, before pages are split.
   function matchWordLines(container) {
+    clipExactRows(container);
     fitPictureLines(container);
     matchStandInWidths(container);
     fitParagraphsToRuns(container);

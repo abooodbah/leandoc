@@ -1826,3 +1826,9 @@ body {
   display: inline-block;
   margin-left: var(--ld-lj, 0px);
 }
+
+/* The content of a cell in a row of exact height, cut off at the row's
+   height (reader.js clipExactRows). */
+#docBody .ld-exact-cell {
+  overflow: hidden;
+}
