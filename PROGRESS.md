@@ -109,6 +109,14 @@ Decisions taken here (the owner can change them):
   `$XDG_CONFIG_HOME/leandoc/settings.ini` group `[Reader]`, macOS
   `NSUserDefaults` (`LeanDocTheme`, `LeanDocPageColor`).
 
+## LeanDoc 0.4.0
+
+- The 0.4.0 version bump: the Simplified Chinese and Japanese interfaces of
+  #53 (a minor release, since it adds a feature), the picture fix of #55 and
+  the kept-paragraph and nonbreaking-hyphen fixes of #50. Then the release
+  tag, the Store package workflow for the tag, and the post-release pull
+  request.
+
 ## LeanDoc 0.3.3
 
 - The 0.3.3 version bump: the zoom fix of #47 (a section of a split page

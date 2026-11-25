@@ -39,6 +39,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.4.0" date="2026-11-25">
+      <description>
+        <p>The interface is available in Simplified Chinese and Japanese. LeanDoc follows the system language, and Settings has a Language choice. Documents whose pictures keep their image inside a compatibility block now open. A paragraph kept together that is taller than a page is split across pages, and nonbreaking hyphens show as hyphens.</p>
+      </description>
+    </release>
     <release version="0.3.3" date="2026-11-19">
       <description>
         <p>Nothing is cut off the bottom of a page at zooms other than 100%: a page whose last lines or table rows no longer fit at that zoom grows taller so that all of its text shows.</p>

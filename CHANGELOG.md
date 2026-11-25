@@ -3,7 +3,7 @@
 All notable LeanDoc changes are recorded here. The project follows semantic
 versioning.
 
-## [Unreleased]
+## [0.4.0] - 2026-11-25
 
 ### Added
 
@@ -21,6 +21,13 @@ versioning.
 - A document whose pictures keep their image inside a compatibility block,
   as some files saved by older Mac versions of Word do, now opens with its
   pictures. Before, the whole document failed to display.
+- A paragraph set to keep its lines together that is taller than a page is
+  split across pages, as Word does once the paragraph starts at the top of
+  a page. Before, it stayed on one oversized page; in a test document a
+  40-line paragraph on a short page now fills three pages instead of one.
+- Word's nonbreaking hyphens show as hyphens and keep the word together.
+  Before, the hyphen was missing and the word could break across two lines
+  with no mark.
 
 ## [0.3.3] - 2026-11-19
 
