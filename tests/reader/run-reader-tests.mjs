@@ -26,7 +26,7 @@ import {
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { makeKeptParagraphDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeSavedRowsDocx, makeWordMetricsDocx, rowText } from "./make-saved-pages-docx.mjs";
-import { makeKeepRulesDocx, makePageBreakBeforeDocx, makeSectionPagesDocx, makeStyleChainDocx } from "./make-page-rules-docx.mjs";
+import { makeColumnStartsDocx, makeKeepRulesDocx, makePageBreakBeforeDocx, makeSectionPagesDocx, makeStyleChainDocx } from "./make-page-rules-docx.mjs";
 import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
@@ -2772,6 +2772,20 @@ describe("page view keeps and starts pages as Word does", () => {
       assert.deepEqual(pages.map((page) => page.text.slice(0, 11)), ["Chapter one", "Chapter two"]);
       // The first page keeps the section's first-page header.
       assert.deepEqual(pages.map((page) => page.header), ["First page header.", "Running header."]);
+    });
+  });
+
+  // Word 2007 saved a page start at the top of every column of a section
+  // with columns, and docx-preview starts a page at each, so every page held
+  // one column.
+  test("saved page starts at the top of each column do not start pages", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeColumnStartsDocx();
+      const rendered = await host.openDocument({ bytes, report, fileName: "column-starts.docx" });
+      const texts = await pageTexts(host);
+      assert.equal(rendered.pages, 3);
+      assert.deepEqual(texts.map((text) => (text.match(/Column line \d+\./g) || []).length), [72, 72, 72]);
+      assert.deepEqual(texts.map((text) => text.match(/Column line \d+\./)[0]), ["Column line 1.", "Column line 73.", "Column line 145."]);
     });
   });
 });

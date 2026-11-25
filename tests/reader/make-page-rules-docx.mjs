@@ -19,6 +19,10 @@
 // section break with no type (a new page), and a section of 3 lines after a
 // continuous break, all on the same page size: Word prints 2 pages.
 //
+// makeColumnStartsDocx: one two-column section of 216 one-line paragraphs,
+// 72 to a page, with a saved page start (w:lastRenderedPageBreak) at the
+// top of every column, as Word 2007 saved them: Word prints 3 pages.
+//
 // makePageBreakBeforeDocx: "Chapter one", a Heading 1 whose style breaks the
 // page before it, opens the document; 3 lines follow, then a paragraph that
 // holds only a page break, then "Chapter two" in Heading 1 and 3 lines. The
@@ -189,4 +193,16 @@ export async function makePageBreakBeforeDocx() {
     section(`<w:headerReference w:type="default" r:id="rIdH2"/><w:headerReference w:type="first" r:id="rIdH1"/>`, "<w:titlePg/>")
   ];
   return pack(body, styleXml, ["First page header.", "Running header."]);
+}
+
+export async function makeColumnStartsDocx() {
+  const styleXml = styles(`<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/>
+<w:pPr>${LINE}</w:pPr></w:style>`);
+  const body = [];
+  for (let line = 1; line <= 216; line += 1) {
+    const saved = line > 1 && line % 36 === 1 ? "<w:lastRenderedPageBreak/>" : "";
+    body.push(`<w:p><w:r>${saved}<w:t xml:space="preserve">Column line ${line}.</w:t></w:r></w:p>`);
+  }
+  body.push(`<w:sectPr>${PAGE.replace('<w:cols w:space="720"/>', '<w:cols w:num="2" w:space="720"/>')}</w:sectPr>`);
+  return pack(body, styleXml);
 }
