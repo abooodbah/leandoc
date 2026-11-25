@@ -1325,6 +1325,11 @@ body {
 #docBody span.ld-tab {
   display: inline-block;
   text-indent: 0;
+  /* The tab takes its run's font: the document's default span rule would
+     give it 11 pt and raise a line of 8 pt code by a third. */
+  font-family: inherit;
+  font-size: inherit;
+  min-height: 0;
 }
 
 /* A token of an equation is set on one line. docx-preview's runs may wrap
