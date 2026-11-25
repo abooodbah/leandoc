@@ -1,10 +1,12 @@
 // The reader settings every host saves and sends to the reader page, with the
-// same names on Windows, Linux, and macOS. Header only, so the host logic
+// same names on Windows, Linux, and macOS: theme, page colour, and interface
+// language. Header only, so the host logic
 // tests check exactly what the hosts compile.
 #pragma once
 
 #include <cstddef>
 #include <initializer_list>
+#include <string>
 #include <string_view>
 
 namespace leandoc::settings {
@@ -135,6 +137,105 @@ inline PageColor ParsePageColor(std::string_view name) {
 
 inline bool IsPageColorName(std::string_view name) {
     return EqualsIgnoringAsciiCase(name, "paper") || EqualsIgnoringAsciiCase(name, "theme");
+}
+
+// The interface language: System follows the platform's language, or the
+// reader picks English, Simplified Chinese, or Japanese in the settings panel.
+// Saved as Language (LeanDocLanguage on macOS) under these names, which the
+// reader page uses too. The page's copy of the rules is in assets/fidelity.js.
+enum class Language { System, English, ChineseSimplified, Japanese };
+
+inline const char* LanguageName(Language language) {
+    switch (language) {
+        case Language::English:
+            return "en";
+        case Language::ChineseSimplified:
+            return "zh-CN";
+        case Language::Japanese:
+            return "ja";
+        default:
+            return "system";
+    }
+}
+
+// A saved or page-requested language, ignoring ASCII case. Anything else,
+// including a missing value from 0.3 or a language from a later version,
+// gives System.
+inline Language ParseLanguage(std::string_view name) {
+    for (const Language language :
+         {Language::English, Language::ChineseSimplified, Language::Japanese}) {
+        if (EqualsIgnoringAsciiCase(name, LanguageName(language))) {
+            return language;
+        }
+    }
+    return Language::System;
+}
+
+inline bool IsLanguageName(std::string_view name) {
+    return ParseLanguage(name) != Language::System || EqualsIgnoringAsciiCase(name, "system");
+}
+
+// The interface language for a system language tag such as ja-JP, zh-Hans-CN,
+// or a POSIX locale such as zh_CN.UTF-8, by LeanMark's rule: Japanese for ja;
+// Simplified Chinese for zh, zh-CN, zh-SG, and zh-Hans tags; English for
+// Traditional Chinese (zh-TW, zh-HK, zh-MO, zh-Hant), which has no interface
+// of its own, and for anything else.
+inline const char* SystemInterfaceLanguage(std::string_view tag) {
+    const std::size_t end = tag.find_first_of(".@");
+    std::string lower(tag.substr(0, end == std::string_view::npos ? tag.size() : end));
+    for (char& character : lower) {
+        if (character == '_') {
+            character = '-';
+        } else if (character >= 'A' && character <= 'Z') {
+            character = static_cast<char>(character - 'A' + 'a');
+        }
+    }
+    const auto primary = [&lower](std::string_view code) {
+        return lower.compare(0, code.size(), code) == 0 &&
+               (lower.size() == code.size() || lower[code.size()] == '-');
+    };
+    if (primary("ja")) {
+        return "ja";
+    }
+    if (!primary("zh")) {
+        return "en";
+    }
+    const std::string rest = "-" + lower.substr(2) + "-";
+    if (rest.find("-hant-") != std::string::npos) {
+        return "en";
+    }
+    if (rest.find("-hans-") != std::string::npos) {
+        return "zh-CN";
+    }
+    for (const char* region : {"-tw-", "-hk-", "-mo-"}) {
+        if (rest.find(region) != std::string::npos) {
+            return "en";
+        }
+    }
+    return "zh-CN";
+}
+
+inline const char* ResolveInterfaceLanguage(Language setting, std::string_view systemTag) {
+    return setting == Language::System ? SystemInterfaceLanguage(systemTag) : LanguageName(setting);
+}
+
+// The reader page in the interface language: hosts open reader.html?lang=<it>
+// so the first paint is already translated.
+inline std::string ReaderUrl(std::string_view base, Language setting, std::string_view systemTag) {
+    std::string url(base);
+    url += "?lang=";
+    url += ResolveInterfaceLanguage(setting, systemTag);
+    return url;
+}
+
+// Whether a URI is the reader page: the base URL (ignoring ASCII case, as
+// hosts compare it), alone or with exactly one of the three language queries.
+inline bool IsReaderUrl(std::string_view uri, std::string_view base) {
+    if (uri.size() < base.size() || !EqualsIgnoringAsciiCase(uri.substr(0, base.size()), base)) {
+        return false;
+    }
+    const std::string_view query = uri.substr(base.size());
+    return query.empty() || query == "?lang=en" || query == "?lang=zh-CN" || query == "?lang=ja";
 }
 
 }  // namespace leandoc::settings

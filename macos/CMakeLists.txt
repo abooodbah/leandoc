@@ -98,7 +98,24 @@ if(BUILD_TESTING)
     NAME leandoc-macos-test-hooks
     COMMAND bash "${LEANDOC_ROOT}/tests/hosts/Test-TimingHooks.sh"
             "$<TARGET_FILE:LeanDoc>" "${LEANDOC_SMOKE_FIXTURE}")
+  # The interface in Japanese and Chinese: the smoke check fails unless the
+  # page shows the language the host resolved; the output names it.
+  add_test(
+    NAME leandoc-macos-japanese
+    COMMAND "$<TARGET_FILE:LeanDoc>" --smoke-test "${LEANDOC_SMOKE_FIXTURE}")
+  add_test(
+    NAME leandoc-macos-chinese
+    COMMAND "$<TARGET_FILE:LeanDoc>" --smoke-test "${LEANDOC_SMOKE_FIXTURE}")
+  set_tests_properties(leandoc-macos-japanese PROPERTIES
+    ENVIRONMENT "LEANDOC_SMOKE_LANGUAGE=ja"
+    PASS_REGULAR_EXPRESSION "PASS.*\"lang\":\"ja\""
+    FAIL_REGULAR_EXPRESSION "FAIL")
+  set_tests_properties(leandoc-macos-chinese PROPERTIES
+    ENVIRONMENT "LEANDOC_SMOKE_LANGUAGE=zh-CN"
+    PASS_REGULAR_EXPRESSION "PASS.*\"lang\":\"zh-CN\""
+    FAIL_REGULAR_EXPRESSION "FAIL")
   set_tests_properties(leandoc-macos-host leandoc-macos-fallback leandoc-macos-test-hooks
+    leandoc-macos-japanese leandoc-macos-chinese
     PROPERTIES TIMEOUT 40)
   set_tests_properties(leandoc-macos-fallback PROPERTIES WILL_FAIL TRUE)
 endif()

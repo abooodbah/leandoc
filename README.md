@@ -2,7 +2,7 @@
 
 Open a .docx without Microsoft Office. LeanDoc shows the document as pages, never runs macros, and never fetches anything the document points to. MIT licensed, no telemetry. The 0.3.3 Windows download is a 975 KiB ZIP.
 
-[Website](https://abooodbah.github.io/leandoc/) · [Microsoft Store](https://apps.microsoft.com/detail/9NSM04BJL6F6) · `winget install abooodbah.LeanDoc` · `choco install leandoc` · [Open a .docx without Word](https://abooodbah.github.io/leandoc/open-docx-without-word/) · [Releases feed (Atom)](https://github.com/abooodbah/leandoc/releases.atom) · [All Lean apps](https://abooodbah.github.io/)
+[简体中文](#简体中文) · [日本語](#日本語) · [Website](https://abooodbah.github.io/leandoc/) · [Microsoft Store](https://apps.microsoft.com/detail/9NSM04BJL6F6) · `winget install abooodbah.LeanDoc` · `choco install leandoc` · [Open a .docx without Word](https://abooodbah.github.io/leandoc/open-docx-without-word/) · [Releases feed (Atom)](https://github.com/abooodbah/leandoc/releases.atom) · [All Lean apps](https://abooodbah.github.io/)
 
 [![Latest release](https://img.shields.io/github/v/release/abooodbah/leandoc)](https://github.com/abooodbah/leandoc/releases/latest) [![winget package version](https://img.shields.io/winget/v/abooodbah.LeanDoc)](https://github.com/microsoft/winget-pkgs/tree/master/manifests/a/abooodbah/LeanDoc) [![Microsoft Store](https://img.shields.io/badge/Microsoft%20Store-9NSM04BJL6F6-0078D4)](https://apps.microsoft.com/detail/9NSM04BJL6F6) [![MIT license](https://img.shields.io/github/license/abooodbah/leandoc)](LICENSE) [![GitHub downloads](https://img.shields.io/github/downloads/abooodbah/leandoc/total)](https://github.com/abooodbah/leandoc/releases)
 
@@ -287,6 +287,30 @@ The score is not yet recorded.
   notarized.
 
 The full list is in the [0.1.0 release notes](docs/releases/v0.1.0.md).
+
+## Languages
+
+LeanDoc shows its own buttons, menus, dialogs and messages in English,
+Simplified Chinese or Japanese. By default it follows the system language:
+Japanese on a Japanese system, Simplified Chinese on a Simplified Chinese
+system, and English on every other system, Traditional Chinese included
+(there is no Traditional Chinese interface yet). To choose a language, open
+Settings (Ctrl+/ or F1, Command+/ on macOS) and pick System, English, 简体中文
+or 日本語 under Language. The choice is saved with the other settings. The
+document itself is shown as it was written.
+
+### 简体中文
+
+LeanDoc 是一款免费的只读 Word（.docx）文档查看器，支持 Windows、Linux 和
+macOS。无需打开办公套件即可阅读 Word 文档。LeanDoc 不会运行宏，也不会获取文档指向的任何内容。
+
+界面支持简体中文：系统语言为简体中文时自动使用中文。也可以在“设置”（Ctrl+/ 或 F1）的“语言”中选择“跟随系统”、English、简体中文或日本語。
+
+### 日本語
+
+LeanDoc は、Windows、Linux、macOS 用の無料の読み取り専用 Word（.docx）ビューアーです。オフィス ソフトを起動せずに Word ドキュメントを読めます。LeanDoc はマクロを実行せず、ドキュメントが参照する外部の内容も取得しません。
+
+画面は日本語に対応しています。システムの言語が日本語のときは自動で日本語になります。「設定」（Ctrl+/ または F1）の「言語」で、「システム」、English、简体中文、日本語から選ぶこともできます。
 
 ## Keyboard
 

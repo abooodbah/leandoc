@@ -75,7 +75,7 @@ function Test-StaticInvariants {
         'add_ContextMenuRequested',
         'FilterContextMenu\(items\.Get\(\)\)',
         'NormalizeExternalLink\(rawHref\)',
-        'EqualsInsensitive\(uri, kReaderUrl\)'
+        'settings::IsReaderUrl\(WideToUtf8\(uri\), kReaderUrlUtf8\)'
     )) { Assert-Match $app $guard "WebView2 guard is missing: $guard" }
     Assert-Match $app '(?s)add_DownloadStarting.*?put_Cancel\(TRUE\)' 'WebView2 downloads must be cancelled.'
     Assert-Match $app 'SetCurrentProcessExplicitAppUserModelID\(L"LeanDoc\.Reader"\)' 'The AppUserModelID must stay stable.'
@@ -266,6 +266,17 @@ function Test-Smoke {
     $fallback = Invoke-LeanDocSmoke -ExePath $exe -DocumentPath (Join-Path $fixtures 'plain.rtf')
     Assert-Equal $fallback.ExitCode 1 'A file without a renderable package must fail the smoke test.'
     Write-TestPass 'WebView2 smoke test renders a document and rejects a fallback file'
+    # The interface in Japanese and Chinese. LEANDOC_SMOKE_LANGUAGE stands for
+    # a saved choice; the smoke check fails unless the page shows it.
+    foreach ($language in @('ja', 'zh-CN')) {
+        $localized = Invoke-LeanDocSmoke -ExePath $exe -DocumentPath (Join-Path $fixtures 'smoke.docx') `
+            -Environment @{ LEANDOC_SMOKE_LANGUAGE = $language }
+        Write-TestNote ("{0} smoke output: {1}" -f $language, $localized.Output)
+        Assert-Equal $localized.ExitCode 0 "LeanDoc --smoke-test in $language did not pass."
+        Assert-Match $localized.Output ('"lang":"{0}"' -f [regex]::Escape($language)) `
+            "The reader did not open in $language."
+    }
+    Write-TestPass 'WebView2 smoke test opens the reader in Japanese and in Chinese'
 
     # SPEC section 5 test hooks: --trace-timing reports every event and
     # --exit-after-render closes LeanDoc on its own after the first page.

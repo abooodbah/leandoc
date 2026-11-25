@@ -34,7 +34,7 @@ for (const [guard, reason] of [
   [/core::IsPathWithin\(assetRoot_, candidate\)/, "assets stay inside the asset root"],
   [/segment == "\." \|\| segment == "\.\."/, "dot segments are refused"],
   [/script-message-received::leandoc/, "the reader bridge is window.webkit.messageHandlers.leandoc"],
-  [/webkit_web_view_get_uri\(app->webView_\), kReaderUrl/, "messages are accepted only from the reader"],
+  [/webkit_web_view_get_uri\(app->webView_\);\s*if \(loaded == nullptr \|\| !settings::IsReaderUrl\(loaded, kReaderUrl\)\)/, "messages are accepted only from the reader"],
   [/new CustomEvent\(\\"leandoc-message\\"/, "host messages arrive as a leandoc-message event"],
   [/WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION/, "navigation is decided by the host"],
   [/WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION/, "new windows are refused"],

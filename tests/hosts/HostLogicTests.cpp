@@ -2,6 +2,7 @@
 // open-in-editor order on Windows and Linux, Windows command-line quoting, and
 // the reader message parser. CTest runs this on every operating system.
 
+#include "core/InterfaceText.h"
 #include "core/ReaderSettings.h"
 #include "linux/EditorChoice.h"
 #include "linux/TestHooks.h"
@@ -347,8 +348,94 @@ void TestReaderSettings() {
           "only paper and theme are page colours");
 }
 
+// The interface language: saved as system, en, zh-CN or ja by every host,
+// resolved against the system language as the reader page does (see
+// tests/reader/localization.test.mjs for the page's copy of the rule).
+void TestInterfaceLanguages() {
+    namespace rs = leandoc::settings;
+    using rs::Language;
+    const Language all[] = {Language::System, Language::English, Language::ChineseSimplified,
+                            Language::Japanese};
+    const char* names[] = {"system", "en", "zh-CN", "ja"};
+    for (int index = 0; index < 4; ++index) {
+        Check(std::string(rs::LanguageName(all[index])) == names[index],
+              "each language saves under its name");
+        Check(rs::ParseLanguage(names[index]) == all[index], "each saved language reads back");
+        Check(rs::IsLanguageName(names[index]), "the four names are languages");
+    }
+    Check(rs::ParseLanguage("JA") == Language::Japanese &&
+              rs::ParseLanguage("zh-cn") == Language::ChineseSimplified &&
+              rs::ParseLanguage("EN") == Language::English,
+          "saved language names ignore ASCII case");
+    Check(rs::ParseLanguage("fr") == Language::System && rs::ParseLanguage("") == Language::System &&
+              rs::ParseLanguage("zh-TW") == Language::System,
+          "an unknown, empty, or later language reads as System");
+    Check(!rs::IsLanguageName("fr") && !rs::IsLanguageName("") && !rs::IsLanguageName("zh"),
+          "unknown language names are refused");
+
+    const auto system = [](const char* tag) { return std::string(rs::SystemInterfaceLanguage(tag)); };
+    for (const char* tag : {"ja", "ja-JP", "JA-jp", "ja_JP.UTF-8", "ja_JP", "ja_JP.eucJP"}) {
+        Check(system(tag) == "ja", "a Japanese system language picks Japanese");
+    }
+    for (const char* tag : {"zh", "zh-CN", "zh-cn", "zh-SG", "ZH-sg", "zh-Hans", "zh-Hans-CN",
+                            "zh-Hans-HK", "zh_CN.UTF-8", "zh_CN"}) {
+        Check(system(tag) == "zh-CN", "a Simplified Chinese system language picks Simplified Chinese");
+    }
+    // As in LeanMark: Traditional Chinese keeps English.
+    for (const char* tag : {"zh-TW", "zh-HK", "zh-MO", "zh-Hant", "zh-Hant-TW", "zh_TW.UTF-8", "zh_TW"}) {
+        Check(system(tag) == "en", "a Traditional Chinese system language keeps English");
+    }
+    for (const char* tag : {"", "en", "en-US", "fr-FR", "de", "C", "POSIX", "jv-ID", "jax", "zhx",
+                            "zu-ZA", "-ja", "jpn"}) {
+        Check(system(tag) == "en", "any other system language picks English");
+    }
+    Check(std::string(rs::ResolveInterfaceLanguage(Language::System, "ja-JP")) == "ja" &&
+              std::string(rs::ResolveInterfaceLanguage(Language::System, "zh-SG")) == "zh-CN" &&
+              std::string(rs::ResolveInterfaceLanguage(Language::System, "zh-TW")) == "en",
+          "System follows the system language");
+    Check(std::string(rs::ResolveInterfaceLanguage(Language::English, "ja-JP")) == "en" &&
+              std::string(rs::ResolveInterfaceLanguage(Language::Japanese, "en-US")) == "ja" &&
+              std::string(rs::ResolveInterfaceLanguage(Language::ChineseSimplified, "ja-JP")) == "zh-CN" &&
+              std::string(rs::ResolveInterfaceLanguage(Language::ChineseSimplified, "zh-TW")) == "zh-CN",
+          "a chosen language overrides the system language");
+
+    const char* base = "leandoc://app/reader.html";
+    Check(rs::ReaderUrl(base, Language::System, "ja-JP") == "leandoc://app/reader.html?lang=ja" &&
+              rs::ReaderUrl(base, Language::English, "zh-CN") == "leandoc://app/reader.html?lang=en" &&
+              rs::ReaderUrl(base, Language::System, "zh-Hans") == "leandoc://app/reader.html?lang=zh-CN" &&
+              rs::ReaderUrl(base, Language::System, "zh-Hant") == "leandoc://app/reader.html?lang=en",
+          "the reader opens with the resolved language in its query");
+    Check(rs::IsReaderUrl(base, base) && rs::IsReaderUrl("leandoc://app/reader.html?lang=ja", base) &&
+              rs::IsReaderUrl("leandoc://app/reader.html?lang=zh-CN", base) &&
+              rs::IsReaderUrl("leandoc://app/reader.html?lang=en", base) &&
+              rs::IsReaderUrl("LEANDOC://APP/READER.HTML?lang=en", base),
+          "the reader page is the reader with or without a language");
+    Check(!rs::IsReaderUrl("leandoc://app/reader.html?lang=fr", base) &&
+              !rs::IsReaderUrl("leandoc://app/reader.html?lang=ja&x=1", base) &&
+              !rs::IsReaderUrl("leandoc://app/reader.html#lang=ja", base) &&
+              !rs::IsReaderUrl("leandoc://app/reader.html?lang=JA", base) &&
+              !rs::IsReaderUrl("leandoc://app/other.html?lang=ja", base) &&
+              !rs::IsReaderUrl("leandoc://app/reader.htmlx", base) && !rs::IsReaderUrl("", base),
+          "anything else is not the reader page");
+
+    namespace text = leandoc::interface_text;
+    Check(std::string(text::Localized(text::kOpenTitle, "en")) == "Open documents",
+          "native strings are English for English");
+    Check(std::string(text::Localized(text::kOpenTitle, "ja")) == text::kOpenTitle.japanese &&
+              std::string(text::Localized(text::kOpenTitle, "zh-CN")) == text::kOpenTitle.chinese,
+          "native strings follow the interface language");
+    Check(std::string(text::Localized(text::kOpenTitle, "fr")) == "Open documents",
+          "an unknown language gives English");
+    Check(std::string(text::kOpenTitle.japanese).find_first_not_of(
+              "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ ") != std::string::npos &&
+              std::string(text::kOpenTitle.chinese).find_first_not_of(
+                  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ ") != std::string::npos,
+          "the dialog title is translated");
+}
+
 int main() {
     TestReaderSettings();
+    TestInterfaceLanguages();
     TestHooks();
     TestContextMenu();
     TestScriptCommands();

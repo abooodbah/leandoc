@@ -19,21 +19,22 @@
   <body>
     <header class="chrome" id="chrome">
       <div class="topbar">
-        <div class="identity" role="group" aria-label="Current document">
+        <div class="identity" role="group" aria-label="Current document" data-i18n-aria-label="app.currentDocument">
           <span class="wordmark" aria-hidden="true">LD</span>
           <span class="file-copy">
             <strong id="fileName">LeanDoc</strong>
-            <span id="fileMeta">Word document reader</span>
+            <span id="fileMeta" data-i18n="app.tagline">Word document reader</span>
           </span>
         </div>
 
-        <div class="toolbar" role="toolbar" aria-label="Reader controls">
+        <div class="toolbar" role="toolbar" aria-label="Reader controls" data-i18n-aria-label="toolbar.label">
           <label class="search-field doc-control" for="findInput">
-            <span class="visually-hidden">Find in document</span>
+            <span class="visually-hidden" data-i18n="find.label">Find in document</span>
             <input
               id="findInput"
               type="search"
               placeholder="Find"
+              data-i18n-placeholder="find.placeholder"
               autocomplete="off"
               spellcheck="false"
               disabled
@@ -41,31 +42,33 @@
             <span id="findCount" aria-live="polite"></span>
           </label>
 
-          <div class="segmented doc-control" role="group" aria-label="View">
-            <button id="viewPage" class="segment" type="button" aria-pressed="true" title="Page view (Ctrl+Shift+V)">Page</button>
-            <button id="viewReading" class="segment" type="button" aria-pressed="false" title="Reading view (Ctrl+Shift+V)">Reading</button>
+          <div class="segmented doc-control" role="group" aria-label="View" data-i18n-aria-label="view.label">
+            <button id="viewPage" class="segment" type="button" aria-pressed="true" title="Page view (Ctrl+Shift+V)" data-i18n="view.page" data-i18n-title="view.pageTitle">Page</button>
+            <button id="viewReading" class="segment" type="button" aria-pressed="false" title="Reading view (Ctrl+Shift+V)" data-i18n="view.reading" data-i18n-title="view.readingTitle">Reading</button>
           </div>
 
-          <div class="zoom doc-control" role="group" aria-label="Zoom">
-            <button id="zoomOut" class="zoom-step" type="button" aria-label="Zoom out" title="Zoom out (Ctrl+-)">
+          <div class="zoom doc-control" role="group" aria-label="Zoom" data-i18n-aria-label="zoom.label">
+            <button id="zoomOut" class="zoom-step" type="button" aria-label="Zoom out" title="Zoom out (Ctrl+-)" data-i18n-aria-label="zoom.out" data-i18n-title="zoom.outTitle">
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" /></svg>
             </button>
-            <button id="zoomValue" class="zoom-value" type="button" title="Fit width or 100% (Ctrl+0)">100%</button>
-            <button id="zoomIn" class="zoom-step" type="button" aria-label="Zoom in" title="Zoom in (Ctrl++)">
+            <button id="zoomValue" class="zoom-value" type="button" title="Fit width or 100% (Ctrl+0)" data-i18n-title="zoom.valueTitle">100%</button>
+            <button id="zoomIn" class="zoom-step" type="button" aria-label="Zoom in" title="Zoom in (Ctrl++)" data-i18n-aria-label="zoom.in" data-i18n-title="zoom.inTitle">
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M8 3v10" /></svg>
             </button>
           </div>
 
-          <button id="themeButton" class="button button-ghost theme-button" type="button"><span id="themeSwatch" class="theme-swatch" data-swatch="system" aria-hidden="true"></span><span id="themeLabel">System</span></button>
+          <button id="themeButton" class="button button-ghost theme-button" type="button"><span id="themeSwatch" class="theme-swatch" data-swatch="system" aria-hidden="true"></span><span id="themeLabel" data-i18n="theme.system">System</span></button>
           <button
             id="settingsButton"
             class="button button-ghost button-icon"
             type="button"
             aria-label="Settings and keyboard shortcuts"
+            data-i18n-aria-label="settings.buttonLabel"
             aria-haspopup="dialog"
             aria-expanded="false"
             aria-controls="settingsPanel"
             title="Settings and shortcuts (Ctrl+/)"
+            data-i18n-title="settings.buttonTitle"
           >
             <svg viewBox="0 0 16 16" aria-hidden="true">
               <path d="M2 4h6M11 4h3M2 8h2M7 8h7M2 12h7M12 12h2" />
@@ -75,13 +78,13 @@
             </svg>
           </button>
           <button id="editorButton" class="button button-secondary doc-control" type="button" hidden></button>
-          <button id="openButton" class="button button-primary-quiet" type="button" title="Open a document (Ctrl+O)">Open</button>
+          <button id="openButton" class="button button-primary-quiet" type="button" title="Open a document (Ctrl+O)" data-i18n="open.button" data-i18n-title="open.title">Open</button>
         </div>
       </div>
 
-      <div id="tabStrip" class="tab-strip" role="tablist" aria-label="Open documents" hidden></div>
+      <div id="tabStrip" class="tab-strip" role="tablist" aria-label="Open documents" data-i18n-aria-label="tabs.label" hidden></div>
 
-      <section id="fidelityBar" class="fidelity" aria-label="Fidelity notes" hidden>
+      <section id="fidelityBar" class="fidelity" aria-label="Fidelity notes" data-i18n-aria-label="fidelity.label" hidden>
         <div class="fidelity-row">
           <svg class="fidelity-icon" viewBox="0 0 16 16" aria-hidden="true">
             <circle cx="8" cy="8" r="6.25" />
@@ -90,8 +93,8 @@
           <p id="fidelityText" class="fidelity-text"></p>
           <div class="fidelity-actions">
             <button id="fidelityEditor" class="link-button" type="button" hidden></button>
-            <button id="fidelityDetails" class="link-button" type="button" aria-expanded="false" aria-controls="fidelityList">Details</button>
-            <button id="fidelityCollapse" class="icon-button" type="button" aria-expanded="true" aria-label="Collapse fidelity notes" title="Collapse">
+            <button id="fidelityDetails" class="link-button" type="button" aria-expanded="false" aria-controls="fidelityList" data-i18n="fidelity.details">Details</button>
+            <button id="fidelityCollapse" class="icon-button" type="button" aria-expanded="true" aria-label="Collapse fidelity notes" title="Collapse" data-i18n-aria-label="fidelity.collapseLabel" data-i18n-title="fidelity.collapse">
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 10l4-4 4 4" /></svg>
             </button>
           </div>
@@ -101,37 +104,37 @@
     </header>
 
     <div id="readerPane" class="reader" hidden>
-      <nav id="outline" class="outline" aria-label="Document outline" hidden>
+      <nav id="outline" class="outline" aria-label="Document outline" data-i18n-aria-label="outline.label" hidden>
         <div class="outline-head">
-          <span class="outline-label" id="outlineLabel">Outline</span>
-          <button id="outlineToggle" class="icon-button" type="button" aria-expanded="true" aria-controls="outlineList" aria-label="Hide outline" title="Hide outline">
+          <span class="outline-label" id="outlineLabel" data-i18n="outline.title">Outline</span>
+          <button id="outlineToggle" class="icon-button" type="button" aria-expanded="true" aria-controls="outlineList" aria-label="Hide outline" title="Hide outline" data-i18n-aria-label="outline.hide" data-i18n-title="outline.hide">
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 4L6 8l4 4" /></svg>
           </button>
         </div>
         <ol id="outlineList" class="outline-list" aria-labelledby="outlineLabel"></ol>
       </nav>
-      <main id="docScroller" class="doc-scroller" tabindex="0" aria-label="Document">
+      <main id="docScroller" class="doc-scroller" tabindex="0" aria-label="Document" data-i18n-aria-label="document.label">
         <div id="docStyles" hidden></div>
-        <div id="docBody" class="doc-body" aria-busy="false"></div>
+        <div id="docBody" class="doc-body" lang="en" aria-busy="false"></div>
       </main>
     </div>
 
     <main id="statePane" class="state-pane">
       <div class="state-content" id="stateContent">
         <p class="state-eyebrow" id="stateEyebrow">LeanDoc</p>
-        <h1 id="stateTitle">Read Word documents without opening an office suite.</h1>
-        <p id="stateMessage" class="state-message">
+        <h1 id="stateTitle" data-i18n="empty.title">Read Word documents without opening an office suite.</h1>
+        <p id="stateMessage" class="state-message" data-i18n="empty.message">
           Open a .docx file to read it here. LeanDoc does not run macros or
           fetch anything the document points to.
         </p>
         <div class="state-actions">
           <button id="stateEditorButton" class="button button-primary" type="button" hidden></button>
-          <button id="stateOpenButton" class="button button-primary" type="button">Open a document</button>
+          <button id="stateOpenButton" class="button button-primary" type="button" data-i18n="empty.openButton">Open a document</button>
         </div>
         <section id="recentSection" class="recent" aria-labelledby="recentTitle" hidden>
           <div class="recent-head">
-            <h2 id="recentTitle">Recent</h2>
-            <button id="clearRecent" class="link-button" type="button">Clear recent</button>
+            <h2 id="recentTitle" data-i18n="recent.title">Recent</h2>
+            <button id="clearRecent" class="link-button" type="button" data-i18n="recent.clear">Clear recent</button>
           </div>
           <ul id="recentList" class="recent-list"></ul>
         </section>
@@ -147,47 +150,55 @@
       hidden
     >
       <div class="settings-header">
-        <h2 id="settingsTitle">Settings</h2>
-        <button id="settingsClose" class="panel-button" type="button" aria-label="Close settings" title="Close (Esc)">
+        <h2 id="settingsTitle" data-i18n="settings.title">Settings</h2>
+        <button id="settingsClose" class="panel-button" type="button" aria-label="Close settings" title="Close (Esc)" data-i18n-aria-label="settings.close" data-i18n-title="settings.closeTitle">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
         </button>
       </div>
 
       <fieldset class="settings-group">
-        <legend>Theme</legend>
-        <label class="settings-choice"><input type="radio" name="settings-theme" value="system" /><span class="theme-swatch" data-swatch="system" aria-hidden="true"></span>System</label>
-        <label class="settings-choice"><input type="radio" name="settings-theme" value="light" /><span class="theme-swatch" data-swatch="light" aria-hidden="true"></span>Light</label>
-        <label class="settings-choice"><input type="radio" name="settings-theme" value="dark" /><span class="theme-swatch" data-swatch="dark" aria-hidden="true"></span>Dark</label>
-        <label class="settings-choice"><input type="radio" name="settings-theme" value="dim" /><span class="theme-swatch" data-swatch="dim" aria-hidden="true"></span>Dim</label>
-        <label class="settings-choice"><input type="radio" name="settings-theme" value="dusk" /><span class="theme-swatch" data-swatch="dusk" aria-hidden="true"></span>Dusk</label>
+        <legend data-i18n="settings.theme">Theme</legend>
+        <label class="settings-choice"><input type="radio" name="settings-theme" value="system" /><span class="theme-swatch" data-swatch="system" aria-hidden="true"></span><span data-i18n="theme.system">System</span></label>
+        <label class="settings-choice"><input type="radio" name="settings-theme" value="light" /><span class="theme-swatch" data-swatch="light" aria-hidden="true"></span><span data-i18n="theme.light">Light</span></label>
+        <label class="settings-choice"><input type="radio" name="settings-theme" value="dark" /><span class="theme-swatch" data-swatch="dark" aria-hidden="true"></span><span data-i18n="theme.dark">Dark</span></label>
+        <label class="settings-choice"><input type="radio" name="settings-theme" value="dim" /><span class="theme-swatch" data-swatch="dim" aria-hidden="true"></span><span data-i18n="theme.dim">Dim</span></label>
+        <label class="settings-choice"><input type="radio" name="settings-theme" value="dusk" /><span class="theme-swatch" data-swatch="dusk" aria-hidden="true"></span><span data-i18n="theme.dusk">Dusk</span></label>
       </fieldset>
 
       <fieldset class="settings-group">
-        <legend>View</legend>
-        <label class="settings-choice"><input type="radio" name="settings-view" value="page" />Page</label>
-        <label class="settings-choice"><input type="radio" name="settings-view" value="reading" />Reading</label>
+        <legend data-i18n="settings.view">View</legend>
+        <label class="settings-choice"><input type="radio" name="settings-view" value="page" /><span data-i18n="view.page">Page</span></label>
+        <label class="settings-choice"><input type="radio" name="settings-view" value="reading" /><span data-i18n="view.reading">Reading</span></label>
       </fieldset>
 
       <fieldset class="settings-group">
-        <legend>Page colour</legend>
-        <label class="settings-choice"><input type="radio" name="settings-page" value="paper" />White, like paper</label>
-        <label class="settings-choice"><input type="radio" name="settings-page" value="theme" />The theme's colours</label>
+        <legend data-i18n="settings.pageColor">Page colour</legend>
+        <label class="settings-choice"><input type="radio" name="settings-page" value="paper" /><span data-i18n="settings.paper">White, like paper</span></label>
+        <label class="settings-choice"><input type="radio" name="settings-page" value="theme" /><span data-i18n="settings.themeColours">The theme's colours</span></label>
       </fieldset>
 
       <div class="settings-group settings-zoom" role="group" aria-labelledby="settingsZoomLabel">
-        <span id="settingsZoomLabel" class="settings-label">Zoom</span>
-        <button id="settingsZoomOut" class="panel-button" type="button" aria-label="Zoom out">
+        <span id="settingsZoomLabel" class="settings-label" data-i18n="zoom.label">Zoom</span>
+        <button id="settingsZoomOut" class="panel-button" type="button" aria-label="Zoom out" data-i18n-aria-label="zoom.out">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" /></svg>
         </button>
         <output id="settingsZoomValue" class="settings-zoom-value" aria-live="polite">100%</output>
-        <button id="settingsZoomIn" class="panel-button" type="button" aria-label="Zoom in">
+        <button id="settingsZoomIn" class="panel-button" type="button" aria-label="Zoom in" data-i18n-aria-label="zoom.in">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M8 3v10" /></svg>
         </button>
-        <button id="settingsZoomFit" class="button button-ghost" type="button">Fit width</button>
-        <button id="settingsZoomReset" class="button button-ghost" type="button">Reset</button>
+        <button id="settingsZoomFit" class="button button-ghost" type="button" data-i18n="settings.fitWidth">Fit width</button>
+        <button id="settingsZoomReset" class="button button-ghost" type="button" data-i18n="settings.reset">Reset</button>
       </div>
 
-      <h3 class="settings-label">Keyboard shortcuts</h3>
+      <fieldset id="settingsLanguage" class="settings-group" hidden>
+        <legend data-i18n="settings.language">Language</legend>
+        <label class="settings-choice"><input type="radio" name="settings-language" value="system" /><span data-i18n="settings.languageSystem">System</span></label>
+        <label class="settings-choice"><input type="radio" name="settings-language" value="en" /><span lang="en">English</span></label>
+        <label class="settings-choice"><input type="radio" name="settings-language" value="zh-CN" /><span lang="zh-CN">简体中文</span></label>
+        <label class="settings-choice"><input type="radio" name="settings-language" value="ja" /><span lang="ja">日本語</span></label>
+      </fieldset>
+
+      <h3 class="settings-label" data-i18n="settings.shortcuts">Keyboard shortcuts</h3>
       <div id="shortcutList" class="shortcut-list"></div>
     </div>
 

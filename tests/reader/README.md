@@ -11,7 +11,19 @@ npm run test:reader
 
 - `fixups.test.mjs`: unit tests for `assets/fixups.js` and
   `assets/fidelity.js` in plain Node.
+- `localization.test.mjs`: the English, Simplified Chinese, and Japanese
+  string tables in `assets/fidelity.js` in plain Node: the same keys,
+  placeholders, and key names, nothing left in English, the language rules
+  (`ja-JP`, `zh-Hans-CN`, `zh-TW`, `fr-FR`, empty, and others; Traditional
+  Chinese keeps English, as in LeanMark), every string in
+  `reader.html`, every host and core message, and the hosts' own strings in
+  `src/core/InterfaceText.h`.
 - `run-reader-tests.mjs`: browser tests with the fake host in `fake-host.mjs`.
+- `languages.test.mjs`: the interface in Japanese and Chinese in the browser:
+  the system language, `reader.html?lang=`, the settings panel's Language
+  choice, and the layout with each language's strings at 1280, 1024, and 760
+  px. With a CJK font installed (`fonts-noto-cjk` in CI) it also checks that
+  CJK text is drawn with a CJK font.
 - `cases.json`: the fixture directory, the static reports file, each case's
   expectations, the fidelity wording cases, and the fallback cases. Repoint
   `fixtureDir` and `reportsFile` here and nowhere else.

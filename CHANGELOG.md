@@ -5,6 +5,17 @@ versioning.
 
 ## [Unreleased]
 
+### Added
+
+- The interface is available in Simplified Chinese and Japanese, as well as
+  English. LeanDoc follows the system language: Japanese on a Japanese
+  system, Simplified Chinese on a Simplified Chinese system, and English on
+  every other, Traditional Chinese included. Settings has a new Language choice (System, English, 简体中文,
+  日本語) that is saved with the other settings. The toolbar, settings panel,
+  shortcut list, fidelity notes, pages shown for files that cannot be
+  displayed, status messages, file dialogs, Windows error messages and the
+  macOS menus all follow it. Documents are shown as they were written.
+
 ### Fixed
 
 - A document whose pictures keep their image inside a compatibility block,

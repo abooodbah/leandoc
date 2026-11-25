@@ -553,6 +553,13 @@ jobs:
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           npm ci --ignore-scripts --no-audit --no-fund
 
+      - name: Install CJK fonts for the Chinese and Japanese layout checks
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+
       - name: Install the Chromium headless shell for the pinned Playwright
         shell: bash
         run: |

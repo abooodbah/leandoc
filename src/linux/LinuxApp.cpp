@@ -559,7 +559,17 @@ void LinuxApp::ConfigureWebView() {
 
 void LinuxApp::NavigateToReader() {
     readerReady_ = false;
-    webkit_web_view_load_uri(webView_, kReaderUrl);
+    // reader.html?lang=<language>, so the first paint is translated.
+    webkit_web_view_load_uri(
+        webView_, settings::ReaderUrl(kReaderUrl, language_, systemLanguage_).c_str());
+}
+
+const char* LinuxApp::InterfaceLanguage() const {
+    return settings::ResolveInterfaceLanguage(language_, systemLanguage_);
+}
+
+const char* LinuxApp::Text(const interface_text::NativeText& text) const {
+    return interface_text::Localized(text, InterfaceLanguage());
 }
 
 void LinuxApp::ResolveEditor() {
@@ -818,17 +828,17 @@ void LinuxApp::ScheduleReload() {
 
 void LinuxApp::OpenDocumentDialog() {
     GtkFileDialog* dialog = gtk_file_dialog_new();
-    gtk_file_dialog_set_title(dialog, "Open documents");
+    gtk_file_dialog_set_title(dialog, Text(interface_text::kOpenTitle));
 
     GtkFileFilter* documents = gtk_file_filter_new();
-    gtk_file_filter_set_name(documents, "Word documents");
+    gtk_file_filter_set_name(documents, Text(interface_text::kWordDocuments));
     for (const char* pattern :
          {"*.docx", "*.dotx", "*.docm", "*.dotm", "*.doc", "*.rtf", "*.odt",
           "*.DOCX", "*.DOTX", "*.DOCM", "*.DOTM", "*.DOC", "*.RTF", "*.ODT"}) {
         gtk_file_filter_add_pattern(documents, pattern);
     }
     GtkFileFilter* allFiles = gtk_file_filter_new();
-    gtk_file_filter_set_name(allFiles, "All files");
+    gtk_file_filter_set_name(allFiles, Text(interface_text::kAllFiles));
     gtk_file_filter_add_pattern(allFiles, "*");
 
     GListStore* filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
@@ -997,6 +1007,14 @@ void LinuxApp::HandleMessage(JSCValue* message) {
             SaveSettings();
             SendTheme();
         }
+    } else if (*type == "setLanguage") {
+        // The page has already switched; the host saves the choice and uses
+        // it for its own dialogs and the next time it opens the reader.
+        const auto language = StringProperty(message, "language");
+        if (language && settings::IsLanguageName(*language)) {
+            language_ = settings::ParseLanguage(*language);
+            SaveSettings();
+        }
     } else if (*type == "setView") {
         const auto view = StringProperty(message, "view");
         if (view && (*view == "page" || *view == "reading")) {
@@ -1117,7 +1135,11 @@ void LinuxApp::SendHost() {
     json += EditorKindName(kind);
     json += "\",\"label\":\"";
     AppendJson(json, label);
-    json += "\"},\"tabs\":true}";
+    json += "\"},\"tabs\":true,\"language\":\"";
+    json += settings::LanguageName(language_);
+    json += "\",\"systemLanguage\":\"";
+    AppendJson(json, systemLanguage_);
+    json += "\"}";
     SendJson(json);
 }
 
@@ -1170,6 +1192,19 @@ void LinuxApp::SendStatus(std::string_view message, std::string_view tone) {
 }
 
 void LinuxApp::LoadSettings() {
+    const char* const* languages = g_get_language_names();
+    systemLanguage_ = languages != nullptr && languages[0] != nullptr ? languages[0] : "";
+    LoadSavedSettings();
+    // The smoke tests stand a choice in with LEANDOC_SMOKE_LANGUAGE; it is
+    // never saved (SaveSettings does nothing in smoke mode).
+    if (smokeTest_) {
+        if (const char* smokeLanguage = g_getenv("LEANDOC_SMOKE_LANGUAGE")) {
+            language_ = settings::ParseLanguage(smokeLanguage);
+        }
+    }
+}
+
+void LinuxApp::LoadSavedSettings() {
     GKeyFile* settings = g_key_file_new();
     if (!g_key_file_load_from_file(
             settings, SettingsFilePath().c_str(), G_KEY_FILE_NONE, nullptr)) {
@@ -1187,6 +1222,10 @@ void LinuxApp::LoadSettings() {
     if (char* pageColor = g_key_file_get_string(settings, "Reader", "PageColor", nullptr)) {
         pageColor_ = settings::ParsePageColor(pageColor);
         g_free(pageColor);
+    }
+    if (char* language = g_key_file_get_string(settings, "Reader", "Language", nullptr)) {
+        language_ = settings::ParseLanguage(language);
+        g_free(language);
     }
     // Recent paths are stored as file URIs, which are ASCII whatever the
     // file name bytes. Older settings stored plain paths; both are read.
@@ -1225,6 +1264,7 @@ void LinuxApp::SaveSettings() const {
     g_key_file_set_string(settings, "Reader", "Theme", ThemeName().c_str());
     g_key_file_set_string(settings, "Reader", "View", view_.c_str());
     g_key_file_set_string(settings, "Reader", "PageColor", settings::PageColorName(pageColor_));
+    g_key_file_set_string(settings, "Reader", "Language", settings::LanguageName(language_));
     std::vector<std::string> uris;
     for (const auto& path : recent_) {
         if (char* uri = g_filename_to_uri(path.c_str(), nullptr, nullptr)) {
@@ -1640,7 +1680,9 @@ void LinuxApp::StartSmokeProbe() {
     text: text,
     offOrigin: offOrigin.length,
     firstOffOrigin: offOrigin[0] || "",
-    csp: window.__leandocCspViolations || 0
+    csp: window.__leandocCspViolations || 0,
+    lang: root.lang,
+    open: (document.getElementById("openButton") || {}).textContent || ""
   });
 }())
 )JS";
@@ -1755,8 +1797,8 @@ void LinuxApp::OnScheme(WebKitURISchemeRequest* request, gpointer data) {
 
 void LinuxApp::OnScriptMessage(WebKitUserContentManager*, JSCValue* value, gpointer data) {
     auto* app = static_cast<LinuxApp*>(data);
-    if (app->webView_ == nullptr ||
-        g_strcmp0(webkit_web_view_get_uri(app->webView_), kReaderUrl) != 0) {
+    const char* loaded = app->webView_ == nullptr ? nullptr : webkit_web_view_get_uri(app->webView_);
+    if (loaded == nullptr || !settings::IsReaderUrl(loaded, kReaderUrl)) {
         return;
     }
     // The reader posts JSON text. An object is accepted too.
@@ -1792,7 +1834,7 @@ gboolean LinuxApp::OnDecidePolicy(
             webkit_navigation_policy_decision_get_navigation_action(navigation);
         const char* uri = webkit_uri_request_get_uri(webkit_navigation_action_get_request(action));
         if (uri != nullptr &&
-            (g_strcmp0(uri, kReaderUrl) == 0 || g_strcmp0(uri, "about:blank") == 0)) {
+            (settings::IsReaderUrl(uri, kReaderUrl) || g_strcmp0(uri, "about:blank") == 0)) {
             webkit_policy_decision_use(decision);
             return TRUE;
         }
@@ -2072,8 +2114,15 @@ void LinuxApp::OnSmokeProbeFinished(GObject* source, GAsyncResult* result, gpoin
     const auto csp = parsed == nullptr ? std::nullopt : UnsignedProperty(parsed, "csp");
     const auto textLength = parsed == nullptr ? std::nullopt : UnsignedProperty(parsed, "text");
     const auto state = parsed == nullptr ? std::nullopt : StringProperty(parsed, "state");
+    const auto lang = parsed == nullptr ? std::nullopt : StringProperty(parsed, "lang");
+    const auto open = parsed == nullptr ? std::nullopt : StringProperty(parsed, "open");
     g_clear_object(&parsed);
-    const bool success = state.value_or("") == "ready" && pages.value_or(0) >= 1 &&
+    // The page shows the interface language the host resolved, and a
+    // language other than English is translated.
+    const std::string shown = lang.value_or("");
+    const bool translated = shown == app->InterfaceLanguage() &&
+                            (shown == "en" || open.value_or("Open") != "Open");
+    const bool success = translated && state.value_or("") == "ready" && pages.value_or(0) >= 1 &&
                          textLength.value_or(0) > 0 &&
                          offOrigin.value_or(1) == 0 && csp.value_or(1) == 0;
     app->CompleteSmoke(

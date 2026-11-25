@@ -288,6 +288,25 @@
   display: none !important;
 }
 
+/* The chrome in Chinese or Japanese (reader.js sets <html lang>). IBM Plex
+   has no CJK glyphs, so each language names its system fonts after it, with
+   the Japanese or Chinese forms of shared characters. #docBody keeps
+   lang="en" and the document's own fonts, as before. */
+:root:lang(ja) {
+  --font-cjk: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic",
+    Meiryo, "Noto Sans CJK JP", "Noto Sans JP", "Source Han Sans JP";
+}
+
+:root:lang(zh-CN) {
+  --font-cjk: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei",
+    "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "WenQuanYi Micro Hei";
+}
+
+:root:is(:lang(ja), :lang(zh-CN)) :is(.chrome, .outline, .state-pane, .settings-panel, .status-toast) {
+  font-family: "IBM Plex Sans", "IBM Plex Sans Arabic", var(--font-cjk), -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
 html,
 body {
   height: 100%;

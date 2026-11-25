@@ -14,6 +14,7 @@
 #include "EditorChoice.h"
 #include "TestHooks.h"
 #include "core/DocCore.h"
+#include "core/InterfaceText.h"
 #include "core/ReaderSettings.h"
 
 namespace leandoc::linux_host {
@@ -91,6 +92,11 @@ private:
     void SendStatus(std::string_view message, std::string_view tone = "info");
 
     void LoadSettings();
+    void LoadSavedSettings();
+    // The interface language ("en", "zh-CN", or "ja") and the host's own
+    // strings in it.
+    const char* InterfaceLanguage() const;
+    const char* Text(const interface_text::NativeText& text) const;
     void SaveSettings() const;
     void AddRecent(const std::filesystem::path& path);
     void ApplyWindowTheme();
@@ -229,6 +235,10 @@ private:
     ThemeMode theme_ = ThemeMode::System;
     settings::PageColor pageColor_ = settings::PageColor::Paper;
     std::string view_ = "page";
+    // The saved interface language and the system's (first of
+    // g_get_language_names, which reads LANGUAGE, LC_ALL, LC_MESSAGES, LANG).
+    settings::Language language_ = settings::Language::System;
+    std::string systemLanguage_;
     std::vector<std::string> recent_;
     EditorChoice editor_;
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/InterfaceText.h"
 #include "core/ReaderSettings.h"
 
 #include <windows.h>
@@ -86,7 +87,7 @@ private:
     void RecreateWebView();
     void HandleProcessFailed(COREWEBVIEW2_PROCESS_FAILED_KIND kind);
     void SetMinimized(bool minimized);
-    void Fail(const wchar_t* message);
+    void Fail(const interface_text::NativeText& message);
 
     bool ReceiveOpenRequest(const COPYDATASTRUCT* data);
     void OpenDocuments(const std::vector<std::wstring>& paths);
@@ -126,6 +127,11 @@ private:
     bool EffectiveDarkTheme() const;
     settings::Rgb WindowCanvas() const;
     const char* ThemeName() const;
+    // The interface language ("en", "zh-CN", or "ja") and the host's own
+    // strings in it.
+    const char* InterfaceLanguage() const;
+    std::wstring Text(const interface_text::NativeText& text) const;
+    std::wstring ReaderUrl() const;
 
     HINSTANCE instance_ = nullptr;
     HWND window_ = nullptr;
@@ -163,6 +169,8 @@ private:
     ThemeMode theme_ = ThemeMode::System;
     settings::PageColor pageColor_ = settings::PageColor::Paper;
     std::string view_ = "page";
+    settings::Language language_ = settings::Language::System;
+    std::string systemLanguage_;
     std::vector<std::wstring> recent_;
     EditorChoice editor_;
 };

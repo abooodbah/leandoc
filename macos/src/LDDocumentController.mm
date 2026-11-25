@@ -1,6 +1,7 @@
 #import "LDDocumentController.h"
 
 #import "LDDocument.h"
+#import "LDLanguage.h"
 
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
@@ -42,7 +43,7 @@ NSArray<NSString *> *SupportedExtensions(void) {
 - (void)openDocument:(id)sender {
     (void)sender;
     NSOpenPanel *panel = [NSOpenPanel openPanel];
-    panel.title = @"Open documents";
+    panel.title = LDText(leandoc::interface_text::kOpenTitle);
     panel.canChooseFiles = YES;
     panel.canChooseDirectories = NO;
     panel.allowsMultipleSelection = YES;

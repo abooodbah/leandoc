@@ -2,6 +2,7 @@
 
 #import "LDAppDelegate.h"
 #import "LDDocumentWindowController.h"
+#import "LDLanguage.h"
 #import "LDTiming.h"
 
 #include "core/DocCore.h"
@@ -137,9 +138,8 @@ void AddRecent(NSString *path) {
     if (!URL.isFileURL ||
         !leandoc::core::IsSupportedDocumentPath(std::filesystem::path(URL.fileSystemRepresentation))) {
         if (outError != nullptr) {
-            *outError = DocumentError(
-                NSFileReadUnsupportedSchemeError,
-                @"LeanDoc opens .docx, .dotx, .docm, .dotm, .doc, .rtf, and .odt files.");
+            *outError = DocumentError(NSFileReadUnsupportedSchemeError,
+                                      LDText(leandoc::interface_text::kUnsupportedType));
         }
         return NO;
     }
@@ -194,7 +194,7 @@ void AddRecent(NSString *path) {
     (void)typeName;
     if (outError != nullptr) {
         *outError = DocumentError(NSFeatureUnsupportedError,
-                                  @"LeanDoc is a read-only viewer and does not save documents.");
+                                  LDText(leandoc::interface_text::kReadOnly));
     }
     return nil;
 }
