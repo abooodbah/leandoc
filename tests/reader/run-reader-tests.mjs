@@ -4771,12 +4771,14 @@ describe("text stays on its page at any zoom", () => {
   // At 100% the pages are as 0.3.2 laid them out: each page 1056 px (11 in)
   // high, and each section of a split page at the height it was measured
   // at ("" for a section that kept its own height). The same when the
-  // document opens and after zooming through 50% to 150% and back.
+  // document opens and after zooming through 50% to 150% and back. The
+  // first page of two-column-floats.docx is 1 px taller than 0.3.2's: its
+  // 8 pt footnote no longer takes the 10 pt minimum height of Normal's runs.
   const AT_100 = {
     "wide-tables.docx": [["888px"], [""]],
     "margin-sections.docx": [["", "720px"], ["816px"], ["816px"]],
     "figure-section.docx": [["864px"], ["", "", "336px"]],
-    "two-column-floats.docx": [["", "829px"], ["805px"], ["866px"], ["921px"]]
+    "two-column-floats.docx": [["", "830px"], ["805px"], ["866px"], ["921px"]]
   };
 
   test("the pages at 100% are 0.3.2's, when a document opens and after zooming out and back", async () => {

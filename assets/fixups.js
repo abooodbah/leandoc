@@ -2643,6 +2643,15 @@
         stats.fittedTables += 1;
       }
     });
+    // Every paragraph now names its style. docx-preview also writes the
+    // default style's rules for every paragraph (".docx p"), where Word gives
+    // a style only the styles it is based on and the document defaults, so
+    // paragraphs in a style based on another style, and not on Normal, took
+    // Normal's line spacing.
+    // Styles based on the default style have its rules already, merged in.
+    if (defaultParagraph) {
+      defaultParagraph.isDefault = false;
+    }
 
     var annotation = annotateBody(modelBody, xmlBody);
     stats.paragraphs = annotation.paragraphs;
