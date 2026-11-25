@@ -2148,6 +2148,48 @@
     return found;
   }
 
+  // A saved start in the first cell of a table row, before any text of the
+  // cell, is where Word's page began at that row. docx-preview draws no page
+  // there (it splits only the body's own paragraphs), so the row is marked
+  // for the reader's pagination (ld-saved-row), which starts a page at it.
+  var SAVED_ROW = "ld-saved-row";
+
+  function startsRowPage(cell) {
+    var shownBefore = false;
+    var found = false;
+    eachModelElement(cell.children || [], function (element) {
+      if (found) {
+        return;
+      }
+      if (element.type === "break" && element.break === "lastRenderedPageBreak") {
+        found = !shownBefore;
+        if (!found) {
+          shownBefore = true;
+        }
+      } else if (SHOWN_TYPES.test(element.type || "") && !(element.type === "text" && !element.text)) {
+        shownBefore = true;
+      }
+    });
+    return found;
+  }
+
+  function markSavedRows(body) {
+    var count = 0;
+    ((body && body.children) || []).forEach(function (block) {
+      if (!block || block.type !== "table") {
+        return;
+      }
+      modelChildren(block, "row").forEach(function (row) {
+        var cells = modelChildren(row, "cell");
+        if (cells.length && startsRowPage(cells[0])) {
+          addClass(row, SAVED_ROW);
+          count += 1;
+        }
+      });
+    });
+    return count;
+  }
+
   function markSavedPageStarts(body, styles) {
     var byId = {};
     (styles || []).forEach(function (style) {
@@ -2619,6 +2661,7 @@
     var saved = markSavedPageStarts(modelBody, styles);
     stats.savedPageStarts = saved.marked;
     stats.droppedPageStarts = saved.dropped;
+    stats.savedRows = markSavedRows(modelBody);
     markNotes(doc.footnotesPart);
     stats.customMarkNotes = customMarkNotes(xmlBody);
     if (stats.customMarkNotes.length) {

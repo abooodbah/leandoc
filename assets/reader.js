@@ -1224,6 +1224,32 @@
     return rest;
   }
 
+  // The index of the first row of a table, after its header rows and its
+  // first body row, that Word started a page at (Fixups ld-saved-row), or -1.
+  function savedRow(table) {
+    if (!table.querySelector("tr.ld-saved-row")) {
+      return -1;
+    }
+    var rows = table.rows;
+    for (var index = leadingHeaderRows(table) + 1; index < rows.length; index += 1) {
+      if (hasClass(rows[index], "ld-saved-row")) {
+        return index;
+      }
+    }
+    return -1;
+  }
+
+  // Whether Word started a page at the first body row of a table that
+  // follows other blocks on its page.
+  function startsAtSavedRow(table) {
+    if (table.nodeName !== "TABLE" || !table.previousElementSibling) {
+      return false;
+    }
+    var rows = table.rows;
+    var at = leadingHeaderRows(table);
+    return at < rows.length && hasClass(rows[at], "ld-saved-row");
+  }
+
   // Moves the rows that do not fit into a copy of the table placed after it,
   // and returns the copy, or null when the table moves whole. A row that
   // crosses the bottom splits between lines (rowSplit). The copy starts
@@ -1235,7 +1261,14 @@
     var rows = table.rows;
     var headerRows = leadingHeaderRows(table);
     var first = -1;
+    var saved = savedRow(table);
     for (var index = headerRows; index < rows.length; index += 1) {
+      if (saved >= 0 && index === saved) {
+        // Word began a page at this row: the page ends before it.
+        first = index;
+        saved = -2;
+        break;
+      }
       if (isOver(rows[index], over)) {
         first = index;
         break;
@@ -1244,7 +1277,7 @@
     if (first < 0) {
       return null;
     }
-    var plans = rowSplit(rows[first], over);
+    var plans = saved === -2 ? null : rowSplit(rows[first], over);
     var from = first;
     if (!plans && first === headerRows) {
       if (table.previousElementSibling || first + 1 >= rows.length) {
@@ -1608,6 +1641,17 @@
     }
   }
 
+  // The first table of an article that Word's page starts inside, or at the
+  // start of when other blocks come before it; null when there is none.
+  function savedStart(article) {
+    for (var node = article.firstElementChild; node; node = node.nextElementSibling) {
+      if (node.nodeName === "TABLE" && (startsAtSavedRow(node) || savedRow(node) >= 0)) {
+        return node;
+      }
+    }
+    return null;
+  }
+
   // Lays out the page's sections for a text area that ends at `limit` and
   // finds the first block past it. A section that does not fit, and the
   // page's last column section, get the remaining height with columns filled
@@ -1629,6 +1673,14 @@
       var fits = box.bottom <= limit + 0.5;
       if (fits && !(columns && article.hasAttribute("data-ld-fill"))) {
         layout.tests[index] = overflowTest(article, limit);
+        if (!columns) {
+          var forced = savedStart(article);
+          if (forced) {
+            layout.start = forced;
+            layout.index = index;
+            layout.whole = startsAtSavedRow(forced);
+          }
+        }
         return;
       }
       var space = Math.floor(limit - box.top);
@@ -1652,6 +1704,12 @@
       var over = overflowTest(article, limit);
       layout.tests[index] = over;
       for (var node = article.firstElementChild; node; node = node.nextElementSibling) {
+        if (!columns && node.nodeName === "TABLE" && (startsAtSavedRow(node) || savedRow(node) >= 0)) {
+          layout.start = node;
+          layout.index = index;
+          layout.whole = startsAtSavedRow(node);
+          break;
+        }
         if (isOver(node, over)) {
           layout.start = node;
           layout.index = index;
