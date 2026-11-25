@@ -28,6 +28,7 @@ import { makeKeptParagraphDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeSavedRowsDocx, makeWordMetricsDocx, rowText } from "./make-saved-pages-docx.mjs";
 import { makeColumnStartsDocx, makeKeepRulesDocx, makePageBreakBeforeDocx, makeSectionPagesDocx, makeStyleChainDocx } from "./make-page-rules-docx.mjs";
 import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
+import { MONO_TEXT, makeFontsBoxesDocx } from "./make-fonts-boxes-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
 let browser;
@@ -4892,6 +4893,36 @@ describe("text stays on its page at any zoom", () => {
         await zoomTo(host, 100);
         assert.deepEqual(await snapshot(), expected, `${file}: the pages at 100% after zooming to 50% and 150% and back`);
       }
+    });
+  });
+});
+
+// Fonts, pictures, and text boxes Word sets apart from docx-preview's CSS:
+// tests/reader/make-fonts-boxes-docx.mjs.
+describe("fonts, pictures, and text boxes take the space Word gives them", () => {
+  async function open(host, part) {
+    const { bytes, report } = await makeFontsBoxesDocx(part);
+    await host.openDocument({ bytes, report, fileName: `${part}.docx` });
+  }
+
+  function near(actual, expected, tolerance, label) {
+    assert.ok(Math.abs(actual - expected) <= tolerance, `${label}: ${actual} px, expected ${expected} px`);
+  }
+
+  // Consolas advances 1126/2048 em per character. Its stand-ins (DejaVu Sans
+  // Mono, Liberation Mono) advance 0.6 em, 9.5% more, and code lines that
+  // fit Word's line wrapped. Where Consolas is installed it draws itself.
+  test("text in Consolas advances as Consolas does, in whatever font draws it", async () => {
+    await withHost({}, async (host) => {
+      await open(host, "mono");
+      const result = await host.page.evaluate((text) => {
+        const span = Array.from(document.querySelectorAll("#docBody span")).find((node) => node.textContent === text);
+        const range = document.createRange();
+        range.selectNodeContents(span);
+        return { width: range.getBoundingClientRect().width, size: parseFloat(getComputedStyle(span).fontSize), length: text.length };
+      }, MONO_TEXT);
+      const advance = result.width / result.length / result.size;
+      assert.ok(Math.abs(advance - 1126 / 2048) <= 0.003, `each character advances ${advance} em; Consolas advances ${1126 / 2048} em`);
     });
   });
 });
