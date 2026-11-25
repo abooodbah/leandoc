@@ -764,6 +764,33 @@ void TestSanitizing() {
     Expect(Contains(output, "mc:Choice") && Contains(output, "mc:Fallback"),
            "a clean AlternateContent is kept");
 
+    // A chart or SmartArt graphic is not drawn, but Word lays the text out
+    // around its extent. The drawing keeps its frame (wp:inline with
+    // wp:extent) and loses only the reference to the chart or diagram parts,
+    // which are not copied.
+    const std::string frameStart =
+        "<w:p><w:r><w:drawing><wp:inline><wp:extent cx=\"5486400\" cy=\"3200400\"/>"
+        "<wp:docPr id=\"6\" name=\"G\"/><a:graphic>";
+    const std::string frameEnd = "</a:graphic></wp:inline></w:drawing></w:r></w:p>";
+    output = SanitizedBody(
+        frameStart +
+        "<a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/chart\">"
+        "<c:chart xmlns:c=\"http://schemas.openxmlformats.org/drawingml/2006/chart\" r:id=\"rId9\"/>"
+        "</a:graphicData>" +
+        frameEnd);
+    Expect(Contains(output, "<wp:extent cx=\"5486400\" cy=\"3200400\"/>") &&
+               !Contains(output, "c:chart") && !Contains(output, "rId9"),
+           "a chart keeps its frame and loses its reference");
+    output = SanitizedBody(
+        frameStart +
+        "<a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/diagram\">"
+        "<dgm:relIds xmlns:dgm=\"http://schemas.openxmlformats.org/drawingml/2006/diagram\" "
+        "r:dm=\"rId4\" r:lo=\"rId5\" r:qs=\"rId6\" r:cs=\"rId7\"/></a:graphicData>" +
+        frameEnd);
+    Expect(Contains(output, "<wp:extent cx=\"5486400\" cy=\"3200400\"/>") &&
+               !Contains(output, "relIds") && !Contains(output, "rId4"),
+           "a SmartArt graphic keeps its frame and loses its references");
+
     // Inside a picture (pic:pic), docx-preview reads blipFill and spPr only as
     // direct children, so the core resolves an AlternateContent there the way
     // docx-preview resolves one elsewhere: to its Fallback, or to the Choice
