@@ -2197,7 +2197,7 @@
         byId[style.id] = style;
       }
     });
-    var stats = { marked: 0, dropped: 0 };
+    var stats = { marked: 0, dropped: 0, sectionBreaks: 0 };
     var afterSection = false;
     var afterPageBreak = false;
     var pending = null;
@@ -2215,7 +2215,11 @@
         following = blocks[back].sectionProps;
       }
     }
-    blocks.forEach(function (block) {
+    function breaksBefore(block) {
+      return !!block && block.type === "paragraph" &&
+        (!!block.pageBreakBefore || styleBreaksBefore(block.styleName, byId));
+    }
+    blocks.forEach(function (block, index) {
       if (pending && block && block.type === "paragraph") {
         block.children = [pending].concat(block.children || []);
       }
@@ -2225,13 +2229,23 @@
         afterPageBreak = false;
         return;
       }
-      var newPage = afterPageBreak || !!block.pageBreakBefore || styleBreaksBefore(block.styleName, byId);
+      var newPage = afterPageBreak || breaksBefore(block);
       var newSection = afterSection;
       var found = firstPageBreak(block);
       var children = block.children || [];
       afterSection = !!block.sectionProps && nextSectionType.get(block) !== "continuous";
       afterPageBreak = !!found && found.kind === "page" &&
         !shows(found.inner.slice(found.at + 1).concat(children.slice(found.child + 1)));
+      // docx-preview starts a page at a section break only where the page
+      // size changes; in Word every section but a continuous one starts on a
+      // new page, so such sections ran on from each other. A page break at
+      // the end of the section's last paragraph starts it, unless the
+      // paragraph breaks already or the next one starts a page itself.
+      if (afterSection && !found && !breaksBefore(blocks[index + 1])) {
+        block.children = children.concat([{ type: "run", children: [{ type: "break", break: "page" }] }]);
+        afterPageBreak = true;
+        stats.sectionBreaks += 1;
+      }
       if (!found || found.kind !== "lastRenderedPageBreak") {
         return;
       }
@@ -2670,6 +2684,7 @@
     var saved = markSavedPageStarts(modelBody, styles);
     stats.savedPageStarts = saved.marked;
     stats.droppedPageStarts = saved.dropped;
+    stats.sectionPageBreaks = saved.sectionBreaks;
     stats.savedRows = markSavedRows(modelBody);
     markNotes(doc.footnotesPart);
     stats.customMarkNotes = customMarkNotes(xmlBody);
