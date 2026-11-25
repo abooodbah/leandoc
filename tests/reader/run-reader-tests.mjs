@@ -26,6 +26,7 @@ import {
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { makeKeptParagraphDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeSavedRowsDocx, makeWordMetricsDocx, rowText } from "./make-saved-pages-docx.mjs";
+import { makeStyleChainDocx } from "./make-page-rules-docx.mjs";
 import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
@@ -2677,6 +2678,33 @@ describe("a table splits at the row where Word saved a page start", () => {
       const text = await host.page.evaluate(() => document.querySelector("#docBody .docx-wrapper").textContent);
       assert.ok(text.includes("After the table."));
       assert.ok(text.includes(rowText(100)));
+    });
+  });
+});
+
+describe("page view keeps and starts pages as Word does", () => {
+  // Each page's text, its sections' text joined.
+  function pageTexts(host) {
+    return host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"))
+      .map((page) => Array.from(page.querySelectorAll(":scope > article")).map((article) => article.textContent).join("")));
+  }
+
+  // Paragraphs in a style based on another style, not on Normal, took
+  // Normal's line spacing: docx-preview gives every paragraph the default
+  // style's rules.
+  test("a style based on no other style takes nothing from the default paragraph style", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeStyleChainDocx();
+      const rendered = await host.openDocument({ bytes, report, fileName: "style-chain.docx" });
+      const spacing = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody article > p"))
+        .filter((p) => /^(Clause line 1|Unstyled line)\./.test(p.textContent))
+        .map((p) => getComputedStyle(p).marginBottom));
+      // Clause sets no space after; the unstyled paragraph is in Normal, which sets 18 pt.
+      assert.deepEqual(spacing, ["0px", "24px"]);
+      const texts = await pageTexts(host);
+      assert.equal(rendered.pages, 2);
+      assert.ok(texts[0].endsWith("Clause line 36."), texts[0].slice(-40));
+      assert.equal(texts[1], "Unstyled line.");
     });
   });
 });
