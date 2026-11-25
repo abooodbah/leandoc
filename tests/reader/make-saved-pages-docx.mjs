@@ -211,6 +211,47 @@ export async function makeAtLeastDocx() {
   return { bytes, report: report(bytes) };
 }
 
+// makeSavedSplitDocx: a table of `rows` rows in three columns, each row one
+// 18 pt line (24 px) tall, so a page holds 36 rows, and one saved page start.
+// With `lines` 1, row `row` starts Word's second page: its first cell holds
+// the marker. With more, row `row` is `lines` lines tall (its second cell
+// holds them, one paragraph broken by line breaks) and Word split it across
+// pages after line `at`: the marker stands before line `at` + 1, and the
+// first cell of the row after holds it again, as Word writes it. With
+// `merge`, the third cell of the row before the row whose first cell holds
+// the marker is merged down into that row.
+export function splitLineText(row, line) {
+  return `Row ${row}, line ${line}.`;
+}
+
+export async function makeSavedSplitDocx({ rows = 60, row = 37, lines = 1, at = 1, merge = false } = {}) {
+  const cell = (content, properties = "") =>
+    `<w:tc><w:tcPr><w:tcW w:w="3120" w:type="dxa"/>${properties}</w:tcPr><w:p>${LINE}${content}</w:p></w:tc>`;
+  const marked = lines > 1 ? row + 1 : row;
+  const trs = [];
+  for (let index = 1; index <= rows; index += 1) {
+    let second = cell(run(`Cell ${index}.`));
+    if (index === row && lines > 1) {
+      const parts = [];
+      for (let line = 1; line <= lines; line += 1) {
+        parts.push(run(splitLineText(index, line), { saved: line === at + 1 }));
+      }
+      second = cell(parts.join("<w:r><w:br/></w:r>"));
+    }
+    let third = cell(run(`Item ${index}.`));
+    if (merge && index === marked - 1) {
+      third = cell(run(`Item ${index}.`), `<w:vMerge w:val="restart"/>`);
+    } else if (merge && index === marked) {
+      third = cell("", "<w:vMerge/>");
+    }
+    trs.push(`<w:tr>${cell(run(rowText(index), { saved: index === marked }))}${second}${third}</w:tr>`);
+  }
+  const table = `<w:tbl><w:tblPr><w:tblW w:w="9360" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr>` +
+    `<w:tblGrid><w:gridCol w:w="3120"/><w:gridCol w:w="3120"/><w:gridCol w:w="3120"/></w:tblGrid>${trs.join("")}</w:tbl>`;
+  const bytes = await pack(wrap([table, `<w:p>${LINE}${run("After the table.")}</w:p>`]));
+  return { bytes, report: report(bytes) };
+}
+
 export async function makeWordMetricsDocx() {
   const major = `<w:rFonts w:asciiTheme="majorBidi" w:hAnsiTheme="majorBidi" w:cstheme="majorBidi"/>`;
   const small = `<w:sz w:val="20"/><w:szCs w:val="20"/>`;

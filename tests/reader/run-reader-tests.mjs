@@ -25,10 +25,7 @@ import {
 } from "./make-numbered-docx.mjs";
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { makeKeptParagraphDocx } from "./make-columns-docx.mjs";
-import {
-  AT_LEAST_LINES, CONTENTS_ENTRY, lineText, makeAtLeastDocx, makeContentsDocx, makeSavedPagesDocx, makeSavedRowsDocx,
-  makeWordMetricsDocx, rowText
-} from "./make-saved-pages-docx.mjs";
+import { AT_LEAST_LINES, CONTENTS_ENTRY, lineText, makeAtLeastDocx, makeContentsDocx, makeSavedPagesDocx, makeSavedRowsDocx, makeSavedSplitDocx, makeWordMetricsDocx, rowText, splitLineText } from "./make-saved-pages-docx.mjs";
 import { makeColumnStartsDocx, makeKeepRulesDocx, makePageBreakBeforeDocx, makeSectionPagesDocx, makeStyleChainDocx } from "./make-page-rules-docx.mjs";
 import { makeTableEdgeDocx } from "./make-table-edge-docx.mjs";
 import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
@@ -2685,6 +2682,72 @@ describe("a table splits at the row where Word saved a page start", () => {
       const text = await host.page.evaluate(() => document.querySelector("#docBody .docx-wrapper").textContent);
       assert.ok(text.includes("After the table."));
       assert.ok(text.includes(rowText(100)));
+    });
+  });
+});
+
+describe("a table follows the rows Word split across pages", () => {
+  // Each page's text, and the rows its tables hold.
+  function pages(host) {
+    return host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx")).map((page) => ({
+      text: Array.from(page.querySelectorAll(":scope > article")).map((article) => article.textContent).join(""),
+      rows: (page.textContent.match(/Row \d+\./g) || []).map((text) => Number(text.slice(4, -1)))
+    })));
+  }
+
+  // Word broke a three-line row after its first line and saved the page
+  // start there, and again in the first cell of the row after. The reader
+  // started its page at that next row, so the page did not start where
+  // Word's did.
+  test("a page starts at the line of a row where Word's page began", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeSavedSplitDocx({ rows: 60, row: 32, lines: 3, at: 1 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "saved-split.docx" });
+      const found = await pages(host);
+      assert.equal(rendered.pages, 2);
+      assert.ok(found[0].text.includes(splitLineText(32, 1)));
+      assert.ok(!found[0].text.includes(splitLineText(32, 2)));
+      assert.ok(found[1].text.startsWith(splitLineText(32, 2)), found[1].text.slice(0, 40));
+      assert.deepEqual(found[1].rows.slice(0, 2), [33, 34]);
+    });
+  });
+
+  // When the reader cannot split that row where Word did (a cell of it is
+  // merged down), the row moves whole to the next page, and the next row,
+  // which carries Word's page start again, comes three lines below. It had
+  // started a page of its own there, which left the split row alone on a
+  // page.
+  test("the row after a split row starts no page right below that row", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeSavedSplitDocx({ rows: 60, row: 35, lines: 3, at: 1, merge: true });
+      const rendered = await host.openDocument({ bytes, report, fileName: "saved-split-merged.docx" });
+      const found = await pages(host);
+      assert.equal(rendered.pages, 2);
+      assert.equal(found[0].rows[found[0].rows.length - 1], 34);
+      assert.deepEqual(found[1].rows.slice(0, 2), [35, 36]);
+    });
+  });
+
+  // A row whose cell is merged down into the row Word started a page at,
+  // past the page, also has an empty box beside the page. Counted, the page
+  // broke a row early, and that row made a page of its own.
+  test("a row merged down into the row Word started a page at stays on its page", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeSavedSplitDocx({ rows: 60, row: 37, merge: true });
+      const rendered = await host.openDocument({ bytes, report, fileName: "saved-row-merged.docx" });
+      const found = await pages(host);
+      assert.equal(rendered.pages, 2);
+      assert.deepEqual(found.map((page) => page.rows[0]), [1, 37]);
+      assert.equal(found[0].rows.length, 36);
+      // The merged cell continues in its own column on the next page.
+      const offset = await host.page.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll("#docBody article tr"));
+        const rowOf = (text) => rows.find((row) => row.cells[0].textContent.trim() === text);
+        const left = (row) => row.cells[2].getBoundingClientRect().left - row.getBoundingClientRect().left;
+        const below = rowOf("Row 37.");
+        return getComputedStyle(below.cells[2]).display === "none" ? null : left(below) - left(rowOf("Row 38."));
+      });
+      assert.equal(offset, 0);
     });
   });
 });
