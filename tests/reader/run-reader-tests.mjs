@@ -4936,4 +4936,17 @@ describe("fonts, pictures, and text boxes take the space Word gives them", () =>
       near(height, 90 * 4 / 3, 0.5, "the picture's paragraph");
     });
   });
+
+  // The empty line of a code listing whose mark is 8 pt Consolas is one
+  // 8 pt Consolas line (Word's single line for Consolas is 1.1701 em, 12.48
+  // px), not a line of the style's 11 pt Calibri (17.9 px).
+  test("an empty paragraph is a line of its mark's font", async () => {
+    await withHost({}, async (host) => {
+      await open(host, "empty");
+      const heights = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody article p"))
+        .map((p) => p.getBoundingClientRect().height));
+      assert.equal(heights.length, 3, "three paragraphs");
+      near(heights[1], 8 * 1.1701 * 4 / 3, 0.5, "the empty paragraph");
+    });
+  });
 });

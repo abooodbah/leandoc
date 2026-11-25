@@ -8,6 +8,8 @@
 //   advances 1126/2048 em per character (5.5 pt at 10 pt), whatever font
 //   draws it when Consolas is missing.
 // - "picture": a paragraph that holds only an inline picture, 90 pt tall.
+// - "empty": a code listing, Consolas 8 pt at single spacing, with an empty
+//   paragraph between its lines whose mark is 8 pt Consolas.
 //
 // All text is made up. Returns bytes and a report.
 import { createRequire } from "node:module";
@@ -94,7 +96,12 @@ const PARTS = {
         `</a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`,
       `<w:p>${text("After the picture.")}</w:p>`
     ];
-  }
+  },
+  empty: () => [
+    codeLine("&lt;listing first=\"line\"&gt;"),
+    `<w:p><w:pPr>${CODE_LINE}<w:rPr>${CONSOLAS(16)}</w:rPr></w:pPr></w:p>`,
+    codeLine("&lt;/listing&gt;")
+  ]
 };
 
 async function pack(documentXml) {
