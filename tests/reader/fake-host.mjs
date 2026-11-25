@@ -188,16 +188,25 @@ export class FakeHost {
     page.on("pageerror", (error) => host.consoleErrors.push(String(error)));
     await page.route("**/*", (route) => host.route(route));
     const ready = host.waitFor((message) => message.type === "ready");
-    await page.goto(READER_URL);
+    // A host opens reader.html?lang=<language> so the first paint is in the
+    // interface language; settings.query stands for that.
+    await page.goto(READER_URL + (settings.query || ""));
     await ready;
     if (settings.handshake) {
-      await host.send({
+      const hello = {
         type: "host",
         platform: settings.platform,
         version: settings.version,
         editor: settings.editor,
         tabs: settings.tabs
-      });
+      };
+      // The language setting and the system language, as the hosts report
+      // them. Left out unless a test sets them, like a host from before 0.4.
+      if (settings.language !== undefined) {
+        hello.language = settings.language;
+        hello.systemLanguage = settings.systemLanguage || "";
+      }
+      await host.send(hello);
       await host.send({ type: "theme", theme: settings.theme, view: settings.view });
     }
     return host;

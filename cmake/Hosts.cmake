@@ -227,6 +227,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         COMMAND "${LEANDOC_XVFB_RUN_EXECUTABLE}" -a bash
                 "${LEANDOC_ROOT}/tests/hosts/Test-TimingHooks.sh"
                 "$<TARGET_FILE:leandoc>" "${LEANDOC_SMOKE_FIXTURE}")
+      # The interface in Japanese and Chinese: the system language, a saved
+      # choice, and the page painting the language the host resolved.
+      add_test(
+        NAME leandoc-linux-language
+        COMMAND "${LEANDOC_XVFB_RUN_EXECUTABLE}" -a bash
+                "${LEANDOC_ROOT}/tests/hosts/Test-LinuxLanguage.sh"
+                "$<TARGET_FILE:leandoc>" "${LEANDOC_SMOKE_FIXTURE}")
+      set_tests_properties(leandoc-linux-language PROPERTIES
+        ENVIRONMENT
+          "LEANDOC_ASSETS_DIR=${LEANDOC_RUNTIME_ASSETS};WEBKIT_DISABLE_COMPOSITING_MODE=1;GTK_A11Y=none"
+        TIMEOUT 180)
       set_tests_properties(
         leandoc-linux-host leandoc-linux-fallback leandoc-linux-single-instance
         leandoc-linux-test-hooks
