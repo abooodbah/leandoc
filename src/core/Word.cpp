@@ -836,9 +836,6 @@ private:
                                ? Action::Keep
                                : Action::Remove;
                 }
-                if (std::strcmp(local, "drawing") == 0 && ContainsForbidden(element)) {
-                    return Action::Remove;
-                }
                 if (std::strcmp(local, "tr") == 0 && RowIsDeleted(element)) {
                     return Action::Remove;
                 }
