@@ -951,6 +951,18 @@
   var FIRST_BATCH = 8;
   var BATCH = 20;
 
+  // Such a document's pages are docx-preview's, from the page starts Word
+  // saved. Where Word saved none for several of its pages, one page held
+  // their text. A page whose text runs past its foot by more than a
+  // quarter of its text area (TALL_PAGE) is split, a batch at a time after
+  // the first screen is shown, before the batch joins the document; only a
+  // page that holds more text or paragraphs than most is laid out to find
+  // out (TALL_TEXT). A page that runs a little past its foot keeps its
+  // text: there the reader's text sets longer than Word's, and moving it to
+  // a page of its own or to the next saved page moved the start of every
+  // page after it.
+  var TALL_PAGE = 1.25;
+
   // Page layout for documents that carry no page breaks.
   // docx-preview starts a page only at an explicit page break, a section
   // break, or one of the lastRenderedPageBreak markers Word saves after laying
@@ -3069,6 +3081,142 @@
   // (P-04). A newer render stops it: it resolves null.
   var SLICE_MS = 40;
 
+  // Whether the text of `page` runs past its foot by more than TALL_PAGE of
+  // its text area.
+  function isTall(page) {
+    var bottom = contentBottom(page);
+    var articles = childrenNamed(page, "ARTICLE");
+    if (bottom === null || !articles.length) {
+      return false;
+    }
+    var top = articles[0].getBoundingClientRect().top;
+    var end = top;
+    articles.forEach(function (article) {
+      var last = article.lastElementChild;
+      if (last) {
+        end = Math.max(end, last.getBoundingClientRect().bottom);
+      }
+    });
+    return end > top + (bottom - top) * TALL_PAGE;
+  }
+
+  // Laying out every page of a long document to find the tall ones cost
+  // tests/perf's generated report-1000.docx 1.3 seconds and twice the
+  // memory, so only a page that
+  // could be tall is laid out: one that holds at least TALL_TEXT times the
+  // text, or more than TALL_PARAGRAPHS times the paragraphs outside tables,
+  // of a page Word filled, the middle one of the pages that end where Word
+  // saved the next page's start. A page of prose that runs onto a second
+  // page holds about twice the text of a full one; a page of listings or of
+  // a list holds many short paragraphs. A table's cells hold many
+  // paragraphs in few lines. A document with no saved page start has no
+  // page Word filled to compare with, and no page is laid out.
+  var TALL_TEXT = 2;
+  var TALL_PARAGRAPHS = 1.75;
+
+  // Counted without copying the page's text: textContent made a string of
+  // every page, megabytes for a long document.
+  function pageSize(page) {
+    var text = 0;
+    var paragraphs = 0;
+    childrenNamed(page, "ARTICLE").forEach(function (article) {
+      var walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
+      for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+        text += node.length;
+      }
+      for (var block = article.firstElementChild; block; block = block.nextElementSibling) {
+        paragraphs += block.nodeName === "P" ? 1 : 0;
+      }
+    });
+    return { text: text, paragraphs: paragraphs };
+  }
+
+  function middle(values) {
+    var sorted = values.slice().sort(function (a, b) {
+      return a - b;
+    });
+    return sorted[sorted.length >> 1] || 0;
+  }
+
+  // Whether `page` starts at a saved page start. The first screen's pages
+  // have their document ids moved aside already (prepareDocumentDom).
+  function startsSaved(page) {
+    var article = page ? childrenNamed(page, "ARTICLE")[0] : null;
+    var first = article ? article.firstElementChild : null;
+    return !!first && !!first.querySelector("[id^='" + Fixups.SAVED_PAGE_START + "'], [data-ld-anchor^='" +
+      Fixups.SAVED_PAGE_START + "']");
+  }
+
+  // The pages of `pages` that could be tall.
+  function mayBeTallPages(pages) {
+    var filled = pages.filter(function (page, index) {
+      return startsSaved(pages[index + 1]);
+    });
+    if (!filled.length) {
+      return [];
+    }
+    var full = filled.map(pageSize);
+    var text = middle(full.map(function (size) {
+      return size.text;
+    }));
+    var paragraphs = middle(full.map(function (size) {
+      return size.paragraphs;
+    }));
+    return pages.filter(function (page) {
+      var size = pageSize(page);
+      return size.text >= text * TALL_TEXT || size.paragraphs > paragraphs * TALL_PARAGRAPHS;
+    });
+  }
+
+  // Splits the tall pages of `list`, pages of a long document in document
+  // order, in `stage`: a copy of the document's wrapper, unzoomed and out of
+  // sight. Each page of `list` ends in `stage`, the pages split from it
+  // (page[SPLIT_PARTS]) after it. A tall page gets Word's lines first; the
+  // others get them when they come near the window (matchWhenNear).
+  var MATCHED = "__ldMatched";
+  var SPLIT_PARTS = "__ldSplitParts";
+
+  function splitTallPages(list, stage) {
+    list.forEach(function (page) {
+      page[SPLIT_PARTS] = [];
+      stage.appendChild(page);
+    });
+    var tall = list.filter(isTall);
+    tall.forEach(function (page) {
+      if (!page[MATCHED]) {
+        matchWordLines(page);
+        page[MATCHED] = true;
+        if (!isTall(page)) {
+          return;
+        }
+      }
+      // A page numbered already lends its unfilled fields to the pages split
+      // from it; all are numbered again once the document is complete.
+      resetPageFields(page);
+      var notes = collectFootnotes([page]);
+      var floats = takePageFloats([page]);
+      pendingSettle = null;
+      wideFloats = hasWideFloat([page]);
+      var articles = childrenNamed(page, "ARTICLE");
+      articles[articles.length - 1].setAttribute("data-ld-fill", "");
+      var parts = page[SPLIT_PARTS];
+      var cursor = page;
+      for (var guard = 0; guard < PAGINATION_LIMIT && cursor && isTall(cursor); guard += 1) {
+        var next = splitPage(cursor, notes);
+        if (next) {
+          next[MATCHED] = true;
+          parts.push(next);
+        }
+        cursor = next;
+      }
+      settlePending();
+      [page].concat(parts).forEach(function (part) {
+        placeNotes(part, notes, referencedNotes(part, notes, null));
+      });
+      restoreFloats(floats);
+    });
+  }
+
   function paginatePages(pages, serial) {
     var result = [];
     var budget = PAGINATION_LIMIT;
@@ -4320,6 +4468,19 @@
   var keepObserver = null;
   var keepZoom = 1;
 
+  // Pages added to a document shown at a zoom other than 100% (split while
+  // it loads) are kept on their page as the others are.
+  function keepNewPages() {
+    if (keepObserver) {
+      keepObserver.disconnect();
+      keepObserver = null;
+    }
+    keepPages = null;
+    var zoom = keepZoom;
+    keepZoom = 1;
+    keepTextOnPages(zoom);
+  }
+
   function stopKeepingOnPage() {
     if (keepObserver) {
       keepObserver.disconnect();
@@ -4554,7 +4715,13 @@
     });
     elements.docBody.replaceChildren.apply(elements.docBody, body);
     body.forEach(matchWordLines);
+    pages.slice(0, FIRST_BATCH).forEach(function (page) {
+      page[MATCHED] = true;
+    });
+    // The first screen's pages may be split after it is shown.
+    keepFieldSources = view === "page";
     prepareDocumentDom(pages.slice(0, FIRST_BATCH), 0, pages.length);
+    keepFieldSources = false;
     showLoadingPages(current && current.report);
     // In the hidden pane every paragraph is 0 wide, so no tab got a width and
     // a contents page lost its leaders, and no equation could be measured.
@@ -4567,20 +4734,106 @@
     });
     var startTop = elements.docScroller.scrollTop;
     var next = 0;
+    // Tall pages are split in `stage` (TALL_PAGE), the first screen's in the
+    // first step, after it is shown; `added` counts the pages split off.
+    var stage = null;
+    var added = 0;
+    var candidates = [];
+    // Splits the tall pages of `batch` where they are (in the document, or
+    // out of it) and returns the batch with the new pages after theirs.
+    function splitBatch(batch) {
+      var picked = candidates.length ? batch.filter(function (page) {
+        return candidates.indexOf(page) >= 0;
+      }) : [];
+      if (!picked.length) {
+        return batch;
+      }
+      if (!stage) {
+        stage = wrapper.cloneNode(false);
+        stage.style.cssText = "position: fixed; left: 0; top: 0; visibility: hidden;";
+        stage.setAttribute("aria-hidden", "true");
+      }
+      var marks = picked.map(function (page) {
+        var mark = document.createComment("");
+        if (page.parentNode) {
+          page.parentNode.insertBefore(mark, page);
+        }
+        return mark;
+      });
+      elements.docBody.appendChild(stage);
+      splitTallPages(picked, stage);
+      elements.docBody.removeChild(stage);
+      var out = [];
+      batch.forEach(function (page) {
+        out.push(page);
+        var at = picked.indexOf(page);
+        if (at < 0) {
+          return;
+        }
+        var mark = marks[at];
+        page[SPLIT_PARTS].forEach(function (part) {
+          out.push(part);
+        });
+        if (mark.parentNode) {
+          [page].concat(page[SPLIT_PARTS]).forEach(function (node) {
+            mark.parentNode.insertBefore(node, mark);
+          });
+          mark.parentNode.removeChild(mark);
+        } else {
+          stage.removeChild(page);
+          page[SPLIT_PARTS].forEach(function (part) {
+            stage.removeChild(part);
+          });
+        }
+        page[SPLIT_PARTS] = null;
+      });
+      return out;
+    }
     return new Promise(function (resolve) {
       function step() {
         if (serial !== renderSerial) {
+          keepFieldSources = false;
           resolve(null);
           return;
         }
+        if (next === 0 && view === "page") {
+          candidates = mayBeTallPages(pages);
+          keepFieldSources = candidates.length > 0;
+          var shown = pages.slice(0, FIRST_BATCH);
+          if (!keepFieldSources) {
+            shown.forEach(function (page) {
+              page[PAGE_FIELDS] = null;
+            });
+          }
+          var top = elements.docScroller.scrollTop;
+          var lazy = shown.filter(function (page) {
+            return candidates.indexOf(page) >= 0 && page.classList.contains("ld-lazy");
+          });
+          lazy.forEach(function (page) {
+            page.classList.remove("ld-lazy");
+          });
+          var firstOut = splitBatch(shown);
+          lazy.forEach(function (page) {
+            page.classList.add("ld-lazy");
+          });
+          elements.docScroller.scrollTop = top;
+          if (firstOut.length > shown.length) {
+            added += firstOut.length - shown.length;
+            prepareDocumentDom(firstOut, 0, pages.length + added);
+          }
+        }
         var batch = later.slice(next, next + BATCH);
+        var out = splitBatch(batch);
         var fragment = document.createDocumentFragment();
-        batch.forEach(function (page) {
+        out.forEach(function (page) {
           fragment.appendChild(page);
         });
         wrapper.appendChild(fragment);
-        matchWhenNear(batch);
-        prepareDocumentDom(batch, FIRST_BATCH + next, pages.length);
+        matchWhenNear(out.filter(function (page) {
+          return !page[MATCHED];
+        }));
+        prepareDocumentDom(out, FIRST_BATCH + next + added, pages.length + added);
+        added += out.length - batch.length;
         // Lay out this batch now. WebKit lays out pages below the window
         // only when something asks, so without this the whole document was
         // laid out in one long task when the render finished.
@@ -4591,6 +4844,15 @@
             window.setTimeout(step, 0);
           });
         } else {
+          if (added) {
+            // Numbers for the pages the splits added, and their text kept on
+            // the page at the zoom shown.
+            childrenNamed(wrapper, "SECTION").forEach(function (page, index, all) {
+              numberPageFields(page, index + 1, all.length);
+            });
+            keepNewPages();
+          }
+          keepFieldSources = false;
           resolve({ movedWhileLoading: elements.docScroller.scrollTop !== startTop });
         }
       }
@@ -4725,23 +4987,48 @@
 
   // PAGE, NUMPAGES, and SECTIONPAGES results arrive as markers (fixups.js
   // markPageFields); each page gets its own number here.
+  // While a long document with pages that may be split loads
+  // (keepFieldSources), each page keeps its fields' text with the markers,
+  // so that its pages can be numbered again (splitTallPages).
+  var PAGE_FIELDS = "__ldPageFields";
+  var keepFieldSources = false;
+
   function numberPageFields(page, pageNumber, pageCount) {
-    var walker = document.createTreeWalker(page, NodeFilter.SHOW_TEXT);
-    var node;
-    var filled = [];
-    while ((node = walker.nextNode())) {
-      if (node.nodeValue.indexOf(Fixups.PAGE_FIELD_START) >= 0) {
-        filled.push(node);
+    var fields = page[PAGE_FIELDS];
+    if (!fields) {
+      fields = [];
+      var walker = document.createTreeWalker(page, NodeFilter.SHOW_TEXT);
+      var node;
+      while ((node = walker.nextNode())) {
+        if (node.nodeValue.indexOf(Fixups.PAGE_FIELD_START) >= 0) {
+          fields.push({ text: node, source: node.nodeValue });
+        }
+      }
+      if (keepFieldSources) {
+        page[PAGE_FIELDS] = fields;
       }
     }
-    filled.forEach(function (text) {
-      var saved = text.nodeValue.replace(/\ue000[^:\ue001]*:/g, "").replace(/\ue001/g, "").length;
-      text.nodeValue = Fixups.fillPageFields(text.nodeValue, pageNumber, pageCount);
+    fields.forEach(function (field) {
+      var text = field.text;
+      var saved = field.source.replace(/\ue000[^:\ue001]*:/g, "").replace(/\ue001/g, "").length;
+      text.nodeValue = Fixups.fillPageFields(field.source, pageNumber, pageCount);
       var paragraph = text.parentNode && text.parentNode.closest ? text.parentNode.closest("p") : null;
       if (paragraph && text.nodeValue.length !== saved) {
         refitFieldTabs(paragraph, text.nodeValue.length - saved);
       }
     });
+  }
+
+  // Puts a numbered page's fields back as docx-preview wrote them.
+  function resetPageFields(page) {
+    (page[PAGE_FIELDS] || []).forEach(function (field) {
+      field.text.nodeValue = field.source;
+      var paragraph = field.text.parentNode && field.text.parentNode.closest ? field.text.parentNode.closest("p") : null;
+      if (paragraph) {
+        refitFieldTabs(paragraph, 0);
+      }
+    });
+    page[PAGE_FIELDS] = null;
   }
 
   // Prepares newly attached pages: lazy layout, page numbers, document ids
