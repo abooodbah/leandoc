@@ -1083,14 +1083,23 @@
     // A one-column section's overflow columns start a column gap past its
     // edge (a big one, see layOutPage). A table wider than the text area, or
     // indented to the left, reaches past that edge without being overflow.
+    // An empty box has no width: an empty table (its rows deleted) at the
+    // section's left edge read as left of the text area, and took a page of
+    // its own and one for its heading. It counts as a pixel wide, and in a
+    // one-column section as past the page on the left only in a
+    // right-to-left overflow column.
     var side = box.right - 0.5;
+    var start = box.left + 0.5;
     if (columnCount(article) === 1) {
       var gap = parseFloat(window.getComputedStyle(article).columnGap);
       side = gap > 0 ? box.right + gap / 2 : Infinity;
+      start = gap > 0 ? box.left - gap / 2 : -Infinity;
     }
-    return function (rect) {
-      return rect.bottom > limit + 0.5 || rect.left >= side || rect.right <= box.left + 0.5;
+    var test = function (rect) {
+      return rect.bottom > limit + 0.5 || rect.left >= side || Math.max(rect.right, rect.left + 1) <= start;
     };
+    test.limit = limit;
+    return test;
   }
 
   function isOver(node, over) {
@@ -1237,11 +1246,59 @@
     return false;
   }
 
+  function linesMove(plans) {
+    return plans.some(function (plan) {
+      return plan.at >= 0;
+    });
+  }
+
+  // The test for the lines of a row that splits at the foot of the page.
+  // Its part on the page ends there with its cells' bottom margin and
+  // border, which the row did not have where Chrome ran it on into the
+  // overflow column: with an 8 px bottom cell margin, the 24 lines that
+  // stayed went whole to the overflow column, where they were not seen. In
+  // a section with columns a row runs on from the foot of one column into
+  // the next, where it needs no foot.
+  function rowFootTest(row, over) {
+    var article = row.closest("article");
+    if (!(over.limit > -Infinity) || !article || columnCount(article) > 1) {
+      return over;
+    }
+    var foot = 0;
+    Array.prototype.forEach.call(row.cells, function (cell) {
+      var style = window.getComputedStyle(cell);
+      foot = Math.max(foot, (parseFloat(style.paddingBottom) || 0) + (parseFloat(style.borderBottomWidth) || 0));
+    });
+    if (!(foot > 0)) {
+      return over;
+    }
+    // The part ends where the section's column does, with its foot inside.
+    var limit = Math.min(over.limit + 0.5, article.getBoundingClientRect().bottom - foot);
+    return function (rect) {
+      return over(rect) || rect.bottom > limit;
+    };
+  }
+
+  // Whether a row's own height (w:trHeight) fits above the foot of the page.
+  function heightFits(row, over) {
+    var height = /^([\d.]+)pt$/.exec(row.style.height || "");
+    var rects = row.getClientRects();
+    if (!height || !rects.length || !(over.limit > -Infinity)) {
+      return true;
+    }
+    var article = row.closest("article");
+    var end = Math.max(over.limit + 0.5, article ? article.getBoundingClientRect().bottom : -Infinity);
+    return rects[0].top + parseFloat(height[1]) * 4 / 3 <= end;
+  }
+
   // Moves the lines of each cell past the page into a copy of the row and
-  // returns the copy.
+  // returns the copy. The part on the page ends at the foot of the page:
+  // the row's height (w:trHeight), where it was more than the room left,
+  // went past the page with it.
   function splitRow(row, plans, over) {
     var rest = row.cloneNode(false);
     rest.removeAttribute("id");
+    row.style.height = "";
     plans.forEach(function (plan) {
       var copy = plan.cell.cloneNode(false);
       copy.removeAttribute("id");
@@ -1317,6 +1374,18 @@
       return null;
     }
     var plans = saved === -2 ? null : rowSplit(rows[first], over);
+    var rowOver = over;
+    if (plans && linesMove(plans)) {
+      rowOver = rowFootTest(rows[first], over);
+      if (rowOver !== over) {
+        plans = rowSplit(rows[first], rowOver);
+      }
+    } else if (plans && !heightFits(rows[first], over)) {
+      // Its lines all fit and its height does not: split, it left an empty
+      // copy as tall as itself on the next page and its own foot in the
+      // overflow column. It moves whole, as Word moves it.
+      plans = null;
+    }
     var from = first;
     if (!plans && first === headerRows) {
       if (table.previousElementSibling || first + 1 >= rows.length) {
@@ -1325,7 +1394,7 @@
       from = first + 1;
     }
     freezeColumns(table);
-    var piece = plans ? splitRow(rows[first], plans, over) : null;
+    var piece = plans ? splitRow(rows[first], plans, rowOver) : null;
     if (piece) {
       // What stayed can still end past the page by the space after its last
       // paragraphs alone.

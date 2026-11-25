@@ -599,7 +599,10 @@
   // Rows the reader's pages treat as Word does: the leading rows marked
   // w:tblHeader repeat at the top of each page a table runs onto
   // (ld-header-row), and a row marked w:cantSplit moves whole to the next
-  // page (ld-cant-split). Other rows break across pages between lines.
+  // page (ld-cant-split), as does a row of exact height (w:hRule="exact"):
+  // Word moves such a row whole to the next page, where the page view had
+  // split it between its lines. Other rows break across pages between
+  // lines.
   function markRows(modelTable, xmlTable, result) {
     var modelRows = modelChildren(modelTable, "row");
     var xmlRows = Array.prototype.filter.call(xmlTable.children || [], function (child) {
@@ -613,13 +616,14 @@
       var properties = childNamed(row, "trPr");
       var header = properties && childNamed(properties, "tblHeader");
       var cantSplit = properties && childNamed(properties, "cantSplit");
+      var height = properties && childNamed(properties, "trHeight");
       if (leading && header && isOn(header)) {
         addClass(modelRows[index], "ld-header-row");
         result.headerRows += 1;
       } else {
         leading = false;
       }
-      if (cantSplit && isOn(cantSplit)) {
+      if ((cantSplit && isOn(cantSplit)) || getAttr(height, "hRule") === "exact") {
         addClass(modelRows[index], "ld-cant-split");
         result.cantSplitRows += 1;
       }
