@@ -4925,4 +4925,15 @@ describe("fonts, pictures, and text boxes take the space Word gives them", () =>
       assert.ok(Math.abs(advance - 1126 / 2048) <= 0.003, `each character advances ${advance} em; Consolas advances ${1126 / 2048} em`);
     });
   });
+
+  // A paragraph of Calibri 11 pt at 1.15 that holds only a picture 90 pt
+  // tall. CSS set the picture on the baseline and added the font's descent
+  // and half its leading below it, 5.6 px.
+  test("a line that holds only a picture is as tall as the picture", async () => {
+    await withHost({}, async (host) => {
+      await open(host, "picture");
+      const height = await host.page.evaluate(() => document.querySelector("#docBody img").closest("p").getBoundingClientRect().height);
+      near(height, 90 * 4 / 3, 0.5, "the picture's paragraph");
+    });
+  });
 });

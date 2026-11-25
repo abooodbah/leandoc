@@ -7,6 +7,7 @@
 // - "mono": a paragraph of 50 characters of 10 pt Consolas. Consolas
 //   advances 1126/2048 em per character (5.5 pt at 10 pt), whatever font
 //   draws it when Consolas is missing.
+// - "picture": a paragraph that holds only an inline picture, 90 pt tall.
 //
 // All text is made up. Returns bytes and a report.
 import { createRequire } from "node:module";
@@ -79,7 +80,21 @@ function codeLine(value) {
 const PARTS = {
   mono: () => [
     `<w:p><w:r><w:rPr>${CONSOLAS(20)}</w:rPr><w:t>${MONO_TEXT}</w:t></w:r></w:p>`
-  ]
+  ],
+  picture: () => {
+    const cx = 120 * EMU_PER_POINT;
+    const cy = 90 * EMU_PER_POINT;
+    return [
+      `<w:p>${text("Before the picture.")}</w:p>`,
+      `<w:p><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/>` +
+        `<wp:docPr id="1" name="Picture 1"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+        `<pic:pic><pic:nvPicPr><pic:cNvPr id="1" name="pixel.png"/><pic:cNvPicPr/></pic:nvPicPr>` +
+        `<pic:blipFill><a:blip r:embed="rId3"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
+        `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>` +
+        `</a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`,
+      `<w:p>${text("After the picture.")}</w:p>`
+    ];
+  }
 };
 
 async function pack(documentXml) {
