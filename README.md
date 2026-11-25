@@ -1,6 +1,6 @@
 # LeanDoc: a free, read-only Word (.docx) viewer for Windows, Linux and macOS
 
-Open a .docx without Microsoft Office. LeanDoc shows the document as pages, never runs macros, and never fetches anything the document points to. MIT licensed, no telemetry. The 0.3.3 Windows download is a 975 KiB ZIP.
+Open a .docx without Microsoft Office. LeanDoc shows the document as pages, never runs macros, and never fetches anything the document points to. MIT licensed, no telemetry. The 0.4.0 Windows download is a 993 KiB ZIP.
 
 [简体中文](#简体中文) · [日本語](#日本語) · [Website](https://abooodbah.github.io/leandoc/) · [Microsoft Store](https://apps.microsoft.com/detail/9NSM04BJL6F6) · `winget install abooodbah.LeanDoc` · `choco install leandoc` · [Open a .docx without Word](https://abooodbah.github.io/leandoc/open-docx-without-word/) · [Releases feed (Atom)](https://github.com/abooodbah/leandoc/releases.atom) · [All Lean apps](https://abooodbah.github.io/)
 
@@ -117,14 +117,14 @@ for 14 days. The APK is also attached to each
 
 ## Platform releases
 
-| Operating system | Architecture | v0.3.3 artifact | Runtime |
+| Operating system | Architecture | v0.4.0 artifact | Runtime |
 | --- | --- | --- | --- |
-| Windows 10 / 11 | x64 | [LeanDoc-v0.3.3-windows-x64.zip](https://github.com/abooodbah/leandoc/releases/download/v0.3.3/LeanDoc-v0.3.3-windows-x64.zip) | Microsoft Edge WebView2 Runtime |
-| Ubuntu 24.04 and compatible | x86-64 | [LeanDoc-v0.3.3-linux-x86_64.deb](https://github.com/abooodbah/leandoc/releases/download/v0.3.3/LeanDoc-v0.3.3-linux-x86_64.deb) | GTK 4 and WebKitGTK 6.0 |
-| macOS 12 or later | Intel and Apple silicon | [LeanDoc-v0.3.3-macos-universal-preview.zip](https://github.com/abooodbah/leandoc/releases/download/v0.3.3/LeanDoc-v0.3.3-macos-universal-preview.zip) | Preview, system WKWebView |
+| Windows 10 / 11 | x64 | [LeanDoc-v0.4.0-windows-x64.zip](https://github.com/abooodbah/leandoc/releases/download/v0.4.0/LeanDoc-v0.4.0-windows-x64.zip) | Microsoft Edge WebView2 Runtime |
+| Ubuntu 24.04 and compatible | x86-64 | [LeanDoc-v0.4.0-linux-x86_64.deb](https://github.com/abooodbah/leandoc/releases/download/v0.4.0/LeanDoc-v0.4.0-linux-x86_64.deb) | GTK 4 and WebKitGTK 6.0 |
+| macOS 12 or later | Intel and Apple silicon | [LeanDoc-v0.4.0-macos-universal-preview.zip](https://github.com/abooodbah/leandoc/releases/download/v0.4.0/LeanDoc-v0.4.0-macos-universal-preview.zip) | Preview, system WKWebView |
 
 Each artifact has an adjacent `.sha256` sidecar on the
-[v0.3.3 release](https://github.com/abooodbah/leandoc/releases/tag/v0.3.3).
+[v0.4.0 release](https://github.com/abooodbah/leandoc/releases/tag/v0.4.0).
 The macOS preview also has a `.metadata.json` file that records how it was
 signed. Windows ARM64 and Linux ARM64 are not part of this release.
 
@@ -140,11 +140,11 @@ signed. Windows ARM64 and Linux ARM64 are not part of this release.
 Check a download against its sidecar before you run it:
 
 ```powershell
-Get-FileHash .\LeanDoc-v0.3.3-windows-x64.zip -Algorithm SHA256
+Get-FileHash .\LeanDoc-v0.4.0-windows-x64.zip -Algorithm SHA256
 ```
 
 ```sh
-sha256sum -c LeanDoc-v0.3.3-linux-x86_64.deb.sha256
+sha256sum -c LeanDoc-v0.4.0-linux-x86_64.deb.sha256
 ```
 
 Releases after 0.3.2 also carry a build provenance attestation: a record,
@@ -198,7 +198,7 @@ The Debian package declares its GTK 4 and WebKitGTK 6.0 dependencies, so APT
 resolves them:
 
 ```sh
-sudo apt install ./LeanDoc-v0.3.3-linux-x86_64.deb
+sudo apt install ./LeanDoc-v0.4.0-linux-x86_64.deb
 ```
 
 It installs `/usr/bin/leandoc`, a desktop entry, AppStream metadata, the icon,
@@ -446,8 +446,10 @@ release lists them on 2026-11-15. The 0.3.2 release files are 996,665 bytes
 (Windows ZIP), 648,214 bytes (Linux `.deb`), and 835,348 bytes (macOS ZIP),
 as the GitHub release lists them on 2026-11-16. The 0.3.3 release files are
 998,164 bytes (Windows ZIP), 649,710 bytes (Linux `.deb`), and 836,688 bytes
-(macOS ZIP), as the GitHub release lists them on 2026-11-19. Unpacked sizes
-have not been measured again.
+(macOS ZIP), as the GitHub release lists them on 2026-11-19. The 0.4.0
+release files are 1,016,836 bytes (Windows ZIP), 670,000 bytes (Linux
+`.deb`), and 867,064 bytes (macOS ZIP), as the GitHub release lists them on
+2026-11-25. Unpacked sizes have not been measured again.
 
 Measured figures will be added after a run on a reference Windows machine; the method is in [tests/owner/README.md](tests/owner/README.md).
 
@@ -470,7 +472,7 @@ WebView2 SDK and checks its SHA-256.
 ```powershell
 .\scripts\build.ps1 -Configuration Release -Platform x64
 .\tests\Test-LeanDoc.ps1 -DistPath .\dist -Smoke -Runtime
-.\scripts\package-release.ps1 -Version 0.3.3 -Platform x64
+.\scripts\package-release.ps1 -Version 0.4.0 -Platform x64
 ```
 
 ### Linux
@@ -484,7 +486,7 @@ cmake -S . -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTING=ON -DLEANDOC_ENABLE_GUI_TESTS=ON
 cmake --build build/linux
 dbus-run-session -- ctest --test-dir build/linux --output-on-failure
-bash scripts/package-linux.sh --version 0.3.3
+bash scripts/package-linux.sh --version 0.4.0
 ```
 
 ### macOS
