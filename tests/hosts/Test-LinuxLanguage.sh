@@ -44,4 +44,25 @@ run_case "a French system opens in English" fr "" en
 run_case "a saved Chinese choice overrides a Japanese system" ja zh-CN zh-CN
 run_case "a saved English choice overrides a Chinese system" zh_CN en en
 
+# Choosing a language in the settings panel saves it as [Reader] Language.
+# Not in smoke mode, which never saves: the test script clicks the choice and
+# quits, and the next launch must open in it.
+rm -rf "$config/leandoc"
+script="$config/choose.txt"
+printf '%s\n' \
+  "js document.querySelector('input[name=\"settings-language\"][value=\"ja\"]').click(); return document.documentElement.lang;" \
+  'sleep 300' 'quit' > "$script"
+if ! output=$(XDG_CONFIG_HOME="$config" LANGUAGE=en LANG=C.UTF-8 LC_ALL= LC_MESSAGES= \
+    "$executable" --test-script "$script" 2>&1); then
+  printf 'FAIL choosing Japanese: the scripted launch failed\n%s\n' "$output" >&2
+  exit 1
+fi
+if ! grep -qx 'Language=ja' "$config/leandoc/settings.ini"; then
+  printf 'FAIL choosing Japanese: expected Language=ja, saved:\n' >&2
+  cat "$config/leandoc/settings.ini" >&2 || true
+  exit 1
+fi
+printf 'PASS choosing Japanese in the settings panel saves it\n'
+run_case "the saved choice is used on the next launch" en ja ja
+
 printf '%s\n' 'LeanDoc Linux language checks passed.'

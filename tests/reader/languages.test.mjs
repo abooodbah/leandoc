@@ -180,6 +180,8 @@ test("the settings panel switches the language at once and asks the host to save
       "the open shortcut list switched");
     assert.equal(await host.page.textContent("#fidelityDetails"), t("ja", "fidelity.details"),
       "the fidelity bar switched");
+    assert.equal(await host.page.textContent("#fidelityText"),
+      Wording.describeFidelity({ features: FEATURES }, "ja").text, "the fidelity notes switched");
 
     const chinese = host.waitFor((message) => message.type === "setLanguage" && message.language === "zh-CN");
     await host.page.check('input[name="settings-language"][value="zh-CN"]');
@@ -205,6 +207,44 @@ test("the settings panel switches the language at once and asks the host to save
   });
   await withHost({ language: "ja", systemLanguage: "en-US" }, async (host) => {
     assert.equal((await chrome(host)).open, t("ja", "open.button"), "a saved Japanese overrides an English system");
+  });
+});
+
+test("the start screen and a fallback page switch language while they are shown", async () => {
+  await withHost({ language: "system", systemLanguage: "en-US" }, async (host) => {
+    await host.send({ type: "empty", recent: [{ path: "/docs/notes.docx", name: "notes.docx" }] });
+    await host.page.evaluate(() => {
+      const input = document.querySelector('input[name="settings-language"][value="ja"]');
+      input.checked = true;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const shown = await host.page.evaluate(() => ({
+      title: document.getElementById("stateTitle").textContent,
+      open: document.getElementById("stateOpenButton").textContent,
+      recent: document.querySelector(".recent-item").getAttribute("aria-label")
+    }));
+    assert.equal(shown.title, t("ja", "empty.title"));
+    assert.equal(shown.open, t("ja", "empty.openButton"));
+    assert.equal(shown.recent, t("ja", "recent.itemLabel", { name: "notes.docx", path: "/docs/notes.docx" }));
+
+    await host.send({ type: "tabs", tabs: [{ id: 1, name: "old.doc", path: "/docs/old.doc" }], active: 1 });
+    await host.send({ type: "fallback", tab: 1, generation: 1, fileName: "old.doc", displayPath: "/docs/old.doc",
+      report: { ok: true, kind: "legacy-doc", features: [] } });
+    await host.page.evaluate(() => {
+      const input = document.querySelector('input[name="settings-language"][value="zh-CN"]');
+      input.checked = true;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const fallback = await host.page.evaluate(() => ({
+      eyebrow: document.getElementById("stateEyebrow").textContent,
+      message: document.getElementById("stateMessage").textContent,
+      open: document.getElementById("stateOpenButton").textContent,
+      meta: document.getElementById("fileMeta").textContent
+    }));
+    assert.equal(fallback.eyebrow, t("zh-CN", "kind.legacy-doc.title"));
+    assert.equal(fallback.message, t("zh-CN", "kind.legacy-doc.message"));
+    assert.equal(fallback.open, t("zh-CN", "fallback.openButton"));
+    assert.equal(fallback.meta, t("zh-CN", "identity.notShown"));
   });
 });
 
