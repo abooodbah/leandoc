@@ -5399,3 +5399,41 @@ describe("page view keeps a line of small code as tall as its text", () => {
     });
   });
 });
+
+describe("page view drops auto spacing at the top of a page", () => {
+  // Word drops the 14 pt of HTML auto spacing above the first paragraph of a
+  // page that the text filled up to.
+  test("a paragraph with auto spacing that starts a later page starts at the top margin", async () => {
+    await withHost({}, async (host) => {
+      const web = `<w:pPr><w:spacing w:before="100" w:beforeAutospacing="1" w:after="100" w:afterAutospacing="1" w:line="360" w:lineRule="exact"/></w:pPr>`;
+      const body = Array.from({ length: 60 }, (_, index) => `<w:p>${web}<w:r><w:t>Web item ${index + 1}.</w:t></w:r></w:p>`).join("");
+      const { bytes, report } = await makeBodyDocx(body);
+      await host.openDocument({ bytes, report, fileName: "autospacing-pages.docx" });
+      const tops = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx")).map((page) => {
+        const article = page.querySelector("article");
+        return article.firstElementChild.getBoundingClientRect().top - article.getBoundingClientRect().top;
+      }));
+      assert.ok(tops.length >= 3, `${tops.length} pages`);
+      assert.ok(tops[0] > 17, `the first page keeps the space: ${tops[0]}`);
+      assert.ok(tops.slice(1).every((top) => top < 1), `later pages start at the top: ${tops.join(", ")}`);
+    });
+  });
+
+  // A paragraph with an outline level (a heading, whatever its style is
+  // called) keeps the space. That exception rests on comparing the reader's
+  // pages with Word's, not on a measurement in Word.
+  test("a heading with auto spacing that starts a later page keeps its space", async () => {
+    await withHost({}, async (host) => {
+      const style = `<w:style w:type="paragraph" w:customStyle="1" w:styleId="Kopf"><w:name w:val="Kopf"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:before="100" w:beforeAutospacing="1" w:after="100" w:afterAutospacing="1" w:line="360" w:lineRule="exact"/><w:outlineLvl w:val="1"/></w:pPr></w:style>`;
+      const body = Array.from({ length: 60 }, (_, index) => `<w:p><w:pPr><w:pStyle w:val="Kopf"/></w:pPr><w:r><w:t>Heading ${index + 1}.</w:t></w:r></w:p>`).join("");
+      const { bytes, report } = await makeBodyDocx(body, { styles: makeStyles(style) });
+      await host.openDocument({ bytes, report, fileName: "autospacing-headings.docx" });
+      const tops = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx")).map((page) => {
+        const article = page.querySelector("article");
+        return article.firstElementChild.getBoundingClientRect().top - article.getBoundingClientRect().top;
+      }));
+      assert.ok(tops.length >= 3, `${tops.length} pages`);
+      assert.ok(tops.every((top) => top > 17), `every page keeps the space: ${tops.join(", ")}`);
+    });
+  });
+});
