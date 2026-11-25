@@ -196,6 +196,21 @@ export async function makeContentsDocx({ entries = 40 } = {}) {
   return { bytes, report: report(bytes) };
 }
 
+// makeAtLeastDocx: one paragraph of AT_LEAST_LINES lines of 11 pt Arial at
+// line spacing "at least 12 pt", whose paragraph mark is 7 pt. Word's line
+// is the 11 pt text's own, 12.67 pt.
+export const AT_LEAST_LINES = 6;
+
+export async function makeAtLeastDocx() {
+  const arial = `<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>`;
+  const text = (line) => `<w:r><w:rPr>${arial}<w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t xml:space="preserve">At least line ${line}.</w:t></w:r>`;
+  const lines = Array.from({ length: AT_LEAST_LINES }, (_, index) => text(index + 1));
+  const body = [`<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="atLeast"/>` +
+    `<w:rPr>${arial}<w:sz w:val="14"/><w:szCs w:val="14"/></w:rPr></w:pPr>${lines.join("<w:r><w:br/></w:r>")}</w:p>`];
+  const bytes = await pack(wrap(body));
+  return { bytes, report: report(bytes) };
+}
+
 export async function makeWordMetricsDocx() {
   const major = `<w:rFonts w:asciiTheme="majorBidi" w:hAnsiTheme="majorBidi" w:cstheme="majorBidi"/>`;
   const small = `<w:sz w:val="20"/><w:szCs w:val="20"/>`;

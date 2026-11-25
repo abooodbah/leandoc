@@ -26,7 +26,8 @@ import {
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { makeKeptParagraphDocx } from "./make-columns-docx.mjs";
 import {
-  CONTENTS_ENTRY, lineText, makeContentsDocx, makeSavedPagesDocx, makeSavedRowsDocx, makeWordMetricsDocx, rowText
+  AT_LEAST_LINES, CONTENTS_ENTRY, lineText, makeAtLeastDocx, makeContentsDocx, makeSavedPagesDocx, makeSavedRowsDocx,
+  makeWordMetricsDocx, rowText
 } from "./make-saved-pages-docx.mjs";
 import { makeColumnStartsDocx, makeKeepRulesDocx, makePageBreakBeforeDocx, makeSectionPagesDocx, makeStyleChainDocx } from "./make-page-rules-docx.mjs";
 import { makeTableEdgeDocx } from "./make-table-edge-docx.mjs";
@@ -2811,6 +2812,22 @@ test("a contents line with a dot leader is as tall as one without", async () => 
     leader.concat(plain).forEach((height) => {
       assert.ok(Math.abs(height - plain[0]) <= 0.1, `a contents line is ${height} px tall; one without a leader is ${plain[0]} px`);
     });
+  });
+});
+
+// Line spacing "at least 12 pt" makes a line as tall as its text when the
+// text is taller. With the paragraph at its 7 pt mark's size and the text
+// at 11 pt, each line was 18 px, the small mark's leading added below the
+// text's, where Word's line is the 11 pt text's 16.9 px.
+test("a line of 11 pt text at least 12 pt apart is as tall as the text, whatever the paragraph mark's size", async () => {
+  await withHost({}, async (host) => {
+    const { bytes, report } = await makeAtLeastDocx();
+    await host.openDocument({ bytes, report, fileName: "at-least.docx" });
+    const height = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody article > p"))
+      .find((p) => p.textContent.includes("At least line 1.")).getBoundingClientRect().height);
+    // Arial's single line is 1.152 times its size (Fixups.wordSingleLine).
+    const line = 11 * 1.152 * 4 / 3;
+    assert.ok(Math.abs(height - AT_LEAST_LINES * line) <= 1, `the paragraph is ${height} px tall; Word's ${AT_LEAST_LINES} lines are ${AT_LEAST_LINES * line} px`);
   });
 });
 
