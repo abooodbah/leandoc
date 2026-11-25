@@ -33,6 +33,7 @@ import { makeColumnStartsDocx, makeKeepRulesDocx, makePageBreakBeforeDocx, makeS
 import { makeTableEdgeDocx } from "./make-table-edge-docx.mjs";
 import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
 import { ARABIC_TEXT, LATIN_TEXT, MONO_TEXT, makeFontsBoxesDocx } from "./make-fonts-boxes-docx.mjs";
+import { makeEmptyTableDocx, makeExactRowDocx, makePaddedRowDocx, makeTallRowDocx } from "./make-table-geometry-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
 let browser;
@@ -3421,6 +3422,110 @@ describe("page view breaks tables, lists, and footers as Word does", () => {
       assert.equal(result.continuedMarkers[0], "none", "its continuation shows no number");
       assert.deepEqual(result.footers, [12, "Page footer marker", "Page footer marker", "Page footer marker", "Page footer marker"]);
       assert.ok(Math.abs(result.raised - result.plain) < 0.5, `four lines with superscripts ${result.raised} px, plain ${result.plain} px`);
+    });
+  });
+
+  // Where each marker's text is: the pages that hold it, and whether any of
+  // its lines lies past the page's text area (below it, or in the overflow
+  // column beside it, which the page clips).
+  function placesOf(host, markers) {
+    return host.page.evaluate((markers) => {
+      document.querySelectorAll("section.docx.ld-lazy").forEach((page) => page.classList.remove("ld-lazy"));
+      const pages = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"));
+      const found = {};
+      markers.forEach((marker) => {
+        found[marker] = { pages: [], hidden: false };
+      });
+      pages.forEach((page, index) => {
+        const article = page.querySelector(":scope > article");
+        const box = article.getBoundingClientRect();
+        const style = getComputedStyle(page);
+        const bottom = page.getBoundingClientRect().top + parseFloat(style.minHeight) - parseFloat(style.paddingBottom);
+        const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          markers.forEach((marker) => {
+            if (!node.data.includes(marker)) {
+              return;
+            }
+            const entry = found[marker];
+            if (entry.pages[entry.pages.length - 1] !== index + 1) {
+              entry.pages.push(index + 1);
+            }
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            Array.from(range.getClientRects()).forEach((rect) => {
+              if (rect.width > 0 && (rect.bottom > bottom + 0.5 || rect.left > box.right + 200)) {
+                entry.hidden = true;
+              }
+            });
+          });
+        }
+      });
+      return { count: pages.length, found };
+    }, markers);
+  }
+
+  // The core drops a table's deleted rows (tracked deletions), and a table
+  // whose rows are all deleted is left with none. Its box has no width, and
+  // at the section's left edge it read as left of the text area: it took a
+  // page of its own, and its heading another.
+  test("an empty table keeps its heading and the text after it on the page", async () => {
+    await withHost({}, async (host) => {
+      const fixture = await makeEmptyTableDocx();
+      const rendered = await host.openDocument({ ...fixture, fileName: "empty-table.docx" });
+      const places = await placesOf(host, ["Heading kept", "Body line 1.", "Body line 30."]);
+      assert.equal(rendered.pages, 2);
+      assert.deepEqual(places.found["Heading kept"].pages, [1]);
+      assert.deepEqual(places.found["Body line 1."].pages, [1]);
+      assert.deepEqual(places.found["Body line 30."].pages, [1]);
+    });
+  });
+
+  // Split at the foot of a page, a row ends there with its cells' bottom
+  // margin and border, which it did not have where Chrome ran it on into
+  // the overflow column. With an 8 px bottom cell margin, the part that
+  // stayed went past the page into that column, which the page clips, and
+  // its 24 lines were not shown.
+  test("a row split at the foot of a page keeps room for its cells' bottom margin", async () => {
+    await withHost({}, async (host) => {
+      const fixture = await makePaddedRowDocx();
+      await host.openDocument({ ...fixture, fileName: "padded-row.docx" });
+      const { found } = await placesOf(host, ["Padded line 1.", "Padded line 20.", "Padded line 40."]);
+      assert.deepEqual(found["Padded line 1."], { pages: [1], hidden: false });
+      assert.deepEqual(found["Padded line 20."], { pages: [1], hidden: false });
+      assert.deepEqual(found["Padded line 40."], { pages: [2], hidden: false });
+    });
+  });
+
+  // A row whose lines all fit and whose height (w:trHeight) does not had
+  // nothing to split: split, it left an empty copy as tall as itself on the
+  // next page and its own foot past the page.
+  test("a row taller than the room left, with lines that fit, moves whole", async () => {
+    await withHost({}, async (host) => {
+      const fixture = await makeTallRowDocx();
+      const rendered = await host.openDocument({ ...fixture, fileName: "tall-row.docx" });
+      const result = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody table"))
+        .map((table) => ({
+          page: Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx")).indexOf(table.closest("section.docx")) + 1,
+          rows: Array.from(table.rows).map((row) => row.textContent.trim())
+        })));
+      assert.equal(rendered.pages, 2);
+      assert.deepEqual(result, [{ page: 2, rows: ["Tall row text."] }]);
+    });
+  });
+
+  // Word does not break a row of exact height across pages: it started a
+  // page with such a row where the page view had split it between its
+  // lines, leaving the rest of its height past the page.
+  test("a row of exact height moves whole", async () => {
+    await withHost({}, async (host) => {
+      const fixture = await makeExactRowDocx();
+      await host.openDocument({ ...fixture, fileName: "exact-row.docx" });
+      const { found } = await placesOf(host, ["Exact left line 1", "Exact right line 1", "Exact left line 8", "Opening line 50."]);
+      assert.deepEqual(found["Opening line 50."].pages, [1]);
+      assert.deepEqual(found["Exact left line 1"], { pages: [2], hidden: false });
+      assert.deepEqual(found["Exact right line 1"], { pages: [2], hidden: false });
+      assert.deepEqual(found["Exact left line 8"], { pages: [2], hidden: false });
     });
   });
 });
