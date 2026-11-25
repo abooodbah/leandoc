@@ -974,12 +974,16 @@
 
   // A block that moves to the next page with the block after it: a heading,
   // or a paragraph Word keeps with the next (w:keepNext, ld-keep-next).
+  // Word keeps a paragraph with the next only for w:keepNext, its own or its
+  // style's, whatever the style is called. Paragraphs in "heading 2" and
+  // "heading 3" styles without it had moved whole runs of paragraphs to the
+  // next page when the style's name was enough.
   function isHeadingBlock(node) {
     if (/^H[1-6]$/.test(node.nodeName)) {
       return true;
     }
     var name = typeof node.className === "string" ? node.className : "";
-    return /(^|[\s_-])(heading|title|subtitle)/i.test(name) || /(^|\s)ld-keep-next(\s|$)/.test(name);
+    return /(^|\s)ld-keep-next(\s|$)/.test(name);
   }
 
   // The top of each line a range of a paragraph covers, or null when its
