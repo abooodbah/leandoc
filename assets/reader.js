@@ -1067,6 +1067,10 @@
     return bottom;
   }
 
+  var OVERFLOW_GAP = 4000;
+  // The height a section was measured at, when it was given a pixel more.
+  var MEASURED = "__ldMeasured";
+
   function columnCount(article) {
     var count = parseInt(window.getComputedStyle(article).columnCount, 10);
     return count > 1 ? count : 1;
@@ -1076,8 +1080,16 @@
   // section has a fixed height, in an overflow column beside the section.
   function overflowTest(article, limit) {
     var box = article.getBoundingClientRect();
+    // A one-column section's overflow columns start a column gap past its
+    // edge (a big one, see layOutPage). A table wider than the text area, or
+    // indented to the left, reaches past that edge without being overflow.
+    var side = box.right - 0.5;
+    if (columnCount(article) === 1) {
+      var gap = parseFloat(window.getComputedStyle(article).columnGap);
+      side = gap > 0 ? box.right + gap / 2 : Infinity;
+    }
     return function (rect) {
-      return rect.bottom > limit + 0.5 || rect.left >= box.right - 0.5 || rect.right <= box.left + 0.5;
+      return rect.bottom > limit + 0.5 || rect.left >= side || rect.right <= box.left + 0.5;
     };
   }
 
@@ -1202,6 +1214,29 @@
     return fits ? plans : null;
   }
 
+  // A row whose text lies inside the text area, and only the space after
+  // its last paragraphs reaches past it. Left as it is, Chrome moves the row
+  // into the overflow column, where it cannot be seen, so that space is
+  // dropped and the row stays. Returns whether the row now fits.
+  function onlySpacingOver(row, over) {
+    var ends = Array.prototype.map.call(row.cells, function (cell) {
+      return cell.lastElementChild && cell.lastElementChild.nodeName === "P" ? cell.lastElementChild : null;
+    }).filter(Boolean);
+    var saved = ends.map(function (end) {
+      return end.style.marginBottom;
+    });
+    ends.forEach(function (end) {
+      end.style.marginBottom = "0";
+    });
+    if (!isOver(row, over)) {
+      return true;
+    }
+    ends.forEach(function (end, index) {
+      end.style.marginBottom = saved[index];
+    });
+    return false;
+  }
+
   // Moves the lines of each cell past the page into a copy of the row and
   // returns the copy.
   function splitRow(row, plans, over) {
@@ -1273,7 +1308,7 @@
         saved = -2;
         break;
       }
-      if (isOver(rows[index], over)) {
+      if (isOver(rows[index], over) && !onlySpacingOver(rows[index], over)) {
         first = index;
         break;
       }
@@ -1291,6 +1326,11 @@
     }
     freezeColumns(table);
     var piece = plans ? splitRow(rows[first], plans, over) : null;
+    if (piece) {
+      // What stayed can still end past the page by the space after its last
+      // paragraphs alone.
+      onlySpacingOver(rows[first], over);
+    }
     var rest = table.cloneNode(false);
     Array.prototype.forEach.call(table.children, function (child) {
       if (child.nodeName === "COLGROUP" || child.nodeName === "THEAD") {
@@ -1701,10 +1741,21 @@
       }
       if (!columns) {
         article.style.columnCount = "1";
+        article.style.columnGap = OVERFLOW_GAP + "px";
         layout.temporary[index] = true;
       }
       article.style.columnFill = "auto";
-      article.style.height = space + "px";
+      // A box that ends up to half a pixel past the limit counts as inside
+      // (overflowTest), and a table's border adds half a pixel to its end:
+      // a column that ended at the limit pushed such a row into the
+      // overflow column, where it could not be seen.
+      var tall = columns ? space : Math.ceil(limit - box.top) + 1;
+      article.style.height = tall + "px";
+      if (tall > space) {
+        // The page keeps the height it had.
+        article.style.marginBottom = (space - tall) + "px";
+        article[MEASURED] = space;
+      }
       var over = overflowTest(article, limit);
       layout.tests[index] = over;
       for (var node = article.firstElementChild; node; node = node.nextElementSibling) {
@@ -2305,6 +2356,17 @@
     articles.forEach(function (article, index) {
       if (layout.temporary[index] && article.parentNode === page && (!next || layout.oversized)) {
         article.style.cssText = styles[index];
+      } else if (article[MEASURED] && article.parentNode === page) {
+        // A section keeps the height it was measured at, unless its last
+        // table row then lies in the overflow column.
+        var last = article.lastElementChild;
+        var tall = article.style.height;
+        article.style.height = article[MEASURED] + "px";
+        article.style.marginBottom = "";
+        if (last && last.nodeName === "TABLE" && isOver(last.rows[last.rows.length - 1], layout.tests[index])) {
+          article.style.height = tall;
+          article.style.marginBottom = (article[MEASURED] - parseFloat(tall)) + "px";
+        }
       }
     });
     return next;
