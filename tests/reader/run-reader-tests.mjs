@@ -34,6 +34,7 @@ import { makeTableEdgeDocx } from "./make-table-edge-docx.mjs";
 import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
 import { ARABIC_TEXT, LATIN_TEXT, MONO_TEXT, makeFontsBoxesDocx } from "./make-fonts-boxes-docx.mjs";
 import { makeEmptyTableDocx, makeExactRowDocx, makePaddedRowDocx, makeTallRowDocx } from "./make-table-geometry-docx.mjs";
+import { makeColumnBreakDocx } from "./make-column-break-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
 let browser;
@@ -3526,6 +3527,25 @@ describe("page view breaks tables, lists, and footers as Word does", () => {
       assert.deepEqual(found["Exact left line 1"], { pages: [2], hidden: false });
       assert.deepEqual(found["Exact right line 1"], { pages: [2], hidden: false });
       assert.deepEqual(found["Exact left line 8"], { pages: [2], hidden: false });
+    });
+  });
+});
+
+// Word ends the page at a column break in a section of one column; the page
+// view drew nothing for it and ran the heading after it on from the text
+// before. In a section with columns the break moves to the next column,
+// not to a new page.
+describe("page view ends a page at a column break in a one-column section", () => {
+  test("a column break starts a page in one column and not in two", async () => {
+    await withHost({}, async (host) => {
+      const fixture = await makeColumnBreakDocx();
+      const rendered = await host.openDocument({ ...fixture, fileName: "column-break.docx" });
+      const pages = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"))
+        .map((page) => Array.from(page.querySelectorAll(":scope > article")).map((article) => article.textContent).join(" ")));
+      assert.equal(rendered.pages, 2);
+      assert.ok(pages[0].includes("Opening line two.") && !pages[0].includes("Heading after"), pages[0]);
+      assert.ok(pages[1].startsWith("Heading after the column break"), pages[1]);
+      assert.ok(pages[1].includes("Right column text."), pages[1]);
     });
   });
 });
