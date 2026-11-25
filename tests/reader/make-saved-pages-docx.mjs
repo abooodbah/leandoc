@@ -158,6 +158,26 @@ export async function makeSavedPagesDocx({ pages = 10, lines = 38, split = 0, pa
   return { bytes, pages, lines, report: report(bytes) };
 }
 
+// One table of `rows` rows, each one 18 pt line (24 px) tall, split by Word into
+// saved pages of `perPage` rows: the first cell of the first row of each saved
+// page after the first holds the w:lastRenderedPageBreak marker. A US Letter page with 1-inch margins holds 36 such rows.
+export function rowText(row) {
+  return `Row ${row}.`;
+}
+
+export async function makeSavedRowsDocx({ rows = 100, perPage = 30 } = {}) {
+  const cell = (width, text, saved) => `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/></w:tcPr><w:p>${LINE}${run(text, { saved })}</w:p></w:tc>`;
+  const trs = [];
+  for (let row = 1; row <= rows; row += 1) {
+    const saved = row > 1 && (row - 1) % perPage === 0;
+    trs.push(`<w:tr>${cell(4680, rowText(row), saved)}${cell(4680, `Cell ${row}.`, false)}</w:tr>`);
+  }
+  const table = `<w:tbl><w:tblPr><w:tblW w:w="9360" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr>` +
+    `<w:tblGrid><w:gridCol w:w="4680"/><w:gridCol w:w="4680"/></w:tblGrid>${trs.join("")}</w:tbl>`;
+  const bytes = await pack(wrap([table, `<w:p>${LINE}${run("After the table.")}</w:p>`]));
+  return { bytes, rows, perPage, report: report(bytes) };
+}
+
 export async function makeWordMetricsDocx() {
   const major = `<w:rFonts w:asciiTheme="majorBidi" w:hAnsiTheme="majorBidi" w:cstheme="majorBidi"/>`;
   const small = `<w:sz w:val="20"/><w:szCs w:val="20"/>`;

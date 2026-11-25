@@ -25,7 +25,7 @@ import {
 } from "./make-numbered-docx.mjs";
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { makeKeptParagraphDocx } from "./make-columns-docx.mjs";
-import { lineText, makeSavedPagesDocx, makeWordMetricsDocx } from "./make-saved-pages-docx.mjs";
+import { lineText, makeSavedPagesDocx, makeSavedRowsDocx, makeWordMetricsDocx, rowText } from "./make-saved-pages-docx.mjs";
 import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
@@ -2650,6 +2650,33 @@ describe("page view follows the page starts Word saved", () => {
       assert.equal(rendered.pages, pages);
       assert.deepEqual(found.map((page) => page.length), Array(pages).fill(lines));
       assert.deepEqual(found.map((page) => page[0]), Array.from({ length: pages }, (_, index) => lineText(index + 1, 1)));
+    });
+  });
+});
+
+describe("a table splits at the row where Word saved a page start", () => {
+  function pageRows(host) {
+    return host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"))
+      .map((page) => (page.textContent.match(/Row \d+\./g) || []).map((text) => Number(text.slice(4, -1)))));
+  }
+
+  // A 100-row table that Word broke every 30 rows (its pages hold 36 here, as
+  // a document whose rows are a little shorter than Word's). docx-preview
+  // draws no page for a marker inside a table, so the table had been filled to
+  // the bottom of each page: 36, 36, 28 rows, and the pages did not start
+  // where Word's did.
+  test("rows that would fit on the page wait for the row Word started its next page at", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report, rows, perPage } = await makeSavedRowsDocx({ rows: 100, perPage: 30 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "saved-rows.docx" });
+      const found = await pageRows(host);
+      assert.equal(rendered.pages, 4);
+      assert.deepEqual(found.map((page) => page[0]), [1, 31, 61, 91]);
+      assert.deepEqual(found.map((page) => page.length), [perPage, perPage, perPage, rows - 3 * perPage]);
+      assert.equal(found.flat().length, rows);
+      const text = await host.page.evaluate(() => document.querySelector("#docBody .docx-wrapper").textContent);
+      assert.ok(text.includes("After the table."));
+      assert.ok(text.includes(rowText(100)));
     });
   });
 });
