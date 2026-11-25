@@ -26,7 +26,7 @@ import {
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { makeKeptParagraphDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeSavedRowsDocx, makeWordMetricsDocx, rowText } from "./make-saved-pages-docx.mjs";
-import { makeKeepRulesDocx, makeSectionPagesDocx, makeStyleChainDocx } from "./make-page-rules-docx.mjs";
+import { makeKeepRulesDocx, makePageBreakBeforeDocx, makeSectionPagesDocx, makeStyleChainDocx } from "./make-page-rules-docx.mjs";
 import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
@@ -2752,6 +2752,26 @@ describe("page view keeps and starts pages as Word does", () => {
       assert.ok(texts[1].startsWith("Second section line 1."), texts[1].slice(0, 40));
       // The continuous section after it stays on its page.
       assert.ok(texts[1].endsWith("Third section line 3."), texts[1].slice(-40));
+    });
+  });
+
+  // A blank page showed before a heading whose style breaks the page before
+  // it, after a page break or at the document's start: docx-preview starts a
+  // page at a paragraph whose style breaks the page before it even where
+  // the paragraph is at the top of a page already. Word starts none there.
+  test("a page break before a paragraph at the top of a page adds no page", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makePageBreakBeforeDocx();
+      const rendered = await host.openDocument({ bytes, report, fileName: "break-before.docx" });
+      const pages = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"))
+        .map((page) => ({
+          header: Array.from(page.querySelectorAll(":scope > header")).map((node) => node.textContent.trim()).join(""),
+          text: Array.from(page.querySelectorAll(":scope > article")).map((article) => article.textContent).join("")
+        })));
+      assert.equal(rendered.pages, 2);
+      assert.deepEqual(pages.map((page) => page.text.slice(0, 11)), ["Chapter one", "Chapter two"]);
+      // The first page keeps the section's first-page header.
+      assert.deepEqual(pages.map((page) => page.header), ["First page header.", "Running header."]);
     });
   });
 });
