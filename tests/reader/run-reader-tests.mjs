@@ -1,7 +1,9 @@
 // Reader tests: the staged reader in Chromium with a fake host.
 // Run: npm run test:reader (or node --test tests/reader/run-reader-tests.mjs)
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import {
@@ -16,6 +18,7 @@ import {
 } from "./fake-host.mjs";
 import { makeBigDocx } from "./make-big-docx.mjs";
 import { makeFloatsDocx } from "./make-floats-docx.mjs";
+import { BODY_TEXT, HEADER_TEXT, makeAlternatePictureDocx } from "./make-alternate-picture-docx.mjs";
 import {
   makeBreakLinesDocx, makeCancelledNumberingDocx, makeEmptyMarkNoteDocx, makeEquationDocx, makeNumberedDocx, makeSmallCapsDocx,
   makeSoftHyphenDocx, makeTightHyphenDocx, makeWideLinesDocx
@@ -277,6 +280,41 @@ describe("rendering cases (RENDER-01, SEC-01 reader half)", () => {
     await withHost({ theme: "light", view: "reading" }, async (host) => {
       await openFixture(host, "arabic.docx");
       await screenshot(host, "case-arabic-reading");
+    });
+  });
+});
+
+// A picture whose fill sits in an mc:AlternateContent inside pic:pic, as
+// some older Mac Word files save it, goes through the core as the hosts send
+// it. The core resolves the block to its Fallback, so docx-preview finds the
+// picture's blipFill and the document renders with both pictures.
+describe("a picture fill inside AlternateContent (RENDER-01)", { skip: !process.env.LEANDOC_INSPECT && "LEANDOC_INSPECT is not set" }, () => {
+  test("renders, with the header and body pictures shown", async () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), "leandoc-alternate-picture-"));
+    const source = path.join(directory, "alternate-picture.docx");
+    writeFileSync(source, await makeAlternatePictureDocx());
+    const inspect = process.env.LEANDOC_INSPECT;
+    const lines = execFileSync(inspect, [source], { encoding: "utf8" }).trim().split("\n");
+    const report = JSON.parse(lines[lines.length - 1]);
+    const sanitized = path.join(directory, "sanitized.docx");
+    execFileSync(inspect, ["--write-sanitized", sanitized, source], { stdio: "pipe" });
+    await withHost({}, async (host) => {
+      const rendered = await host.openDocument({ bytes: readFileSync(sanitized), report, fileName: "alternate-picture.docx" });
+      assert.equal(rendered.type, "rendered", `the document renders: ${JSON.stringify(rendered)}`);
+      const state = await host.page.evaluate(() => {
+        const body = document.querySelector("#docBody");
+        const pictures = Array.from(body.querySelectorAll("img")).map((image) => ({
+          inHeader: !!image.closest("header"),
+          src: image.getAttribute("src") || ""
+        }));
+        return { text: body.textContent, pictures };
+      });
+      assert.ok(state.text.includes(BODY_TEXT), "the body text is shown");
+      assert.ok(state.text.includes(HEADER_TEXT), "the header text is shown");
+      assert.ok(state.pictures.some((picture) => picture.inHeader && picture.src),
+        `the header picture has its image: ${JSON.stringify(state.pictures)}`);
+      assert.ok(state.pictures.some((picture) => !picture.inHeader && picture.src),
+        `the body picture has its image: ${JSON.stringify(state.pictures)}`);
     });
   });
 });
