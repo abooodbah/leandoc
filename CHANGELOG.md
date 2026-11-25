@@ -16,6 +16,12 @@ versioning.
   displayed, status messages, file dialogs, Windows error messages and the
   macOS menus all follow it. Documents are shown as they were written.
 
+### Fixed
+
+- A document whose pictures keep their image inside a compatibility block,
+  as some files saved by older Mac versions of Word do, now opens with its
+  pictures. Before, the whole document failed to display.
+
 ## [0.3.3] - 2026-11-19
 
 ### Fixed

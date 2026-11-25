@@ -1033,21 +1033,34 @@ private:
                     }
                     scope_.Pop(inner);
                 }
-                if (choice && !ContainsForbidden(choice)) {
+                // In a picture, docx-preview looks for blipFill and spPr only
+                // as direct children of pic:pic, so the block is resolved
+                // here the way docx-preview resolves one elsewhere: to the
+                // Fallback, or to the Choice when there is no Fallback.
+                const bool inPicture = name.Is(Ns::Pic, "pic");
+                const bool choiceAllowed = choice && !ContainsForbidden(choice);
+                const bool fallbackAllowed = fallback && !ContainsForbidden(fallback);
+                pugi::xml_node chosen;
+                if (fallbackAllowed && (inPicture || !choiceAllowed)) {
+                    chosen = fallback;
+                } else if (choiceAllowed && inPicture) {
+                    chosen = choice;
+                }
+                if (choiceAllowed && !inPicture) {
                     action = Action::Keep;
-                } else if (fallback && !ContainsForbidden(fallback)) {
-                    // Replace the whole element with the fallback content.
+                } else if (chosen) {
+                    // Replace the whole element with the chosen content.
                     // Unwrap carries namespace declarations from both levels.
                     scope_.Pop(mark);
                     pugi::xml_node part = child.first_child();
                     while (part) {
                         pugi::xml_node following = part.next_sibling();
-                        if (part != fallback) {
+                        if (part != chosen) {
                             child.remove_child(part);
                         }
                         part = following;
                     }
-                    Unwrap(child, fallback);
+                    Unwrap(child, chosen);
                     child = Unwrap(element, child);
                     removedChild = true;
                     continue;
