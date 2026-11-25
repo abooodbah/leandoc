@@ -2310,6 +2310,186 @@
     return dropped;
   }
 
+  // An attribute of a paragraph's w:spacing as Word resolves it: each
+  // attribute on its own, from the paragraph, then its style chain, then the
+  // document defaults. Returns the attribute's text, or null.
+  function spacingAttributeResolver(stylesRoot, attribute) {
+    var byId = {};
+    elementsNamed(stylesRoot, "style").forEach(function (style) {
+      if (getAttr(style, "type") === "paragraph") {
+        byId[getAttr(style, "styleId")] = style;
+      }
+    });
+    function own(properties) {
+      var spacing = properties && childNamed(properties, "spacing");
+      return spacing ? getAttr(spacing, attribute) : null;
+    }
+    var defaults = stylesRoot ? childNamed(stylesRoot, "docDefaults") : null;
+    var pPrDefault = defaults ? childNamed(defaults, "pPrDefault") : null;
+    var fallback = own(pPrDefault ? childNamed(pPrDefault, "pPr") : null);
+    var known = {};
+    function fromStyle(id, depth) {
+      if (Object.prototype.hasOwnProperty.call(known, id)) {
+        return known[id];
+      }
+      var style = byId[id];
+      var value = style ? own(childNamed(style, "pPr")) : null;
+      var base = style && childNamed(style, "basedOn");
+      var result = value !== null ? value
+        : base && depth < 32 ? fromStyle(getAttr(base, "val"), depth + 1) : fallback;
+      known[id] = result;
+      return result;
+    }
+    return function (element, styleId) {
+      var value = own(childNamed(element, "pPr"));
+      return value !== null ? value : fromStyle(styleId || "", 0);
+    };
+  }
+
+  // The list a paragraph is in (its w:numId, from the paragraph or its
+  // style chain), or "" when it is not numbered.
+  function numberingResolver(stylesRoot) {
+    var byId = {};
+    elementsNamed(stylesRoot, "style").forEach(function (style) {
+      if (getAttr(style, "type") === "paragraph") {
+        byId[getAttr(style, "styleId")] = style;
+      }
+    });
+    function own(properties) {
+      var numbering = properties && childNamed(properties, "numPr");
+      var id = numbering && childNamed(numbering, "numId");
+      return id ? getAttr(id, "val") || "" : null;
+    }
+    function fromStyle(id, depth) {
+      var style = byId[id];
+      var value = style ? own(childNamed(style, "pPr")) : null;
+      var base = style && childNamed(style, "basedOn");
+      return value !== null ? value
+        : base && depth < 32 ? fromStyle(getAttr(base, "val"), depth + 1) : "";
+    }
+    return function (element, styleId) {
+      var value = own(childNamed(element, "pPr"));
+      value = value !== null ? value : fromStyle(styleId || "", 0);
+      return value === "0" ? "" : value;
+    };
+  }
+
+  // HTML auto spacing (w:beforeAutospacing, w:afterAutospacing), which Word
+  // saves for the Normal (Web) style and for text pasted from web pages.
+  // Word then spaces the paragraph by 14 pt and ignores w:before and
+  // w:after, which hold the 5 pt other applications use. As in a web page,
+  // the space is dropped above the first paragraph of a table cell and below
+  // the last, and between the paragraphs of one list. With w:doNotUseHTMLParagraphAutoSpacing Word uses w:before and
+  // w:after, which docx-preview already does.
+  var HTML_AUTO_SPACING = "14pt";
+
+  function isOnValue(value) {
+    return value !== null && !/^(0|false|off)$/i.test(value);
+  }
+
+  // Whether any w:spacing under `root` turns auto spacing on. Most documents
+  // set none, and one pass over their w:spacing elements saves pairing
+  // every paragraph of a long document with the XML.
+  function hasAutoSpacing(root) {
+    if (!root) {
+      return false;
+    }
+    if (!root.getElementsByTagNameNS) {
+      return true;
+    }
+    var spacings = root.getElementsByTagNameNS("*", "spacing");
+    for (var index = 0; index < spacings.length; index += 1) {
+      if (isOnValue(getAttr(spacings[index], "beforeAutospacing")) ||
+          isOnValue(getAttr(spacings[index], "afterAutospacing"))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function applyAutoSpacing(modelBody, xmlBody, stylesRoot, settingsRoot, defaultId) {
+    var fixed = settingsRoot && childNamed(settingsRoot, "compat");
+    fixed = fixed && childNamed(fixed, "doNotUseHTMLParagraphAutoSpacing");
+    if (!xmlBody || (fixed && isOn(fixed)) || (!hasAutoSpacing(stylesRoot) && !hasAutoSpacing(xmlBody))) {
+      return 0;
+    }
+    var modelParagraphs = [];
+    var xmlParagraphs = [];
+    modelBlocks(modelBody ? modelBody.children : [], modelParagraphs, []);
+    xmlBlocks(xmlBody, false, xmlParagraphs, []);
+    if (xmlParagraphs.length !== modelParagraphs.length) {
+      return 0;
+    }
+    var before = spacingAttributeResolver(stylesRoot, "beforeAutospacing");
+    var after = spacingAttributeResolver(stylesRoot, "afterAutospacing");
+    var list = numberingResolver(stylesRoot);
+    function styleOf(element) {
+      var properties = childNamed(element, "pPr");
+      var name = properties && childNamed(properties, "pStyle");
+      return (name && getAttr(name, "val")) || defaultId || "";
+    }
+    var auto = new Map();
+    xmlParagraphs.forEach(function (element, index) {
+      var style = styleOf(element);
+      var top = isOnValue(before(element, style));
+      var bottom = isOnValue(after(element, style));
+      if (top || bottom) {
+        auto.set(element, { model: modelParagraphs[index], top: top, bottom: bottom, list: list(element, style) });
+      }
+    });
+    if (!auto.size) {
+      return 0;
+    }
+    auto.forEach(function (entry, element) {
+      var cell = element.parentNode && element.parentNode.localName === "tc";
+      if (entry.top && cell && !previousBlock(element)) {
+        entry.top = "0pt";
+      }
+      if (entry.bottom && cell && !nextBlock(element)) {
+        entry.bottom = "0pt";
+      }
+      var previous = neighbourParagraph(element, -1);
+      var prior = previous && auto.get(previous);
+      if (entry.top && entry.list && prior && prior.list === entry.list) {
+        entry.top = "0pt";
+        if (prior.bottom) {
+          prior.bottom = "0pt";
+        }
+      }
+    });
+    var count = 0;
+    auto.forEach(function (entry) {
+      var model = entry.model;
+      model.cssStyle = model.cssStyle || {};
+      if (entry.top) {
+        model.cssStyle["margin-top"] = entry.top === true ? HTML_AUTO_SPACING : entry.top;
+      }
+      if (entry.bottom) {
+        model.cssStyle["margin-bottom"] = entry.bottom === true ? HTML_AUTO_SPACING : entry.bottom;
+      }
+      count += 1;
+    });
+    return count;
+  }
+
+  // The block before or after a paragraph in its container, skipping
+  // bookmarks and the like and a cell's w:tcPr.
+  function previousBlock(element) {
+    var sibling = element.previousElementSibling;
+    while (sibling && (NON_BLOCKS.test(sibling.localName) || sibling.localName === "tcPr")) {
+      sibling = sibling.previousElementSibling;
+    }
+    return sibling;
+  }
+
+  function nextBlock(element) {
+    var sibling = element.nextElementSibling;
+    while (sibling && NON_BLOCKS.test(sibling.localName)) {
+      sibling = sibling.nextElementSibling;
+    }
+    return sibling;
+  }
+
   // In CSS every line of a paragraph is at least as tall as the paragraph's
   // own font; in Word a line is as tall as the text on it, and the paragraph
   // mark counts on the last line. References at 10 pt in a 12 pt style were
@@ -2921,6 +3101,8 @@
     stats.borderedTables = annotation.borderedTables;
     stats.emptyMarkFonts = applyEmptyMarkFonts(modelBody, xmlBody, slots);
     stats.complexScriptRuns = complexScriptRuns(modelBody, xmlBody, partRoot(doc.stylesPart), slots,
+      defaultParagraph && defaultParagraph.id);
+    stats.autoSpacing = applyAutoSpacing(modelBody, xmlBody, partRoot(doc.stylesPart), partRoot(doc.settingsPart),
       defaultParagraph && defaultParagraph.id);
     stats.contextualSpacing = applyContextualSpacing(modelBody, xmlBody, partRoot(doc.stylesPart),
       defaultParagraph && defaultParagraph.id);
