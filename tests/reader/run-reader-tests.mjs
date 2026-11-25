@@ -5030,6 +5030,20 @@ describe("fonts, pictures, and text boxes take the space Word gives them", () =>
       assert.equal(runs.latin.family, "Times New Roman");
     });
   });
+
+  // Word spaces paragraphs with HTML auto spacing 14 pt apart and ignores
+  // the 5 pt in w:before and w:after; the reader spaced them 5 pt apart.
+  test("paragraphs with HTML auto spacing are 14 pt apart", async () => {
+    await withHost({}, async (host) => {
+      await open(host, "auto");
+      const gaps = await host.page.evaluate(() => {
+        const paragraphs = Array.from(document.querySelectorAll("#docBody article p"));
+        const box = (text) => paragraphs.find((p) => p.textContent.includes(text)).getBoundingClientRect();
+        return [box("Auto two").top - box("Auto one").bottom, box("Auto three").top - box("Auto two").bottom];
+      });
+      gaps.forEach((gap, index) => near(gap, 14 * 4 / 3, 0.5, `gap ${index + 1}`));
+    });
+  });
 });
 
 

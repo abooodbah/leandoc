@@ -16,6 +16,9 @@
 // - "complex": a right-to-left run of Arabic in a style whose complex-script
 //   font is Traditional Arabic at 15 pt (w:rFonts/@w:cs, w:szCs), and a
 //   left-to-right run after it in the style's 11 pt Times New Roman.
+// - "auto": three paragraphs in a Normal (Web) style with HTML auto spacing
+//   (w:beforeAutospacing, w:afterAutospacing) and 5 pt in w:before and
+//   w:after, as Word saves it.
 //
 // All text is made up. Returns bytes and a report.
 import { createRequire } from "node:module";
@@ -63,6 +66,8 @@ const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:pPr><w:spacing w:after="200" w:line="276" w:lineRule="auto"/></w:pPr><w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:customStyle="1" w:styleId="ArabicBody"><w:name w:val="Arabic Body"/><w:basedOn w:val="Normal"/>
 <w:pPr><w:bidi/></w:pPr><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Traditional Arabic"/><w:sz w:val="22"/><w:szCs w:val="30"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="NormalWeb"><w:name w:val="Normal (Web)"/><w:basedOn w:val="Normal"/>
+<w:pPr><w:spacing w:before="100" w:beforeAutospacing="1" w:after="100" w:afterAutospacing="1" w:line="240" w:lineRule="auto"/></w:pPr></w:style>
 </w:styles>`;
 
 const SETTINGS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -124,7 +129,9 @@ const PARTS = {
   complex: () => [
     `<w:p><w:pPr><w:pStyle w:val="ArabicBody"/></w:pPr><w:r><w:rPr><w:rtl/></w:rPr><w:t xml:space="preserve">${ARABIC_TEXT}</w:t></w:r>` +
       `<w:r><w:t xml:space="preserve"> ${LATIN_TEXT}</w:t></w:r></w:p>`
-  ]
+  ],
+  auto: () => ["Auto one heron.", "Auto two heron.", "Auto three heron."].map((value) =>
+    `<w:p><w:pPr><w:pStyle w:val="NormalWeb"/></w:pPr>${text(value)}</w:p>`)
 };
 
 async function pack(documentXml) {
