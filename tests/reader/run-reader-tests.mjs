@@ -18,6 +18,7 @@ import {
 } from "./fake-host.mjs";
 import { makeBigDocx } from "./make-big-docx.mjs";
 import { makeFloatsDocx } from "./make-floats-docx.mjs";
+import { makeBodyDocx, makeStyles } from "./make-body-docx.mjs";
 import { BODY_TEXT, HEADER_TEXT, makeAlternatePictureDocx } from "./make-alternate-picture-docx.mjs";
 import {
   makeBreakLinesDocx, makeCancelledNumberingDocx, makeEmptyMarkNoteDocx, makeEquationDocx, makeNumberedDocx, makeSmallCapsDocx,
@@ -5261,3 +5262,22 @@ describe("table rows at the foot of a page", () => {
   });
 });
 
+describe("page view keeps a line of small code as tall as its text", () => {
+  // A tab is a span of its own, and the document's default rule for spans
+  // (11 pt here) gave it that size inside an 8 pt Consolas run: each line of
+  // a code listing was 20 px tall where Word's is 8 pt Consolas at single
+  // spacing, 14 px.
+  test("a code line that starts with a tab is one 8 pt line tall", async () => {
+    await withHost({}, async (host) => {
+      const code = (text) => `<w:p><w:pPr><w:spacing w:after="0"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/><w:sz w:val="16"/></w:rPr><w:tab/><w:tab/><w:t>${text}</w:t></w:r></w:p>`;
+      const { bytes, report } = await makeBodyDocx(code("alpha") + code("beta"));
+      await host.openDocument({ bytes, report, fileName: "code-tabs.docx" });
+      const heights = await host.page.evaluate(() => {
+        const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+        const scale = page.getBoundingClientRect().width / page.offsetWidth;
+        return Array.from(page.querySelectorAll("article > p")).map((p) => p.getBoundingClientRect().height / scale);
+      });
+      assert.ok(heights[0] < 14 && heights[1] < 14, `the code lines are ${heights.join(" and ")} px tall; 8 pt single is about 12`);
+    });
+  });
+});
