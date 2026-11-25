@@ -1344,10 +1344,16 @@ body {
   text-align: left;
 }
 
+/* A tab with a leader is a box that clips its dots, and such a box sits on
+   the line by its bottom edge. Set on the text's bottom, it reached above
+   the line by the line's leading, and a line with a leader was taller than
+   the same line without one. At the
+   top of the line it takes no more height than its own line, and on a line
+   of its own size its dots sit on the text's baseline. */
 #docBody span.ld-tab-leader {
   overflow: hidden;
   white-space: nowrap;
-  vertical-align: text-bottom;
+  vertical-align: top;
 }
 
 /* A footnote with the author's own mark (w:customMarkFollows) shows that
