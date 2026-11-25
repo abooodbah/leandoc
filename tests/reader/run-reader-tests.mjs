@@ -27,6 +27,7 @@ import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartA
 import { makeKeptParagraphDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeSavedRowsDocx, makeWordMetricsDocx, rowText } from "./make-saved-pages-docx.mjs";
 import { makeColumnStartsDocx, makeKeepRulesDocx, makePageBreakBeforeDocx, makeSectionPagesDocx, makeStyleChainDocx } from "./make-page-rules-docx.mjs";
+import { makeTableEdgeDocx } from "./make-table-edge-docx.mjs";
 import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
 import { ARABIC_TEXT, LATIN_TEXT, MONO_TEXT, makeFontsBoxesDocx } from "./make-fonts-boxes-docx.mjs";
 
@@ -4991,3 +4992,31 @@ describe("fonts, pictures, and text boxes take the space Word gives them", () =>
     });
   });
 });
+
+
+describe("table rows at the foot of a page", () => {
+  // A row whose text fits the page but whose space after its last paragraph
+  // does not was moved by the browser into a column beside the page, where
+  // nothing could be seen.
+  test("a row that fits except for its trailing space stays visible", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeTableEdgeDocx();
+      await host.openDocument({ bytes, report, fileName: "table-edge.docx" });
+      const hidden = await host.page.evaluate(() => {
+        document.querySelectorAll("section.docx.ld-lazy").forEach((page) => page.classList.remove("ld-lazy"));
+        const found = [];
+        document.querySelectorAll("#docBody section.docx > article").forEach((article) => {
+          const box = article.getBoundingClientRect();
+          article.querySelectorAll("p").forEach((paragraph) => {
+            if (paragraph.getBoundingClientRect().left >= box.right - 0.5) {
+              found.push(paragraph.textContent);
+            }
+          });
+        });
+        return found;
+      });
+      assert.deepEqual(hidden, [], "no paragraph lies in a column beside the page");
+    });
+  });
+});
+
