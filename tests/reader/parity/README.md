@@ -21,6 +21,10 @@ Environment for the Node scripts:
 3. `node compare.mjs word.json reader.json [--detail]` prints, per file, both
    page counts and how many of Word's page starts begin a reader page.
 
+For a public set that runs anywhere, `word-public.json` holds Word's results
+for the long documents in `tests/parity-corpus` (see its README); score it
+from the repository root.
+
 `segments.mjs` measures how tall each Word page's content is in the reader,
 which shows where a document starts to run long or short.
 
