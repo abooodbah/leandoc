@@ -1119,7 +1119,8 @@ test("A numbered level gets its label's tab only where its paragraphs start with
   const sibling = item(1, { type: "text", text: "Plain item at the tabbed level" });
   assert.equal(Fixups.markTabs([plain, bookmarked, sibling], [], numberings, {}), 3, "the tabbed item's own tab and the two label tabs at its level");
   assert.equal(plain.children.length, 1, "no label tab where the level's items start with text");
-  assert.equal(numberings[0].suff, "tab");
+  // That level keeps docx-preview's label, with a no-break space after it.
+  assert.equal(numberings[0].suff, "space");
   assert.equal(bookmarked.children.length, 2);
   assert.equal(sibling.children.length, 2, "every item at a tabbed level gets the label's tab");
   assert.equal(numberings[1].suff, "nothing");

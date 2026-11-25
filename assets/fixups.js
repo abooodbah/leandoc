@@ -2017,6 +2017,18 @@
     numbered.forEach(function (level) {
       level.suff = "nothing";
     });
+    // Any other label Word follows with a tab keeps docx-preview's place
+    // for its text, a space's width after it, but not its line break: the
+    // tab, printed as a space, let a word longer than the line (a long URL)
+    // move to the line after its bullet, which stood alone. Word breaks such a word on the label's line. A no-break space
+    // (w:suff "space" in docx-preview) keeps the word there.
+    Object.keys(levels).forEach(function (key) {
+      levels[key].forEach(function (level) {
+        if (level.suff === undefined || level.suff === "tab") {
+          level.suff = "space";
+        }
+      });
+    });
     return marked;
   }
 
