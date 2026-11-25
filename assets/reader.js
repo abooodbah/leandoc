@@ -2311,13 +2311,21 @@
   }
 
   // A block that moves to the next page takes the headings before it along.
+  // A chain of kept blocks that runs back to the page's first block, itself
+  // kept with the next, cannot fit on any page: Word breaks it where the
+  // page ends, and the page stays full. Moved, it left pages of one
+  // paragraph each.
   function withHeadings(start, first) {
+    var moved = start;
     var previous = start.previousElementSibling;
     while (previous && previous !== first && isHeadingBlock(previous)) {
-      start = previous;
+      moved = previous;
       previous = previous.previousElementSibling;
     }
-    return start;
+    if (previous === first && moved !== start && isHeadingBlock(first)) {
+      return start;
+    }
+    return moved;
   }
 
   // The first block moveRest will move whole, the headings it takes along
