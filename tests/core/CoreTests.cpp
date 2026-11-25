@@ -764,6 +764,37 @@ void TestSanitizing() {
     Expect(Contains(output, "mc:Choice") && Contains(output, "mc:Fallback"),
            "a clean AlternateContent is kept");
 
+    // Inside a picture (pic:pic), docx-preview reads blipFill and spPr only as
+    // direct children, so the core resolves an AlternateContent there the way
+    // docx-preview resolves one elsewhere: to its Fallback, or to the Choice
+    // when there is no Fallback.
+    const std::string pictureStart =
+        "<w:p><w:r><w:drawing><wp:inline><wp:extent cx=\"914400\" cy=\"457200\"/>"
+        "<wp:docPr id=\"1\" name=\"P\"/><a:graphic><a:graphicData "
+        "uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"><pic:pic>"
+        "<pic:nvPicPr><pic:cNvPr id=\"0\" name=\"p\"/><pic:cNvPicPr/></pic:nvPicPr>";
+    const std::string pictureEnd =
+        "<pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"914400\" cy=\"457200\"/></a:xfrm>"
+        "</pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>";
+    output = SanitizedBody(
+        pictureStart +
+        "<mc:AlternateContent><mc:Choice Requires=\"ma\"><pic:blipFill><a:blip/><a:tile/>"
+        "</pic:blipFill></mc:Choice><mc:Fallback><pic:blipFill><a:blip/><a:stretch><a:fillRect/>"
+        "</a:stretch></pic:blipFill></mc:Fallback></mc:AlternateContent>" +
+        pictureEnd);
+    Expect(!Contains(output, "AlternateContent") && Contains(output, "a:stretch") &&
+               !Contains(output, "a:tile") &&
+               Contains(output, "</pic:nvPicPr><pic:blipFill>"),
+           "an AlternateContent in a picture becomes its Fallback, as a child of pic:pic");
+    output = SanitizedBody(
+        pictureStart +
+        "<mc:AlternateContent><mc:Choice Requires=\"ma\"><pic:blipFill><a:blip/><a:tile/>"
+        "</pic:blipFill></mc:Choice></mc:AlternateContent>" +
+        pictureEnd);
+    Expect(!Contains(output, "AlternateContent") && Contains(output, "a:tile") &&
+               Contains(output, "</pic:nvPicPr><pic:blipFill>"),
+           "an AlternateContent in a picture without a Fallback becomes its Choice");
+
     // Tracked-change markers inside properties are removed, not unwrapped.
     output = SanitizedBody(
         "<w:p><w:pPr><w:rPr><w:ins w:id=\"1\" w:author=\"a\"/></w:rPr></w:pPr>"
