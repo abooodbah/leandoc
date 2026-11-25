@@ -26,7 +26,7 @@ import {
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { makeKeptParagraphDocx } from "./make-columns-docx.mjs";
 import { lineText, makeSavedPagesDocx, makeSavedRowsDocx, makeWordMetricsDocx, rowText } from "./make-saved-pages-docx.mjs";
-import { makeKeepRulesDocx, makeStyleChainDocx } from "./make-page-rules-docx.mjs";
+import { makeKeepRulesDocx, makeSectionPagesDocx, makeStyleChainDocx } from "./make-page-rules-docx.mjs";
 import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
@@ -2735,6 +2735,23 @@ describe("page view keeps and starts pages as Word does", () => {
       await host.openDocument({ bytes, report, fileName: "keep-chain.docx" });
       const texts = await pageTexts(host);
       assert.deepEqual(texts.map((text) => (text.match(/Kept line \d+\./g) || []).length), [36, 36, 8]);
+    });
+  });
+
+  // Sections of one page size that are not continuous ran on from each
+  // other: docx-preview starts a page at a section break
+  // only where the page size changes. In Word every section but a
+  // continuous one starts on a new page.
+  test("a section that starts on a new page starts one on the same page size", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeSectionPagesDocx();
+      const rendered = await host.openDocument({ bytes, report, fileName: "section-pages.docx" });
+      const texts = await pageTexts(host);
+      assert.equal(rendered.pages, 2);
+      assert.ok(texts[0].endsWith("First section line 5."), texts[0].slice(-40));
+      assert.ok(texts[1].startsWith("Second section line 1."), texts[1].slice(0, 40));
+      // The continuous section after it stays on its page.
+      assert.ok(texts[1].endsWith("Third section line 3."), texts[1].slice(-40));
     });
   });
 });
