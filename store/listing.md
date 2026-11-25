@@ -7,7 +7,7 @@ Paste each field into Partner Center > your app > Submission > Store listings > 
 - Product name (reserve this exact name): LeanDoc Word Viewer (reserved in Partner Center; the MSIX manifest DisplayName is set to it, and the package identity, executable and window title stay LeanDoc)
 - Publisher display name: Lean Apps Studio
 - Short title (50 characters or fewer): LeanDoc Word Viewer
-- Version in this pack: 0.3.3 (package version 0.3.3.0)
+- Version in this pack: 0.4.0 (package version 0.4.0.0)
 - File types it shows as pages: Word documents (.docx, .docm, .dotx, .dotm). Older .doc files, .rtf, and .odt are not shown: they open to a page that offers your editor
 
 ## Short description
@@ -66,7 +66,11 @@ LeanDoc draws pages with the Microsoft Edge WebView2 runtime that Windows alread
 
 ## What's new in this version
 
-Nothing is cut off the bottom of a page when you zoom. At zooms other than 100%, the last lines of a column or the last rows of a table could be hidden past the page's edge; such a page now grows a little taller so that all of its text shows.
+The interface is now available in Simplified Chinese and Japanese. LeanDoc follows your system language, and Settings has a Language choice: System, English, 简体中文 or 日本語. The toolbar, settings, keyboard shortcut list, menus, dialogs, messages and the notes about how a document is shown are translated. Documents themselves are shown as before.
+
+Also fixed: documents that failed to open when a picture's image was stored inside a compatibility block now open with their pictures. A paragraph set to keep its lines together that is taller than a page is now split across pages instead of staying on one oversized page, and nonbreaking hyphens now show and keep the word together.
+
+From 0.3.3: nothing is cut off the bottom of a page when you zoom. At zooms other than 100%, the last lines of a column or the last rows of a table could be hidden past the page's edge; such a page now grows a little taller so that all of its text shows.
 
 From 0.3.2: the Microsoft Store lists the app as LeanDoc Word Viewer.
 

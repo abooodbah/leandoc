@@ -5,7 +5,7 @@
 [execution plan](EXECUTION_PLAN.md)) and published from `main`; the Linux
 session, GitHub Actions runners for Windows, macOS, and Linux, and the reader
 in headless Chromium<br>
-**Current public release:** LeanDoc 0.3.3
+**Current public release:** LeanDoc 0.4.0
 
 This page records the result of every ID in the [test plan](TEST_PLAN.md),
 with the evidence rules of [ACCEPTANCE.md](ACCEPTANCE.md). The defects found
@@ -13,6 +13,46 @@ and how each was fixed are in the [test report](TEST_REPORT.md). Every
 figure below is a test-gate figure from a cloud session or a CI runner. None
 of them is a product claim: published figures come only from the owner's
 laptop run of `tests/owner/`.
+
+## v0.4.0 publication
+
+LeanDoc 0.4.0, a minor release, is published on
+[GitHub Releases](https://github.com/abooodbah/leandoc/releases/tag/v0.4.0).
+It adds a Simplified Chinese and a Japanese interface that follows the
+system language, with a Language choice in Settings (#53), and carries
+three fixes: a document whose pictures keep their image inside a
+compatibility block opens instead of failing to display (#55), a kept
+paragraph taller than a page is split across pages, and nonbreaking hyphens
+show (#50). The hosts and the core changed in this release. The annotated
+tag `v0.4.0` is on `0be62d9186ba252e60978b916ea79cd9ff2844b9`, the merge
+commit of #56, created by "Tag a release"
+([run 45642995344](https://github.com/abooodbah/leandoc/actions/runs/45642995344)).
+Tag build
+[run 45643032208](https://github.com/abooodbah/leandoc/actions/runs/45643032208)
+published the release on its first attempt, with no failed job.
+`gh attestation verify <file> --repo abooodbah/leandoc` succeeded for the
+three assets below, signed by `build.yml@refs/tags/v0.4.0`. The Store package
+workflow
+([run 45645681094](https://github.com/abooodbah/leandoc/actions/runs/45645681094))
+built `LeanDoc-v0.4.0-x64.msix` (1,090,287 bytes, SHA-256
+`7ccb266c1866abede47ed5fbf3e8cfc2ed19a96fbab9877235eb5cce137ec899`), version
+0.4.0.0, Identity Name `LeanAppsStudio.LeanDoc`, display name `LeanDoc Word
+Viewer`, with no placeholder identity values. The package still declares
+`en-us` as its only language.
+
+| Asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `LeanDoc-v0.4.0-windows-x64.zip` | 1,016,836 | `efdcb1f18ea033d29c687fa2cdf36598da1a8c5fd730d55ac353f8b65d11dfed` |
+| `LeanDoc-v0.4.0-linux-x86_64.deb` | 670,000 | `216e230bdcd88f7207f87d02517bc7f34d732fb46d98909ad22ee7e18139fae6` |
+| `LeanDoc-v0.4.0-macos-universal-preview.zip` | 867,064 | `9fdf2e5d791117a4bb6b6b508830459cd20978d17fc4da7b2ade11089c109814` |
+
+The downloaded files matched their sidecars; the Windows ZIP's `LeanDoc.exe`
+is 593,920 bytes (582,656 in 0.3.3).
+
+| Check | Result |
+| --- | --- |
+| Pull requests in 0.4.0 | #53 (interface languages, tests first), #55 (pictures in a compatibility block, tests first), #50 (kept paragraphs and nonbreaking hyphens, tests first), #56 (version bump) |
+| Distribution | Scoop and Homebrew moved to 0.4.0, winget pull request microsoft/winget-pkgs#489328 opened, Chocolatey package pushed (in moderation), all on 2026-11-25. The Store update is not submitted yet. |
 
 ## v0.3.3 publication
 
