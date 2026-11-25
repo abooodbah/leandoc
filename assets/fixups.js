@@ -2612,22 +2612,58 @@
   // cell, is where Word's page began at that row. docx-preview draws no page
   // there (it splits only the body's own paragraphs), so the row is marked
   // for the reader's pagination (ld-saved-row), which starts a page at it.
+  // A saved start after text in a cell is in a row Word split across pages
+  // (ld-saved-split). Each saved start in such a row gets a bookmark: one
+  // after text (SAVED_LINE) marks the line Word's page began at, where the
+  // reader splits the row too; one before a cell's text (SAVED_CELL) marks a
+  // cell that went on to the next page whole. The row after it holds a saved
+  // start again in its first cell, though Word's page began in the row
+  // before. Marked as a start, it had made a page of its own of the split
+  // row wherever the reader could not split that row (its cells are merged
+  // down), so the split row stood alone on a page. It stays marked
+  // (ld-saved-after) for when the reader cannot split the row where Word
+  // did, and the reader lets a page continue past it right below the split
+  // row (reader.js continueAtSavedRow). A row after one with only saved
+  // starts before text is not marked.
   var SAVED_ROW = "ld-saved-row";
+  var SAVED_SPLIT = "ld-saved-split";
+  var SAVED_AFTER = "ld-saved-after";
+  var SAVED_LINE = "ld-saved-line-";
+  var SAVED_CELL = "ld-saved-cell-";
 
-  function startsRowPage(cell) {
-    var shownBefore = false;
-    var found = false;
-    eachModelElement(cell.children || [], function (element) {
-      if (found) {
-        return;
-      }
-      if (element.type === "break" && element.break === "lastRenderedPageBreak") {
-        found = !shownBefore;
-        if (!found) {
-          shownBefore = true;
+  function markSavedLines(cell, counter) {
+    var shown = false;
+    (function visit(list) {
+      for (var index = 0; index < list.length; index += 1) {
+        var element = list[index];
+        if (!element || typeof element !== "object") {
+          continue;
         }
-      } else if (SHOWN_TYPES.test(element.type || "") && !(element.type === "text" && !element.text)) {
-        shownBefore = true;
+        if (element.type === "break" && element.break === "lastRenderedPageBreak") {
+          list.splice(index + 1, 0, { type: "bookmarkStart", name: (shown ? SAVED_LINE : SAVED_CELL) + counter.next });
+          counter.next += 1;
+          index += 1;
+        } else if (element.type === "break" ||
+            (SHOWN_TYPES.test(element.type || "") && !(element.type === "text" && !element.text))) {
+          shown = true;
+        }
+        if (Array.isArray(element.children)) {
+          visit(element.children);
+        }
+      }
+    }(cell.children || []));
+  }
+
+  // Where a cell's saved starts lie: before any of its text, after some.
+  function cellSavedStarts(cell) {
+    var found = { first: false, later: false };
+    var shown = false;
+    eachModelElement(cell.children || [], function (element) {
+      if (element.type === "break" && element.break === "lastRenderedPageBreak") {
+        found[shown ? "later" : "first"] = true;
+      } else if (element.type === "break" ||
+          (SHOWN_TYPES.test(element.type || "") && !(element.type === "text" && !element.text))) {
+        shown = true;
       }
     });
     return found;
@@ -2635,16 +2671,34 @@
 
   function markSavedRows(body) {
     var count = 0;
+    var counter = { next: 0 };
     ((body && body.children) || []).forEach(function (block) {
       if (!block || block.type !== "table") {
         return;
       }
+      var previous = false;
+      var previousSplit = false;
       modelChildren(block, "row").forEach(function (row) {
-        var cells = modelChildren(row, "cell");
-        if (cells.length && startsRowPage(cells[0])) {
-          addClass(row, SAVED_ROW);
+        var first = false;
+        var later = false;
+        var any = false;
+        modelChildren(row, "cell").forEach(function (cell, index) {
+          var found = cellSavedStarts(cell);
+          first = first || (index === 0 && found.first);
+          later = later || found.later;
+          any = any || found.first || found.later;
+        });
+        if (first && !later && (!previous || previousSplit)) {
+          addClass(row, previous ? SAVED_ROW + " " + SAVED_AFTER : SAVED_ROW);
           count += 1;
+        } else if (later) {
+          addClass(row, SAVED_SPLIT);
+          modelChildren(row, "cell").forEach(function (cell) {
+            markSavedLines(cell, counter);
+          });
         }
+        previous = any;
+        previousSplit = later;
       });
     });
     return count;
@@ -3335,6 +3389,8 @@
     NOTE_REFERENCE_ANCHOR: NOTE_REFERENCE_ANCHOR,
     NOTE_ANCHOR: NOTE_ANCHOR,
     SAVED_PAGE_START: SAVED_PAGE_START,
+    SAVED_LINE: SAVED_LINE,
+    SAVED_CELL: SAVED_CELL,
     normalizeText: normalizeText,
     annotateBody: annotateBody,
     guardResources: guardResources,

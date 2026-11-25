@@ -1223,6 +1223,23 @@
     return fits ? plans : null;
   }
 
+  // Where each cell of a row splits at a line Word's page began at: every
+  // cell moves what lies at or below it, and a cell whose text all went on
+  // in Word (a saved start before its text) moves whole.
+  function linePlans(row, over) {
+    return Array.prototype.map.call(row.cells, function (cell) {
+      var blocks = Array.prototype.slice.call(cell.children);
+      var whole = !!cell.querySelector("[id^='" + Fixups.SAVED_CELL + "']") && blocks.length > 0;
+      var at = whole ? 0 : -1;
+      for (var index = 0; index < blocks.length && at < 0; index += 1) {
+        if (isOver(blocks[index], over)) {
+          at = index;
+        }
+      }
+      return { cell: cell, blocks: blocks, at: at, whole: whole };
+    });
+  }
+
   // A row whose text lies inside the text area, and only the space after
   // its last paragraphs reaches past it. Left as it is, Chrome moves the row
   // into the overflow column, where it cannot be seen, so that space is
@@ -1295,9 +1312,10 @@
   // returns the copy. The part on the page ends at the foot of the page:
   // the row's height (w:trHeight), where it was more than the room left,
   // went past the page with it.
-  function splitRow(row, plans, over) {
+  function splitRow(row, plans, over, exact) {
     var rest = row.cloneNode(false);
     rest.removeAttribute("id");
+    rest.classList.remove("ld-saved-split");
     row.style.height = "";
     plans.forEach(function (plan) {
       var copy = plan.cell.cloneNode(false);
@@ -1308,7 +1326,7 @@
       }
       var from = plan.at;
       var block = plan.blocks[from];
-      var moved = block.nodeName === "P" ? splitParagraph(block, over) : null;
+      var moved = !plan.whole && block.nodeName === "P" ? splitParagraph(block, over, false, exact) : null;
       if (moved) {
         copy.appendChild(moved);
         from += 1;
@@ -1318,6 +1336,122 @@
       }
     });
     return rest;
+  }
+
+  // Whether the row before one where Word started a page lies past the text
+  // area. When a cell of it is merged down into that row, past the page, the
+  // row also has an empty box in the overflow column beside the page, which
+  // holds nothing of the row: counted, the page broke a row before Word's,
+  // and that row made a page of its own.
+  function rowIsOver(row, over) {
+    var rects = row.getClientRects();
+    for (var index = 0; index < rects.length; index += 1) {
+      if (rects[index].height > 0 && over(rects[index])) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // The cell of a row that starts at a grid column, or null. docx-preview
+  // keeps the cells a vertical merge covers, hidden, so every row counts the
+  // grid from its first cell.
+  function cellAtColumn(row, column) {
+    var start = 0;
+    for (var index = 0; index < row.cells.length && start <= column; index += 1) {
+      if (start === column) {
+        return row.cells[index];
+      }
+      start += row.cells[index].colSpan || 1;
+    }
+    return null;
+  }
+
+  // A cell merged down across a page that ends before a row where Word
+  // started a page continues on the next page, as in Word: above the break
+  // it spans only the rows that stay, and the row at the break shows the
+  // cell docx-preview hid there, spanning the rows that remain. Without this
+  // that row lacked the cell, and the cells after it shifted a column to the
+  // left.
+  function splitMerges(rows, at) {
+    for (var index = 0; index < at; index += 1) {
+      var row = rows[index];
+      var column = 0;
+      for (var position = 0; position < row.cells.length; position += 1) {
+        var cell = row.cells[position];
+        var span = cell.rowSpan;
+        if (span > 1 && index + span > at && cell.style.display !== "none") {
+          var below = cellAtColumn(rows[at], column);
+          if (below && below.style.display === "none") {
+            cell.rowSpan = at - index;
+            below.style.display = "";
+            below.rowSpan = index + span - at;
+          }
+        }
+        column += cell.colSpan || 1;
+      }
+    }
+  }
+
+  // The top of the line a saved line mark (Fixups.SAVED_LINE) stands on: the
+  // box of the first letter after it, or the mark's own box.
+  function markedLine(mark) {
+    var walker = document.createTreeWalker(mark.closest("td") || mark.parentNode, NodeFilter.SHOW_TEXT);
+    walker.currentNode = mark;
+    var range = document.createRange();
+    for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+      var at = node.data.search(/\S/);
+      if (at >= 0) {
+        range.setStart(node, at);
+        range.setEnd(node, at + 1);
+        var rects = range.getClientRects();
+        if (rects.length) {
+          return rects[rects.length - 1];
+        }
+      }
+    }
+    return mark.getClientRects()[0] || null;
+  }
+
+  // The first row of a table that Word split across pages (Fixups
+  // ld-saved-split) and the top of the line its page began at, as
+  // { index, top }, when the reader can split the row there: the line lies
+  // on the page, some of the row lies above it, and no cell of the row is
+  // merged down or marked w:cantSplit. Otherwise null.
+  function savedLine(table, over) {
+    if (!table.querySelector("tr.ld-saved-split")) {
+      return null;
+    }
+    var rows = table.rows;
+    for (var index = leadingHeaderRows(table); index < rows.length; index += 1) {
+      var row = rows[index];
+      if (!hasClass(row, "ld-saved-split")) {
+        continue;
+      }
+      if (hasClass(row, "ld-cant-split") || Array.prototype.some.call(row.cells, function (cell) {
+        return cell.rowSpan > 1;
+      })) {
+        return null;
+      }
+      var top = Infinity;
+      var marks = row.querySelectorAll("[id^='" + Fixups.SAVED_LINE + "']");
+      for (var at = 0; at < marks.length; at += 1) {
+        var box = markedLine(marks[at]);
+        if (!box || over(box)) {
+          return null;
+        }
+        top = Math.min(top, box.top);
+      }
+      var above = Array.prototype.some.call(row.cells, function (cell) {
+        var range = document.createRange();
+        range.selectNodeContents(cell);
+        return Array.prototype.some.call(range.getClientRects(), function (rect) {
+          return rect.height > 0 && (rect.top + rect.bottom) / 2 < top;
+        });
+      });
+      return top < Infinity && above ? { index: index, top: top } : null;
+    }
+    return null;
   }
 
   // The index of the first row of a table, after its header rows and its
@@ -1358,14 +1492,21 @@
     var headerRows = leadingHeaderRows(table);
     var first = -1;
     var saved = savedRow(table);
+    var line = savedLine(table, over);
     for (var index = headerRows; index < rows.length; index += 1) {
+      if (line && index === line.index) {
+        // Word split this row at a line on the page: the page ends there.
+        first = index;
+        break;
+      }
       if (saved >= 0 && index === saved) {
         // Word began a page at this row: the page ends before it.
         first = index;
         saved = -2;
         break;
       }
-      if (isOver(rows[index], over) && !onlySpacingOver(rows[index], over)) {
+      var past = index + 1 === saved ? rowIsOver(rows[index], over) : isOver(rows[index], over);
+      if (past && !onlySpacingOver(rows[index], over)) {
         first = index;
         break;
       }
@@ -1373,14 +1514,20 @@
     if (first < 0) {
       return null;
     }
-    var plans = saved === -2 ? null : rowSplit(rows[first], over);
+    line = line && line.index === first ? line : null;
+    var lineOver = line && function (rect) {
+      return (rect.top + rect.bottom) / 2 > line.top || over(rect);
+    };
+    var plans = line ? linePlans(rows[first], lineOver) : saved === -2 ? null : rowSplit(rows[first], over);
+    // A row split where Word began its page inside it ends at that line;
+    // the foot rules below are for rows the reader splits itself.
     var rowOver = over;
-    if (plans && linesMove(plans)) {
+    if (!line && plans && linesMove(plans)) {
       rowOver = rowFootTest(rows[first], over);
       if (rowOver !== over) {
         plans = rowSplit(rows[first], rowOver);
       }
-    } else if (plans && !heightFits(rows[first], over)) {
+    } else if (!line && plans && !heightFits(rows[first], over)) {
       // Its lines all fit and its height does not: split, it left an empty
       // copy as tall as itself on the next page and its own foot in the
       // overflow column. It moves whole, as Word moves it.
@@ -1394,7 +1541,15 @@
       from = first + 1;
     }
     freezeColumns(table);
-    var piece = plans ? splitRow(rows[first], plans, rowOver) : null;
+    if (saved === -2) {
+      splitMerges(rows, first);
+    }
+    var piece = plans ? splitRow(rows[first], plans, lineOver || rowOver, !!line) : null;
+    rows[first].classList.remove("ld-saved-split");
+    if (line && first + 1 < rows.length && hasClass(rows[first + 1], "ld-saved-after")) {
+      // The page starts where Word's did, inside this row, not after it.
+      rows[first + 1].classList.remove("ld-saved-row", "ld-saved-after");
+    }
     if (piece) {
       // What stayed can still end past the page by the space after its last
       // paragraphs alone.
@@ -1585,8 +1740,8 @@
   // whole, a 204 pt numbered paragraph left most of a column empty.
   // The range of a paragraph that stays on the page when it is split, or
   // null when it moves whole.
-  function keptPart(paragraph, over, freshPage) {
-    if (paragraph.nodeName !== "P" || (!freshPage && /(^|\s)ld-keep-lines(\s|$)/.test(paragraph.className))) {
+  function keptPart(paragraph, over, freshPage, exact) {
+    if (paragraph.nodeName !== "P" || (!freshPage && !exact && /(^|\s)ld-keep-lines(\s|$)/.test(paragraph.className))) {
       return null;
     }
     var point = firstPointPast(paragraph, over);
@@ -1606,7 +1761,7 @@
     if (!kept.toString().trim() && !kept.cloneContents().querySelector(ATOMIC_SELECTOR)) {
       return null;
     }
-    var safe = widowSafePoint(paragraph, point, kept);
+    var safe = exact ? point : widowSafePoint(paragraph, point, kept);
     if (!safe) {
       return null;
     }
@@ -1685,8 +1840,8 @@
     }
   }
 
-  function splitParagraph(paragraph, over, freshPage) {
-    var kept = keptPart(paragraph, over, freshPage);
+  function splitParagraph(paragraph, over, freshPage, exact) {
+    var kept = keptPart(paragraph, over, freshPage, exact);
     if (!kept) {
       return null;
     }
@@ -1756,9 +1911,9 @@
 
   // The first table of an article that Word's page starts inside, or at the
   // start of when other blocks come before it; null when there is none.
-  function savedStart(article) {
+  function savedStart(article, over) {
     for (var node = article.firstElementChild; node; node = node.nextElementSibling) {
-      if (node.nodeName === "TABLE" && (startsAtSavedRow(node) || savedRow(node) >= 0)) {
+      if (node.nodeName === "TABLE" && (startsAtSavedRow(node) || savedRow(node) >= 0 || savedLine(node, over))) {
         return node;
       }
     }
@@ -1787,7 +1942,7 @@
       if (fits && !(columns && article.hasAttribute("data-ld-fill"))) {
         layout.tests[index] = overflowTest(article, limit);
         if (!columns) {
-          var forced = savedStart(article);
+          var forced = savedStart(article, layout.tests[index]);
           if (forced) {
             layout.start = forced;
             layout.index = index;
@@ -1828,7 +1983,7 @@
       var over = overflowTest(article, limit);
       layout.tests[index] = over;
       for (var node = article.firstElementChild; node; node = node.nextElementSibling) {
-        if (!columns && node.nodeName === "TABLE" && (startsAtSavedRow(node) || savedRow(node) >= 0)) {
+        if (!columns && node.nodeName === "TABLE" && (startsAtSavedRow(node) || savedRow(node) >= 0 || savedLine(node, over))) {
           layout.start = node;
           layout.index = index;
           layout.whole = startsAtSavedRow(node);
@@ -2364,6 +2519,58 @@
     settleSplit(pending.page, pending.next, pending.articles, pending.styles, pending.limit);
   }
 
+  // A page that begins with rows the page before could not hold continues
+  // past the row after one Word split across pages (Fixups ld-saved-after)
+  // when that row lies within FLOW_FILL of its top: Word's page began inside
+  // the row before, which the reader could not split there, and the row or
+  // two that ran over had made a page of their own.
+  var OVERFLOW_PAGE = "__ldOverflowPage";
+
+  // Whether a page split off begins at a marked row.
+  function beginsAtSavedRow(page) {
+    var article = childrenNamed(page, "ARTICLE")[0];
+    var first = article ? article.firstElementChild : null;
+    if (!first || first.nodeName !== "TABLE") {
+      return false;
+    }
+    var row = first.rows[leadingHeaderRows(first)];
+    return !!row && hasClass(row, "ld-saved-row");
+  }
+
+  // Unmarks the first marked row of a section when it is the row after one
+  // Word split and lies within FLOW_FILL of the section's top. Returns
+  // whether it did.
+  function continueAtSavedRow(article, over, limit) {
+    if (!article.querySelector("tr.ld-saved-after")) {
+      return false;
+    }
+    var top = article.getBoundingClientRect().top;
+    var near = top + (limit - top) * FLOW_FILL;
+    for (var node = article.firstElementChild; node; node = node.nextElementSibling) {
+      if (node.getBoundingClientRect().top > near) {
+        return false;
+      }
+      if (node.nodeName !== "TABLE") {
+        continue;
+      }
+      for (var index = 0; index < node.rows.length; index += 1) {
+        var row = node.rows[index];
+        var box = row.getClientRects()[0];
+        if (!box || box.top > near || over(box)) {
+          return false;
+        }
+        if (hasClass(row, "ld-saved-row") && !row.hasAttribute("data-ld-repeated")) {
+          if (!hasClass(row, "ld-saved-after")) {
+            return false;
+          }
+          row.classList.remove("ld-saved-row", "ld-saved-after");
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   // Splits one page at its bottom margin and returns the new page after it,
   // or null when everything already fits or nothing more can move.
   function splitPage(page, notes) {
@@ -2384,7 +2591,14 @@
     var deferred = [];
     for (;;) {
       for (var round = 0; round < 4; round += 1) {
-        layout = layOutPage(articles, styles, bottom - notesHeight(page) - floatsHeight(page, "bottom"));
+        var limit = bottom - notesHeight(page) - floatsHeight(page, "bottom");
+        layout = layOutPage(articles, styles, limit);
+        if (page[OVERFLOW_PAGE]) {
+          page[OVERFLOW_PAGE] = false;
+          if (continueAtSavedRow(articles[0], layout.tests[0], limit)) {
+            layout = layOutPage(articles, styles, limit);
+          }
+        }
         var ids = referencedNotes(page, notes, layout.tests);
         if (sameIds(ids, placed)) {
           break;
@@ -2416,6 +2630,7 @@
     }
     var next = layout.start ? moveRest(page, articles, styles, layout) : null;
     if (next) {
+      next[OVERFLOW_PAGE] = !beginsAtSavedRow(next);
       pendingSettle = { page: page, next: next, articles: articles, styles: styles,
         limit: bottom - notesHeight(page) - floatsHeight(page, "bottom") };
     }
