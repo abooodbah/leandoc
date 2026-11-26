@@ -158,6 +158,100 @@ export async function makeSavedPagesDocx({ pages = 10, lines = 38, split = 0, pa
   return { bytes, pages, lines, report: report(bytes) };
 }
 
+// One table of `rows` rows, each one 18 pt line (24 px) tall, split by Word into
+// saved pages of `perPage` rows: the first cell of the first row of each saved
+// page after the first holds the w:lastRenderedPageBreak marker. A US Letter page with 1-inch margins holds 36 such rows.
+export function rowText(row) {
+  return `Row ${row}.`;
+}
+
+export async function makeSavedRowsDocx({ rows = 100, perPage = 30 } = {}) {
+  const cell = (width, text, saved) => `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/></w:tcPr><w:p>${LINE}${run(text, { saved })}</w:p></w:tc>`;
+  const trs = [];
+  for (let row = 1; row <= rows; row += 1) {
+    const saved = row > 1 && (row - 1) % perPage === 0;
+    trs.push(`<w:tr>${cell(4680, rowText(row), saved)}${cell(4680, `Cell ${row}.`, false)}</w:tr>`);
+  }
+  const table = `<w:tbl><w:tblPr><w:tblW w:w="9360" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr>` +
+    `<w:tblGrid><w:gridCol w:w="4680"/><w:gridCol w:w="4680"/></w:tblGrid>${trs.join("")}</w:tbl>`;
+  const bytes = await pack(wrap([table, `<w:p>${LINE}${run("After the table.")}</w:p>`]));
+  return { bytes, rows, perPage, report: report(bytes) };
+}
+
+// makeContentsDocx: `entries` contents lines at 1.15 spacing whose page
+// numbers stand at a right stop with a dot leader, then the same lines at a
+// right stop with no leader.
+export const CONTENTS_ENTRY = "Contents entry";
+
+export async function makeContentsDocx({ entries = 40 } = {}) {
+  const line = (index, leader) => `<w:p><w:pPr><w:tabs><w:tab w:val="right"${leader ? ` w:leader="dot"` : ""} w:pos="9350"/></w:tabs>` +
+    `<w:spacing w:after="100" w:line="276" w:lineRule="auto"/></w:pPr>${run(`${CONTENTS_ENTRY} ${index}`)}<w:r><w:tab/></w:r>${run(String(index + 2))}</w:p>`;
+  const body = [];
+  [true, false].forEach((leader) => {
+    for (let index = 1; index <= entries; index += 1) {
+      body.push(line(index, leader));
+    }
+  });
+  const bytes = await pack(wrap(body));
+  return { bytes, report: report(bytes) };
+}
+
+// makeAtLeastDocx: one paragraph of AT_LEAST_LINES lines of 11 pt Arial at
+// line spacing "at least 12 pt", whose paragraph mark is 7 pt. Word's line
+// is the 11 pt text's own, 12.67 pt.
+export const AT_LEAST_LINES = 6;
+
+export async function makeAtLeastDocx() {
+  const arial = `<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>`;
+  const text = (line) => `<w:r><w:rPr>${arial}<w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t xml:space="preserve">At least line ${line}.</w:t></w:r>`;
+  const lines = Array.from({ length: AT_LEAST_LINES }, (_, index) => text(index + 1));
+  const body = [`<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="atLeast"/>` +
+    `<w:rPr>${arial}<w:sz w:val="14"/><w:szCs w:val="14"/></w:rPr></w:pPr>${lines.join("<w:r><w:br/></w:r>")}</w:p>`];
+  const bytes = await pack(wrap(body));
+  return { bytes, report: report(bytes) };
+}
+
+// makeSavedSplitDocx: a table of `rows` rows in three columns, each row one
+// 18 pt line (24 px) tall, so a page holds 36 rows, and one saved page start.
+// With `lines` 1, row `row` starts Word's second page: its first cell holds
+// the marker. With more, row `row` is `lines` lines tall (its second cell
+// holds them, one paragraph broken by line breaks) and Word split it across
+// pages after line `at`: the marker stands before line `at` + 1, and the
+// first cell of the row after holds it again, as Word writes it. With
+// `merge`, the third cell of the row before the row whose first cell holds
+// the marker is merged down into that row.
+export function splitLineText(row, line) {
+  return `Row ${row}, line ${line}.`;
+}
+
+export async function makeSavedSplitDocx({ rows = 60, row = 37, lines = 1, at = 1, merge = false } = {}) {
+  const cell = (content, properties = "") =>
+    `<w:tc><w:tcPr><w:tcW w:w="3120" w:type="dxa"/>${properties}</w:tcPr><w:p>${LINE}${content}</w:p></w:tc>`;
+  const marked = lines > 1 ? row + 1 : row;
+  const trs = [];
+  for (let index = 1; index <= rows; index += 1) {
+    let second = cell(run(`Cell ${index}.`));
+    if (index === row && lines > 1) {
+      const parts = [];
+      for (let line = 1; line <= lines; line += 1) {
+        parts.push(run(splitLineText(index, line), { saved: line === at + 1 }));
+      }
+      second = cell(parts.join("<w:r><w:br/></w:r>"));
+    }
+    let third = cell(run(`Item ${index}.`));
+    if (merge && index === marked - 1) {
+      third = cell(run(`Item ${index}.`), `<w:vMerge w:val="restart"/>`);
+    } else if (merge && index === marked) {
+      third = cell("", "<w:vMerge/>");
+    }
+    trs.push(`<w:tr>${cell(run(rowText(index), { saved: index === marked }))}${second}${third}</w:tr>`);
+  }
+  const table = `<w:tbl><w:tblPr><w:tblW w:w="9360" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr>` +
+    `<w:tblGrid><w:gridCol w:w="3120"/><w:gridCol w:w="3120"/><w:gridCol w:w="3120"/></w:tblGrid>${trs.join("")}</w:tbl>`;
+  const bytes = await pack(wrap([table, `<w:p>${LINE}${run("After the table.")}</w:p>`]));
+  return { bytes, report: report(bytes) };
+}
+
 export async function makeWordMetricsDocx() {
   const major = `<w:rFonts w:asciiTheme="majorBidi" w:hAnsiTheme="majorBidi" w:cstheme="majorBidi"/>`;
   const small = `<w:sz w:val="20"/><w:szCs w:val="20"/>`;

@@ -18,15 +18,25 @@ import {
 } from "./fake-host.mjs";
 import { makeBigDocx } from "./make-big-docx.mjs";
 import { makeFloatsDocx } from "./make-floats-docx.mjs";
+import { makeBodyDocx, makeStyles } from "./make-body-docx.mjs";
 import { BODY_TEXT, HEADER_TEXT, makeAlternatePictureDocx } from "./make-alternate-picture-docx.mjs";
+import { AFTER_TEXT, BEFORE_TEXT, FRAME_POINTS, LAST_TEXT, makeChartFrameDocx } from "./make-chart-frame-docx.mjs";
 import {
   makeBreakLinesDocx, makeCancelledNumberingDocx, makeEmptyMarkNoteDocx, makeEquationDocx, makeNumberedDocx, makeSmallCapsDocx,
   makeSoftHyphenDocx, makeTightHyphenDocx, makeWideLinesDocx
 } from "./make-numbered-docx.mjs";
 import { makeColumnsDocx, makeDefaultLineDocx, makePageFlowDocx, makeSavedStartAfterBreakDocx, makeSpacedDocx, makeTablesDocx } from "./make-columns-docx.mjs";
 import { makeKeptParagraphDocx } from "./make-columns-docx.mjs";
-import { lineText, makeSavedPagesDocx, makeWordMetricsDocx } from "./make-saved-pages-docx.mjs";
+import { AT_LEAST_LINES, CONTENTS_ENTRY, lineText, makeAtLeastDocx, makeContentsDocx, makeSavedPagesDocx, makeSavedRowsDocx, makeSavedSplitDocx, makeWordMetricsDocx, rowText, splitLineText } from "./make-saved-pages-docx.mjs";
+import {
+  makeColumnStartsDocx, makeKeepRulesDocx, makeLongDocx, makePageBreakBeforeDocx, makeSectionPagesDocx, makeStyleChainDocx
+} from "./make-page-rules-docx.mjs";
+import { makeTableEdgeDocx } from "./make-table-edge-docx.mjs";
 import { DROPPED_WORD, PICTURE_ANCHOR, WIDE_CAPTION, makeFigureSectionDocx, makeMarginSectionsDocx } from "./make-section-flow-docx.mjs";
+import { ARABIC_TEXT, LATIN_TEXT, MONO_TEXT, makeFontsBoxesDocx } from "./make-fonts-boxes-docx.mjs";
+import { makeClippedRowDocx, makeEmptyTableDocx, makeExactRowDocx, makePaddedRowDocx, makeTallRowDocx } from "./make-table-geometry-docx.mjs";
+import { makeColumnBreakDocx } from "./make-column-break-docx.mjs";
+import { makeListLabelDocx } from "./make-list-label-docx.mjs";
 
 const screenshotDirectory = path.join(repositoryRoot, "artifacts", "reader-screenshots");
 let browser;
@@ -315,6 +325,48 @@ describe("a picture fill inside AlternateContent (RENDER-01)", { skip: !process.
         `the header picture has its image: ${JSON.stringify(state.pictures)}`);
       assert.ok(state.pictures.some((picture) => !picture.inHeader && picture.src),
         `the body picture has its image: ${JSON.stringify(state.pictures)}`);
+    });
+  });
+});
+
+// A chart LeanDoc does not draw goes through the core as the hosts send it.
+// The core keeps the drawing's frame and removes the chart, so the page
+// keeps the space Word gives the chart: an empty box of its extent, with the
+// next paragraph below it. A drawing whose a:graphic held only a chart in an
+// AlternateContent is left without an empty a:graphic, which docx-preview
+// cannot read: the document renders.
+describe("a chart's frame through leandoc-inspect (RENDER-01)", { skip: !process.env.LEANDOC_INSPECT && "LEANDOC_INSPECT is not set" }, () => {
+  test("renders as an empty box of the chart's extent", async () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), "leandoc-chart-frame-"));
+    const source = path.join(directory, "chart-frame.docx");
+    writeFileSync(source, await makeChartFrameDocx());
+    const inspect = process.env.LEANDOC_INSPECT;
+    const lines = execFileSync(inspect, [source], { encoding: "utf8" }).trim().split("\n");
+    const report = JSON.parse(lines[lines.length - 1]);
+    const sanitized = path.join(directory, "sanitized.docx");
+    execFileSync(inspect, ["--write-sanitized", sanitized, source], { stdio: "pipe" });
+    await withHost({}, async (host) => {
+      const rendered = await host.openDocument({ bytes: readFileSync(sanitized), report, fileName: "chart-frame.docx" });
+      assert.equal(rendered.type, "rendered", `the document renders: ${JSON.stringify(rendered)}`);
+      const state = await host.page.evaluate(([before, after, last]) => {
+        const paragraphs = Array.from(document.querySelectorAll("#docBody article p"));
+        const find = (text) => paragraphs.find((p) => p.textContent.includes(text));
+        const frame = find(before).nextElementSibling;
+        const box = Array.from(frame.querySelectorAll("div")).find((node) => node.style.display === "inline-block");
+        const rect = box ? box.getBoundingClientRect() : null;
+        return {
+          frame: rect ? { width: rect.width, height: rect.height, bottom: rect.bottom, children: box.childElementCount } : null,
+          after: find(after).getBoundingClientRect().top,
+          last: !!find(last),
+          text: document.querySelector("#docBody").textContent
+        };
+      }, [BEFORE_TEXT, AFTER_TEXT, LAST_TEXT]);
+      assert.ok(state.frame, "the chart's frame is drawn");
+      assert.equal(state.frame.children, 0, "the frame is empty");
+      assert.ok(Math.abs(state.frame.width - FRAME_POINTS.width * 4 / 3) <= 1, `the frame is ${state.frame.width} px wide; the chart is 576 px`);
+      assert.ok(Math.abs(state.frame.height - FRAME_POINTS.height * 4 / 3) <= 1, `the frame is ${state.frame.height} px tall; the chart is 336 px`);
+      assert.ok(state.after >= state.frame.bottom - 1, `the paragraph after the chart starts at ${state.after}, inside the frame (ends at ${state.frame.bottom})`);
+      assert.ok(state.last, "the text after the second chart is shown");
     });
   });
 });
@@ -2654,6 +2706,261 @@ describe("page view follows the page starts Word saved", () => {
   });
 });
 
+describe("a table splits at the row where Word saved a page start", () => {
+  function pageRows(host) {
+    return host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"))
+      .map((page) => (page.textContent.match(/Row \d+\./g) || []).map((text) => Number(text.slice(4, -1)))));
+  }
+
+  // A 100-row table that Word broke every 30 rows (its pages hold 36 here, as
+  // a document whose rows are a little shorter than Word's). docx-preview
+  // draws no page for a marker inside a table, so the table had been filled to
+  // the bottom of each page: 36, 36, 28 rows, and the pages did not start
+  // where Word's did.
+  test("rows that would fit on the page wait for the row Word started its next page at", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report, rows, perPage } = await makeSavedRowsDocx({ rows: 100, perPage: 30 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "saved-rows.docx" });
+      const found = await pageRows(host);
+      assert.equal(rendered.pages, 4);
+      assert.deepEqual(found.map((page) => page[0]), [1, 31, 61, 91]);
+      assert.deepEqual(found.map((page) => page.length), [perPage, perPage, perPage, rows - 3 * perPage]);
+      assert.equal(found.flat().length, rows);
+      const text = await host.page.evaluate(() => document.querySelector("#docBody .docx-wrapper").textContent);
+      assert.ok(text.includes("After the table."));
+      assert.ok(text.includes(rowText(100)));
+    });
+  });
+});
+
+describe("a table follows the rows Word split across pages", () => {
+  // Each page's text, and the rows its tables hold.
+  function pages(host) {
+    return host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx")).map((page) => ({
+      text: Array.from(page.querySelectorAll(":scope > article")).map((article) => article.textContent).join(""),
+      rows: (page.textContent.match(/Row \d+\./g) || []).map((text) => Number(text.slice(4, -1)))
+    })));
+  }
+
+  // Word broke a three-line row after its first line and saved the page
+  // start there, and again in the first cell of the row after. The reader
+  // started its page at that next row, so the page did not start where
+  // Word's did.
+  test("a page starts at the line of a row where Word's page began", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeSavedSplitDocx({ rows: 60, row: 32, lines: 3, at: 1 });
+      const rendered = await host.openDocument({ bytes, report, fileName: "saved-split.docx" });
+      const found = await pages(host);
+      assert.equal(rendered.pages, 2);
+      assert.ok(found[0].text.includes(splitLineText(32, 1)));
+      assert.ok(!found[0].text.includes(splitLineText(32, 2)));
+      assert.ok(found[1].text.startsWith(splitLineText(32, 2)), found[1].text.slice(0, 40));
+      assert.deepEqual(found[1].rows.slice(0, 2), [33, 34]);
+    });
+  });
+
+  // When the reader cannot split that row where Word did (a cell of it is
+  // merged down), the row moves whole to the next page, and the next row,
+  // which carries Word's page start again, comes three lines below. It had
+  // started a page of its own there, which left the split row alone on a
+  // page.
+  test("the row after a split row starts no page right below that row", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeSavedSplitDocx({ rows: 60, row: 35, lines: 3, at: 1, merge: true });
+      const rendered = await host.openDocument({ bytes, report, fileName: "saved-split-merged.docx" });
+      const found = await pages(host);
+      assert.equal(rendered.pages, 2);
+      assert.equal(found[0].rows[found[0].rows.length - 1], 34);
+      assert.deepEqual(found[1].rows.slice(0, 2), [35, 36]);
+    });
+  });
+
+  // A row whose cell is merged down into the row Word started a page at,
+  // past the page, also has an empty box beside the page. Counted, the page
+  // broke a row early, and that row made a page of its own.
+  test("a row merged down into the row Word started a page at stays on its page", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeSavedSplitDocx({ rows: 60, row: 37, merge: true });
+      const rendered = await host.openDocument({ bytes, report, fileName: "saved-row-merged.docx" });
+      const found = await pages(host);
+      assert.equal(rendered.pages, 2);
+      assert.deepEqual(found.map((page) => page.rows[0]), [1, 37]);
+      assert.equal(found[0].rows.length, 36);
+      // The merged cell continues in its own column on the next page.
+      const offset = await host.page.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll("#docBody article tr"));
+        const rowOf = (text) => rows.find((row) => row.cells[0].textContent.trim() === text);
+        const left = (row) => row.cells[2].getBoundingClientRect().left - row.getBoundingClientRect().left;
+        const below = rowOf("Row 37.");
+        return getComputedStyle(below.cells[2]).display === "none" ? null : left(below) - left(rowOf("Row 38."));
+      });
+      assert.equal(offset, 0);
+    });
+  });
+});
+
+describe("page view keeps and starts pages as Word does", () => {
+  // Each page's text, its sections' text joined.
+  function pageTexts(host) {
+    return host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"))
+      .map((page) => Array.from(page.querySelectorAll(":scope > article")).map((article) => article.textContent).join("")));
+  }
+
+  // Paragraphs in a style based on another style, not on Normal, took
+  // Normal's line spacing: docx-preview gives every paragraph the default
+  // style's rules.
+  test("a style based on no other style takes nothing from the default paragraph style", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeStyleChainDocx();
+      const rendered = await host.openDocument({ bytes, report, fileName: "style-chain.docx" });
+      const spacing = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody article > p"))
+        .filter((p) => /^(Clause line 1|Unstyled line)\./.test(p.textContent))
+        .map((p) => getComputedStyle(p).marginBottom));
+      // Clause sets no space after; the unstyled paragraph is in Normal, which sets 18 pt.
+      assert.deepEqual(spacing, ["0px", "24px"]);
+      const texts = await pageTexts(host);
+      assert.equal(rendered.pages, 2);
+      assert.ok(texts[0].endsWith("Clause line 36."), texts[0].slice(-40));
+      assert.equal(texts[1], "Unstyled line.");
+    });
+  });
+
+  // Paragraphs in heading styles: docx-preview names each paragraph's class
+  // after its style, and the page view kept every paragraph whose style name
+  // holds "heading" with the next, though only w:keepNext does that in Word.
+  // A page that ended in a run of such paragraphs moved them all to the next
+  // page.
+  test("a paragraph in a heading style that does not keep with the next stays on its page", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeKeepRulesDocx();
+      await host.openDocument({ bytes, report, fileName: "keep-heading.docx" });
+      const texts = await pageTexts(host);
+      assert.equal(texts.length, 2);
+      assert.ok(texts[0].endsWith("Clause C line 10."), texts[0].slice(-40));
+      assert.ok(texts[1].startsWith("Block D line 1."), texts[1].slice(0, 40));
+    });
+  });
+
+  // Where nearly every paragraph keeps with the next, a page held one
+  // paragraph: the page view moved the whole chain of kept
+  // paragraphs before the first one past the page, back to the page's first
+  // block. A chain longer than a page cannot stay together, and Word breaks
+  // it where the page ends.
+  test("paragraphs kept with the next fill their pages when the chain is longer than a page", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeKeepRulesDocx({ chain: true });
+      await host.openDocument({ bytes, report, fileName: "keep-chain.docx" });
+      const texts = await pageTexts(host);
+      assert.deepEqual(texts.map((text) => (text.match(/Kept line \d+\./g) || []).length), [36, 36, 8]);
+    });
+  });
+
+  // Sections of one page size that are not continuous ran on from each
+  // other: docx-preview starts a page at a section break
+  // only where the page size changes. In Word every section but a
+  // continuous one starts on a new page.
+  test("a section that starts on a new page starts one on the same page size", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeSectionPagesDocx();
+      const rendered = await host.openDocument({ bytes, report, fileName: "section-pages.docx" });
+      const texts = await pageTexts(host);
+      assert.equal(rendered.pages, 2);
+      assert.ok(texts[0].endsWith("First section line 5."), texts[0].slice(-40));
+      assert.ok(texts[1].startsWith("Second section line 1."), texts[1].slice(0, 40));
+      // The continuous section after it stays on its page.
+      assert.ok(texts[1].endsWith("Third section line 3."), texts[1].slice(-40));
+    });
+  });
+
+  // A blank page showed before a heading whose style breaks the page before
+  // it, after a page break or at the document's start: docx-preview starts a
+  // page at a paragraph whose style breaks the page before it even where
+  // the paragraph is at the top of a page already. Word starts none there.
+  test("a page break before a paragraph at the top of a page adds no page", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makePageBreakBeforeDocx();
+      const rendered = await host.openDocument({ bytes, report, fileName: "break-before.docx" });
+      const pages = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"))
+        .map((page) => ({
+          header: Array.from(page.querySelectorAll(":scope > header")).map((node) => node.textContent.trim()).join(""),
+          text: Array.from(page.querySelectorAll(":scope > article")).map((article) => article.textContent).join("")
+        })));
+      assert.equal(rendered.pages, 2);
+      assert.deepEqual(pages.map((page) => page.text.slice(0, 11)), ["Chapter one", "Chapter two"]);
+      // The first page keeps the section's first-page header.
+      assert.deepEqual(pages.map((page) => page.header), ["First page header.", "Running header."]);
+    });
+  });
+
+  // Word 2007 saved a page start at the top of every column of a section
+  // with columns, and docx-preview starts a page at each, so every page held
+  // one column.
+  test("saved page starts at the top of each column do not start pages", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeColumnStartsDocx();
+      const rendered = await host.openDocument({ bytes, report, fileName: "column-starts.docx" });
+      const texts = await pageTexts(host);
+      assert.equal(rendered.pages, 3);
+      assert.deepEqual(texts.map((text) => (text.match(/Column line \d+\./g) || []).length), [72, 72, 72]);
+      assert.deepEqual(texts.map((text) => text.match(/Column line \d+\./)[0]), ["Column line 1.", "Column line 73.", "Column line 145."]);
+    });
+  });
+
+  // A document of more than 60 pages, as docx-preview made them, is not
+  // split, so where Word saved no page start for several of its pages, one
+  // page held their text. Pages that run far past the foot are split now.
+  test("a page far past its foot in a document of more than 60 pages is split", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeLongDocx();
+      const rendered = await host.openDocument({ bytes, report, fileName: "long-document.docx" });
+      const texts = await pageTexts(host);
+      assert.equal(rendered.pages, 64);
+      assert.deepEqual(texts.slice(61).map((text) => (text.match(/Long page line \d+\./g) || []).length), [36, 36, 28]);
+      assert.ok(texts[60].startsWith("Saved page 61 line 1."), texts[60].slice(0, 30));
+      // Every page is numbered among the 64.
+      const headers = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"))
+        .map((page) => Array.from(page.querySelectorAll(":scope > header")).map((node) => node.textContent.trim()).join("")));
+      assert.deepEqual([headers[0], headers[60], headers[61], headers[63]], ["Page 1 of 64", "Page 61 of 64", "Page 62 of 64", "Page 64 of 64"]);
+    });
+  });
+});
+
+// A dot leader is a box that clips its dots. Set on the bottom of the text,
+// it reached above the line by the line's leading, and a line with a leader
+// was taller than the same line without one. Word's line is as tall as its text.
+test("a contents line with a dot leader is as tall as one without", async () => {
+  await withHost({}, async (host) => {
+    const { bytes, report } = await makeContentsDocx({ entries: 40 });
+    await host.openDocument({ bytes, report, fileName: "contents.docx" });
+    const lines = await host.page.evaluate((entry) => Array.from(document.querySelectorAll("#docBody article > p"))
+      .filter((p) => p.textContent.startsWith(entry))
+      .map((p) => ({ leader: !!p.querySelector(".ld-tab-leader"), height: p.getBoundingClientRect().height })), CONTENTS_ENTRY);
+    const leader = lines.filter((line) => line.leader).map((line) => line.height);
+    const plain = lines.filter((line) => !line.leader).map((line) => line.height);
+    assert.equal(leader.length, 40);
+    assert.equal(plain.length, 40);
+    leader.concat(plain).forEach((height) => {
+      assert.ok(Math.abs(height - plain[0]) <= 0.1, `a contents line is ${height} px tall; one without a leader is ${plain[0]} px`);
+    });
+  });
+});
+
+// Line spacing "at least 12 pt" makes a line as tall as its text when the
+// text is taller. With the paragraph at its 7 pt mark's size and the text
+// at 11 pt, each line was 18 px, the small mark's leading added below the
+// text's, where Word's line is the 11 pt text's 16.9 px.
+test("a line of 11 pt text at least 12 pt apart is as tall as the text, whatever the paragraph mark's size", async () => {
+  await withHost({}, async (host) => {
+    const { bytes, report } = await makeAtLeastDocx();
+    await host.openDocument({ bytes, report, fileName: "at-least.docx" });
+    const height = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody article > p"))
+      .find((p) => p.textContent.includes("At least line 1.")).getBoundingClientRect().height);
+    // Arial's single line is 1.152 times its size (Fixups.wordSingleLine).
+    const line = 11 * 1.152 * 4 / 3;
+    assert.ok(Math.abs(height - AT_LEAST_LINES * line) <= 1, `the paragraph is ${height} px tall; Word's ${AT_LEAST_LINES} lines are ${AT_LEAST_LINES * line} px`);
+  });
+});
+
 describe("text past a saved page start continues on that page across a section boundary", () => {
   // Expected values come from Word itself: each document of
   // tests/reader/make-section-flow-docx.mjs opened in Word 16 through COM,
@@ -3244,6 +3551,183 @@ describe("page view breaks tables, lists, and footers as Word does", () => {
       assert.equal(result.continuedMarkers[0], "none", "its continuation shows no number");
       assert.deepEqual(result.footers, [12, "Page footer marker", "Page footer marker", "Page footer marker", "Page footer marker"]);
       assert.ok(Math.abs(result.raised - result.plain) < 0.5, `four lines with superscripts ${result.raised} px, plain ${result.plain} px`);
+    });
+  });
+
+  // Where each marker's text is: the pages that hold it, and whether any of
+  // its lines lies past the page's text area (below it, or in the overflow
+  // column beside it, which the page clips).
+  function placesOf(host, markers) {
+    return host.page.evaluate((markers) => {
+      document.querySelectorAll("section.docx.ld-lazy").forEach((page) => page.classList.remove("ld-lazy"));
+      const pages = Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"));
+      const found = {};
+      markers.forEach((marker) => {
+        found[marker] = { pages: [], hidden: false };
+      });
+      pages.forEach((page, index) => {
+        const article = page.querySelector(":scope > article");
+        const box = article.getBoundingClientRect();
+        const style = getComputedStyle(page);
+        const bottom = page.getBoundingClientRect().top + parseFloat(style.minHeight) - parseFloat(style.paddingBottom);
+        const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          markers.forEach((marker) => {
+            if (!node.data.includes(marker)) {
+              return;
+            }
+            const entry = found[marker];
+            if (entry.pages[entry.pages.length - 1] !== index + 1) {
+              entry.pages.push(index + 1);
+            }
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            Array.from(range.getClientRects()).forEach((rect) => {
+              if (rect.width > 0 && (rect.bottom > bottom + 0.5 || rect.left > box.right + 200)) {
+                entry.hidden = true;
+              }
+            });
+          });
+        }
+      });
+      return { count: pages.length, found };
+    }, markers);
+  }
+
+  // The core drops a table's deleted rows (tracked deletions), and a table
+  // whose rows are all deleted is left with none. Its box has no width, and
+  // at the section's left edge it read as left of the text area: it took a
+  // page of its own, and its heading another.
+  test("an empty table keeps its heading and the text after it on the page", async () => {
+    await withHost({}, async (host) => {
+      const fixture = await makeEmptyTableDocx();
+      const rendered = await host.openDocument({ ...fixture, fileName: "empty-table.docx" });
+      const places = await placesOf(host, ["Heading kept", "Body line 1.", "Body line 30."]);
+      assert.equal(rendered.pages, 2);
+      assert.deepEqual(places.found["Heading kept"].pages, [1]);
+      assert.deepEqual(places.found["Body line 1."].pages, [1]);
+      assert.deepEqual(places.found["Body line 30."].pages, [1]);
+    });
+  });
+
+  // Split at the foot of a page, a row ends there with its cells' bottom
+  // margin and border, which it did not have where Chrome ran it on into
+  // the overflow column. With an 8 px bottom cell margin, the part that
+  // stayed went past the page into that column, which the page clips, and
+  // its 24 lines were not shown.
+  test("a row split at the foot of a page keeps room for its cells' bottom margin", async () => {
+    await withHost({}, async (host) => {
+      const fixture = await makePaddedRowDocx();
+      await host.openDocument({ ...fixture, fileName: "padded-row.docx" });
+      const { found } = await placesOf(host, ["Padded line 1.", "Padded line 20.", "Padded line 40."]);
+      assert.deepEqual(found["Padded line 1."], { pages: [1], hidden: false });
+      assert.deepEqual(found["Padded line 20."], { pages: [1], hidden: false });
+      assert.deepEqual(found["Padded line 40."], { pages: [2], hidden: false });
+    });
+  });
+
+  // A row whose lines all fit and whose height (w:trHeight) does not had
+  // nothing to split: split, it left an empty copy as tall as itself on the
+  // next page and its own foot past the page.
+  test("a row taller than the room left, with lines that fit, moves whole", async () => {
+    await withHost({}, async (host) => {
+      const fixture = await makeTallRowDocx();
+      const rendered = await host.openDocument({ ...fixture, fileName: "tall-row.docx" });
+      const result = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody table"))
+        .map((table) => ({
+          page: Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx")).indexOf(table.closest("section.docx")) + 1,
+          rows: Array.from(table.rows).map((row) => row.textContent.trim())
+        })));
+      assert.equal(rendered.pages, 2);
+      assert.deepEqual(result, [{ page: 2, rows: ["Tall row text."] }]);
+    });
+  });
+
+  // Word does not break a row of exact height across pages: it started a
+  // page with such a row where the page view had split it between its
+  // lines, leaving the rest of its height past the page.
+  // A row of exact height is that tall in Word whatever it holds: text
+  // that does not fit is hidden. Grown to its text, such a row ran taller
+  // than Word's.
+  test("a row of exact height keeps its height and hides what does not fit", async () => {
+    await withHost({}, async (host) => {
+      const fixture = await makeClippedRowDocx();
+      await host.openDocument({ ...fixture, fileName: "clipped-row.docx" });
+      const result = await host.page.evaluate(() => {
+        const row = document.querySelector("#docBody table").rows[0];
+        const after = Array.from(document.querySelectorAll("#docBody p")).find((p) => p.textContent === "After the table.");
+        const cell = row.cells[0].getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(Array.from(row.cells[0].querySelectorAll("span")).find((span) => span.textContent === "Clipped line 10"));
+        const last = range.getBoundingClientRect();
+        const hit = document.elementFromPoint(last.left + 2, last.top + last.height / 2);
+        return {
+          height: Math.round(row.getBoundingClientRect().height),
+          gap: Math.round(after.getBoundingClientRect().top - row.getBoundingClientRect().bottom),
+          lastShown: last.top < cell.bottom || (!!hit && row.cells[0].contains(hit))
+        };
+      });
+      assert.ok(Math.abs(result.height - 80) <= 1.5, `row ${result.height} px`);
+      assert.ok(result.gap < 4, `text after the table starts ${result.gap} px below the row`);
+      assert.equal(result.lastShown, false);
+    });
+  });
+
+  test("a row of exact height moves whole", async () => {
+    await withHost({}, async (host) => {
+      const fixture = await makeExactRowDocx();
+      await host.openDocument({ ...fixture, fileName: "exact-row.docx" });
+      const { found } = await placesOf(host, ["Exact left line 1", "Exact right line 1", "Exact left line 8", "Opening line 50."]);
+      assert.deepEqual(found["Opening line 50."].pages, [1]);
+      assert.deepEqual(found["Exact left line 1"], { pages: [2], hidden: false });
+      assert.deepEqual(found["Exact right line 1"], { pages: [2], hidden: false });
+      assert.deepEqual(found["Exact left line 8"], { pages: [2], hidden: false });
+    });
+  });
+});
+
+// Word ends the page at a column break in a section of one column; the page
+// view drew nothing for it and ran the heading after it on from the text
+// before. In a section with columns the break moves to the next column,
+// not to a new page.
+describe("page view ends a page at a column break in a one-column section", () => {
+  test("a column break starts a page in one column and not in two", async () => {
+    await withHost({}, async (host) => {
+      const fixture = await makeColumnBreakDocx();
+      const rendered = await host.openDocument({ ...fixture, fileName: "column-break.docx" });
+      const pages = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx"))
+        .map((page) => Array.from(page.querySelectorAll(":scope > article")).map((article) => article.textContent).join(" ")));
+      assert.equal(rendered.pages, 2);
+      assert.ok(pages[0].includes("Opening line two.") && !pages[0].includes("Heading after"), pages[0]);
+      assert.ok(pages[1].startsWith("Heading after the column break"), pages[1]);
+      assert.ok(pages[1].includes("Right column text."), pages[1]);
+    });
+  });
+});
+
+// docx-preview prints the tab after a numbering label as a space, where a
+// line can break: a word longer than the line, such as a long URL, moved
+// to the line after its bullet, which stood alone, and each
+// such item took a line more than in Word, which breaks the word on the
+// label's line.
+describe("page view keeps a list item's first word on its label's line", () => {
+  test("a word longer than the line starts on its bullet's line", async () => {
+    await withHost({}, async (host) => {
+      const fixture = await makeListLabelDocx();
+      await host.openDocument({ ...fixture, fileName: "list-labels.docx" });
+      const result = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody article p"))
+        .filter((paragraph) => paragraph.textContent.trim())
+        .map((paragraph) => {
+          const range = document.createRange();
+          const text = paragraph.querySelector("span").firstChild;
+          range.setStart(text, 0);
+          range.setEnd(text, 1);
+          return { text: paragraph.textContent.slice(0, 5), top: Math.round(range.getBoundingClientRect().top - paragraph.getBoundingClientRect().top) };
+        }));
+      assert.deepEqual(result, [
+        { text: "http:", top: 0 }, { text: "Short", top: 0 },
+        { text: "http:", top: 0 }, { text: "Short", top: 0 }
+      ]);
     });
   });
 });
@@ -4716,12 +5200,14 @@ describe("text stays on its page at any zoom", () => {
   // At 100% the pages are as 0.3.2 laid them out: each page 1056 px (11 in)
   // high, and each section of a split page at the height it was measured
   // at ("" for a section that kept its own height). The same when the
-  // document opens and after zooming through 50% to 150% and back.
+  // document opens and after zooming through 50% to 150% and back. The
+  // first page of two-column-floats.docx is 1 px taller than 0.3.2's: its
+  // 8 pt footnote no longer takes the 10 pt minimum height of Normal's runs.
   const AT_100 = {
     "wide-tables.docx": [["888px"], [""]],
     "margin-sections.docx": [["", "720px"], ["816px"], ["816px"]],
     "figure-section.docx": [["864px"], ["", "", "336px"]],
-    "two-column-floats.docx": [["", "829px"], ["805px"], ["866px"], ["921px"]]
+    "two-column-floats.docx": [["", "830px"], ["805px"], ["866px"], ["921px"]]
   };
 
   test("the pages at 100% are 0.3.2's, when a document opens and after zooming out and back", async () => {
@@ -4754,6 +5240,200 @@ describe("text stays on its page at any zoom", () => {
         await zoomTo(host, 100);
         assert.deepEqual(await snapshot(), expected, `${file}: the pages at 100% after zooming to 50% and 150% and back`);
       }
+    });
+  });
+});
+
+// Fonts, pictures, and text boxes Word sets apart from docx-preview's CSS:
+// tests/reader/make-fonts-boxes-docx.mjs.
+describe("fonts, pictures, and text boxes take the space Word gives them", () => {
+  async function open(host, part) {
+    const { bytes, report } = await makeFontsBoxesDocx(part);
+    await host.openDocument({ bytes, report, fileName: `${part}.docx` });
+  }
+
+  function near(actual, expected, tolerance, label) {
+    assert.ok(Math.abs(actual - expected) <= tolerance, `${label}: ${actual} px, expected ${expected} px`);
+  }
+
+  // Consolas advances 1126/2048 em per character. Its stand-ins (DejaVu Sans
+  // Mono, Liberation Mono) advance 0.6 em, 9.5% more, and code lines that
+  // fit Word's line wrapped. Where Consolas is installed it draws itself.
+  test("text in Consolas advances as Consolas does, in whatever font draws it", async () => {
+    await withHost({}, async (host) => {
+      await open(host, "mono");
+      const result = await host.page.evaluate((text) => {
+        const span = Array.from(document.querySelectorAll("#docBody span")).find((node) => node.textContent === text);
+        const range = document.createRange();
+        range.selectNodeContents(span);
+        return { width: range.getBoundingClientRect().width, size: parseFloat(getComputedStyle(span).fontSize), length: text.length };
+      }, MONO_TEXT);
+      const advance = result.width / result.length / result.size;
+      assert.ok(Math.abs(advance - 1126 / 2048) <= 0.003, `each character advances ${advance} em; Consolas advances ${1126 / 2048} em`);
+    });
+  });
+
+  // A paragraph of Calibri 11 pt at 1.15 that holds only a picture 90 pt
+  // tall. CSS set the picture on the baseline and added the font's descent
+  // and half its leading below it, 5.6 px.
+  test("a line that holds only a picture is as tall as the picture", async () => {
+    await withHost({}, async (host) => {
+      await open(host, "picture");
+      const height = await host.page.evaluate(() => document.querySelector("#docBody img").closest("p").getBoundingClientRect().height);
+      near(height, 90 * 4 / 3, 0.5, "the picture's paragraph");
+    });
+  });
+
+  // The empty line of a code listing whose mark is 8 pt Consolas is one
+  // 8 pt Consolas line (Word's single line for Consolas is 1.1701 em, 12.48
+  // px), not a line of the style's 11 pt Calibri (17.9 px).
+  test("an empty paragraph is a line of its mark's font", async () => {
+    await withHost({}, async (host) => {
+      await open(host, "empty");
+      const heights = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody article p"))
+        .map((p) => p.getBoundingClientRect().height));
+      assert.equal(heights.length, 3, "three paragraphs");
+      near(heights[1], 8 * 1.1701 * 4 / 3, 0.5, "the empty paragraph");
+    });
+  });
+
+  // A text box wrapped square that spans the column leaves no room beside
+  // it, so Word sets the next paragraph below it: 10 pt below its anchor's
+  // top and 150 pt tall. The box had taken no space and the paragraph after
+  // it printed under the box's text.
+  test("a box wrapped square as wide as the column pushes the text after it below it", async () => {
+    await withHost({}, async (host) => {
+      await open(host, "box");
+      const result = await host.page.evaluate(() => {
+        const article = document.querySelector("#docBody article");
+        const after = Array.from(article.querySelectorAll("p")).find((p) => p.textContent.includes("After the box lynx."));
+        const box = Array.from(document.querySelectorAll("#docBody *")).find((node) => node.textContent.includes("Calendar box heron.") &&
+          !Array.from(node.children).some((child) => child.textContent.includes("Calendar box heron.")) && node.closest("p")).closest(".ld-float, svg, div");
+        const top = article.getBoundingClientRect().top;
+        return { after: after.getBoundingClientRect().top - top, boxBottom: box.getBoundingClientRect().bottom - top };
+      });
+      assert.ok(result.after >= 150 * 4 / 3 - 1, `the paragraph after the box starts ${result.after} px below the text's top; the box is 200 px tall`);
+      assert.ok(result.after >= result.boxBottom - 1, `the paragraph after the box starts at ${result.after} px, inside the box (ends at ${result.boxBottom} px)`);
+    });
+  });
+
+  // Word sets a run marked w:rtl in the complex-script font and size of its
+  // style (w:rFonts/@w:cs, w:szCs): Traditional Arabic at 15 pt here. The
+  // Arabic text took the style's 11 pt Times New Roman.
+  test("a right-to-left run takes the complex-script font and size", async () => {
+    await withHost({}, async (host) => {
+      await open(host, "complex");
+      const runs = await host.page.evaluate(([arabic, latin]) => {
+        const style = (text) => {
+          const span = Array.from(document.querySelectorAll("#docBody span")).find((node) => node.textContent.trim() === text);
+          const computed = getComputedStyle(span);
+          return { size: parseFloat(computed.fontSize), family: computed.fontFamily.split(",")[0].replace(/["']/g, "").trim() };
+        };
+        return { arabic: style(arabic), latin: style(latin) };
+      }, [ARABIC_TEXT, LATIN_TEXT]);
+      near(runs.arabic.size, 20, 0.1, "the Arabic run's size");
+      assert.equal(runs.arabic.family, "Traditional Arabic");
+      near(runs.latin.size, 11 * 4 / 3, 0.1, "the Latin run's size");
+      assert.equal(runs.latin.family, "Times New Roman");
+    });
+  });
+
+  // Word spaces paragraphs with HTML auto spacing 14 pt apart and ignores
+  // the 5 pt in w:before and w:after; the reader spaced them 5 pt apart.
+  test("paragraphs with HTML auto spacing are 14 pt apart", async () => {
+    await withHost({}, async (host) => {
+      await open(host, "auto");
+      const gaps = await host.page.evaluate(() => {
+        const paragraphs = Array.from(document.querySelectorAll("#docBody article p"));
+        const box = (text) => paragraphs.find((p) => p.textContent.includes(text)).getBoundingClientRect();
+        return [box("Auto two").top - box("Auto one").bottom, box("Auto three").top - box("Auto two").bottom];
+      });
+      gaps.forEach((gap, index) => near(gap, 14 * 4 / 3, 0.5, `gap ${index + 1}`));
+    });
+  });
+});
+
+
+describe("table rows at the foot of a page", () => {
+  // A row whose text fits the page but whose space after its last paragraph
+  // does not was moved by the browser into a column beside the page, where
+  // nothing could be seen.
+  test("a row that fits except for its trailing space stays visible", async () => {
+    await withHost({}, async (host) => {
+      const { bytes, report } = await makeTableEdgeDocx();
+      await host.openDocument({ bytes, report, fileName: "table-edge.docx" });
+      const hidden = await host.page.evaluate(() => {
+        document.querySelectorAll("section.docx.ld-lazy").forEach((page) => page.classList.remove("ld-lazy"));
+        const found = [];
+        document.querySelectorAll("#docBody section.docx > article").forEach((article) => {
+          const box = article.getBoundingClientRect();
+          article.querySelectorAll("p").forEach((paragraph) => {
+            if (paragraph.getBoundingClientRect().left >= box.right - 0.5) {
+              found.push(paragraph.textContent);
+            }
+          });
+        });
+        return found;
+      });
+      assert.deepEqual(hidden, [], "no paragraph lies in a column beside the page");
+    });
+  });
+});
+
+describe("page view keeps a line of small code as tall as its text", () => {
+  // A tab is a span of its own, and the document's default rule for spans
+  // (11 pt here) gave it that size inside an 8 pt Consolas run: each line of
+  // a code listing was 20 px tall where Word's is 8 pt Consolas at single
+  // spacing, 14 px.
+  test("a code line that starts with a tab is one 8 pt line tall", async () => {
+    await withHost({}, async (host) => {
+      const code = (text) => `<w:p><w:pPr><w:spacing w:after="0"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/><w:sz w:val="16"/></w:rPr><w:tab/><w:tab/><w:t>${text}</w:t></w:r></w:p>`;
+      const { bytes, report } = await makeBodyDocx(code("alpha") + code("beta"));
+      await host.openDocument({ bytes, report, fileName: "code-tabs.docx" });
+      const heights = await host.page.evaluate(() => {
+        const page = document.querySelector("#docBody .docx-wrapper > section.docx");
+        const scale = page.getBoundingClientRect().width / page.offsetWidth;
+        return Array.from(page.querySelectorAll("article > p")).map((p) => p.getBoundingClientRect().height / scale);
+      });
+      assert.ok(heights[0] < 14 && heights[1] < 14, `the code lines are ${heights.join(" and ")} px tall; 8 pt single is about 12`);
+    });
+  });
+});
+
+describe("page view drops auto spacing at the top of a page", () => {
+  // Word drops the 14 pt of HTML auto spacing above the first paragraph of a
+  // page that the text filled up to.
+  test("a paragraph with auto spacing that starts a later page starts at the top margin", async () => {
+    await withHost({}, async (host) => {
+      const web = `<w:pPr><w:spacing w:before="100" w:beforeAutospacing="1" w:after="100" w:afterAutospacing="1" w:line="360" w:lineRule="exact"/></w:pPr>`;
+      const body = Array.from({ length: 60 }, (_, index) => `<w:p>${web}<w:r><w:t>Web item ${index + 1}.</w:t></w:r></w:p>`).join("");
+      const { bytes, report } = await makeBodyDocx(body);
+      await host.openDocument({ bytes, report, fileName: "autospacing-pages.docx" });
+      const tops = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx")).map((page) => {
+        const article = page.querySelector("article");
+        return article.firstElementChild.getBoundingClientRect().top - article.getBoundingClientRect().top;
+      }));
+      assert.ok(tops.length >= 3, `${tops.length} pages`);
+      assert.ok(tops[0] > 17, `the first page keeps the space: ${tops[0]}`);
+      assert.ok(tops.slice(1).every((top) => top < 1), `later pages start at the top: ${tops.join(", ")}`);
+    });
+  });
+
+  // A paragraph with an outline level (a heading, whatever its style is
+  // called) keeps the space. That exception rests on comparing the reader's
+  // pages with Word's, not on a measurement in Word.
+  test("a heading with auto spacing that starts a later page keeps its space", async () => {
+    await withHost({}, async (host) => {
+      const style = `<w:style w:type="paragraph" w:customStyle="1" w:styleId="Kopf"><w:name w:val="Kopf"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:before="100" w:beforeAutospacing="1" w:after="100" w:afterAutospacing="1" w:line="360" w:lineRule="exact"/><w:outlineLvl w:val="1"/></w:pPr></w:style>`;
+      const body = Array.from({ length: 60 }, (_, index) => `<w:p><w:pPr><w:pStyle w:val="Kopf"/></w:pPr><w:r><w:t>Heading ${index + 1}.</w:t></w:r></w:p>`).join("");
+      const { bytes, report } = await makeBodyDocx(body, { styles: makeStyles(style) });
+      await host.openDocument({ bytes, report, fileName: "autospacing-headings.docx" });
+      const tops = await host.page.evaluate(() => Array.from(document.querySelectorAll("#docBody .docx-wrapper > section.docx")).map((page) => {
+        const article = page.querySelector("article");
+        return article.firstElementChild.getBoundingClientRect().top - article.getBoundingClientRect().top;
+      }));
+      assert.ok(tops.length >= 3, `${tops.length} pages`);
+      assert.ok(tops.every((top) => top > 17), `every page keeps the space: ${tops.join(", ")}`);
     });
   });
 });

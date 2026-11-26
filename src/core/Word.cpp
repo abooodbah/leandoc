@@ -836,9 +836,6 @@ private:
                                ? Action::Keep
                                : Action::Remove;
                 }
-                if (std::strcmp(local, "drawing") == 0 && ContainsForbidden(element)) {
-                    return Action::Remove;
-                }
                 if (std::strcmp(local, "tr") == 0 && RowIsDeleted(element)) {
                     return Action::Remove;
                 }
@@ -999,7 +996,41 @@ private:
         return first ? first : next;
     }
 
-    // Returns true when `element` is a run that lost all of its content.
+    // The first element child of `element` named ns:local, or null. The
+    // caller has `element` in scope.
+    pugi::xml_node ElementChild(pugi::xml_node element, Ns ns, const char* local) {
+        for (pugi::xml_node child = element.first_child(); child;
+             child = child.next_sibling()) {
+            if (child.type() != pugi::node_element) {
+                continue;
+            }
+            const std::size_t mark = scope_.Mark();
+            scope_.Push(child);
+            const bool match = scope_.Element(child).Is(ns, local);
+            scope_.Pop(mark);
+            if (match) {
+                return child;
+            }
+        }
+        return pugi::xml_node();
+    }
+
+    // Whether docx-preview can read the picture: a pic:blipFill holding an
+    // a:blip, and a pic:spPr.
+    bool PictureIsReadable(pugi::xml_node picture) {
+        const pugi::xml_node fill = ElementChild(picture, Ns::Pic, "blipFill");
+        if (!fill || !ElementChild(picture, Ns::Pic, "spPr")) {
+            return false;
+        }
+        const std::size_t mark = scope_.Mark();
+        scope_.Push(fill);
+        const bool blip = static_cast<bool>(ElementChild(fill, Ns::A, "blip"));
+        scope_.Pop(mark);
+        return blip;
+    }
+
+    // Returns true when `element` goes: a run that lost all of its content,
+    // or an a:graphic or pic:pic docx-preview cannot read.
     bool Process(pugi::xml_node element, const QName& name) {
         FixAttributes(element, name);
         bool removedChild = false;
@@ -1100,6 +1131,18 @@ private:
                     break;
                 }
             }
+        }
+        // docx-preview reads a:graphic's a:graphicData, pic:pic's
+        // pic:blipFill and pic:spPr, and pic:blipFill's a:blip without
+        // checking that they are there, and the whole render failed on a
+        // drawing without them: one left empty by a removed chart or
+        // AlternateContent, or written so. Such an element goes; the
+        // drawing keeps its frame.
+        if (name.Is(Ns::A, "graphic")) {
+            return !ElementChild(element, Ns::A, "graphicData");
+        }
+        if (name.Is(Ns::Pic, "pic")) {
+            return !PictureIsReadable(element);
         }
         if (!removedChild) {
             return false;

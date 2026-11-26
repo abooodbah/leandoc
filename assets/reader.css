@@ -1315,10 +1315,21 @@ body {
   break-inside: avoid;
 }
 
+/* A picture alone on its line ends at the line's bottom, with no descent
+   below it (reader.js fitPictureLines). */
+#docBody .ld-picture-line {
+  vertical-align: bottom;
+}
+
 /* A tab is as wide as the distance to its stop (reader.js setTabStops). */
 #docBody span.ld-tab {
   display: inline-block;
   text-indent: 0;
+  /* The tab takes its run's font: the document's default span rule would
+     give it 11 pt and raise a line of 8 pt code by a third. */
+  font-family: inherit;
+  font-size: inherit;
+  min-height: 0;
 }
 
 /* A token of an equation is set on one line. docx-preview's runs may wrap
@@ -1338,10 +1349,16 @@ body {
   text-align: left;
 }
 
+/* A tab with a leader is a box that clips its dots, and such a box sits on
+   the line by its bottom edge. Set on the text's bottom, it reached above
+   the line by the line's leading, and a line with a leader was taller than
+   the same line without one. At the
+   top of the line it takes no more height than its own line, and on a line
+   of its own size its dots sit on the text's baseline. */
 #docBody span.ld-tab-leader {
   overflow: hidden;
   white-space: nowrap;
-  vertical-align: text-bottom;
+  vertical-align: top;
 }
 
 /* A footnote with the author's own mark (w:customMarkFollows) shows that
@@ -1808,4 +1825,19 @@ body {
 #docBody p.ld-lj-right::before {
   display: inline-block;
   margin-left: var(--ld-lj, 0px);
+}
+
+/* The content of a cell in a row of exact height, cut off at the row's
+   height (reader.js clipExactRows). */
+#docBody .ld-exact-cell {
+  overflow: hidden;
+}
+
+/* Word drops the 14 pt of HTML auto spacing above the first paragraph of a
+   page after the first (fixups.js applyAutoSpacing). A paragraph with an
+   outline level (a heading) keeps it (fixups.js leaves it unmarked). That
+   exception rests on comparing the reader's pages with Word's, not on a
+   measurement in Word. */
+#docBody .docx-wrapper > section.docx:not(:first-of-type) > article:first-of-type > p.ld-auto-top:first-child {
+  margin-top: 0 !important;
 }

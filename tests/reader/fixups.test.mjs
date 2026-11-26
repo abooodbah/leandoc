@@ -830,6 +830,33 @@ test("A saved page start after a continuous section break is marked", () => {
   assert.equal(stats.savedPageStarts, 1);
 });
 
+// Word saves a page start in the first cell of a table row that starts a
+// page. One after text in a cell is in a row Word split across pages: that
+// row is marked as split, with a mark at the start, and the row after it,
+// which carries the start again, is marked as following a split row.
+test("Table rows with saved page starts are marked as starts, splits, or rows after a split", () => {
+  const saved = () => ({ type: "break", break: "lastRenderedPageBreak" });
+  const text = (value) => ({ type: "text", text: value });
+  const cell = (...items) => ({ type: "cell", children: [{ type: "paragraph", children: [{ type: "run", children: items }] }] });
+  const row = (...cells) => ({ type: "row", children: cells });
+  const rows = [
+    row(cell(text("1")), cell(text("a"))),
+    row(cell(saved(), text("2")), cell(text("b"))),
+    row(cell(text("3")), cell(text("c"))),
+    row(cell(text("4")), cell(text("d"), saved(), text("e"))),
+    row(cell(saved(), text("5")), cell(text("f"))),
+    row(cell(text("6")), cell(saved(), text("g"))),
+    row(cell(saved(), text("7")), cell(text("h")))
+  ];
+  const stats = Fixups.prepareModel({ documentPart: { body: { children: [{ type: "table", children: rows }] } }, parts: [] });
+  const classes = rows.map((entry) => (entry.className || "").split(" ").filter((name) => /^ld-saved-/.test(name)).join(" "));
+  assert.deepEqual(classes, ["", "ld-saved-row", "", "ld-saved-split", "ld-saved-row ld-saved-after", "", ""]);
+  assert.equal(stats.savedRows, 2);
+  const marks = rows[3].children[1].children[0].children[0].children.filter((element) => element.type === "bookmarkStart");
+  assert.equal(marks.length, 1);
+  assert.ok(marks[0].name.startsWith(Fixups.SAVED_LINE));
+});
+
 // The page colour setting: every colour the document names goes through a
 // variable that is unset on paper, so paper pages draw exactly as before.
 test("Document colours are routed through variables that fall back to the colour itself", () => {
@@ -1092,7 +1119,8 @@ test("A numbered level gets its label's tab only where its paragraphs start with
   const sibling = item(1, { type: "text", text: "Plain item at the tabbed level" });
   assert.equal(Fixups.markTabs([plain, bookmarked, sibling], [], numberings, {}), 3, "the tabbed item's own tab and the two label tabs at its level");
   assert.equal(plain.children.length, 1, "no label tab where the level's items start with text");
-  assert.equal(numberings[0].suff, "tab");
+  // That level keeps docx-preview's label, with a no-break space after it.
+  assert.equal(numberings[0].suff, "space");
   assert.equal(bookmarked.children.length, 2);
   assert.equal(sibling.children.length, 2, "every item at a tabbed level gets the label's tab");
   assert.equal(numberings[1].suff, "nothing");

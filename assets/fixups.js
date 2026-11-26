@@ -220,6 +220,20 @@
     return Object.prototype.hasOwnProperty.call(STAND_IN_SPACING, key) ? STAND_IN_SPACING[key] : 0;
   }
 
+  // The advance of every character of a monospaced family, in em, from the
+  // font's own metrics: Consolas is 1126 units of 2048. Its stand-ins are
+  // wider (DejaVu Sans Mono and Liberation Mono 0.6 em, 9.5% more), so code
+  // lines wrapped where Word's did not. The reader measures the stand-in it
+  // draws and spaces its letters by the difference.
+  var MONO_ADVANCES = {
+    "consolas": 1126 / 2048
+  };
+
+  function monoAdvance(family) {
+    var key = String(family || "").replace(/^['"]|['"]$/g, "").trim().toLowerCase();
+    return Object.prototype.hasOwnProperty.call(MONO_ADVANCES, key) ? MONO_ADVANCES[key] : 0;
+  }
+
   // Stand-ins the document's font table names (w:altName), which Word uses
   // when a font is missing: an ACM template's Linux Libertine O names Times
   // New Roman, and the browser had drawn the next family in the list, a
@@ -585,7 +599,10 @@
   // Rows the reader's pages treat as Word does: the leading rows marked
   // w:tblHeader repeat at the top of each page a table runs onto
   // (ld-header-row), and a row marked w:cantSplit moves whole to the next
-  // page (ld-cant-split). Other rows break across pages between lines.
+  // page (ld-cant-split), as does a row of exact height (w:hRule="exact"):
+  // Word moves such a row whole to the next page, where the page view had
+  // split it between its lines. Other rows break across pages between
+  // lines.
   function markRows(modelTable, xmlTable, result) {
     var modelRows = modelChildren(modelTable, "row");
     var xmlRows = Array.prototype.filter.call(xmlTable.children || [], function (child) {
@@ -599,13 +616,18 @@
       var properties = childNamed(row, "trPr");
       var header = properties && childNamed(properties, "tblHeader");
       var cantSplit = properties && childNamed(properties, "cantSplit");
+      var height = properties && childNamed(properties, "trHeight");
       if (leading && header && isOn(header)) {
         addClass(modelRows[index], "ld-header-row");
         result.headerRows += 1;
       } else {
         leading = false;
       }
-      if (cantSplit && isOn(cantSplit)) {
+      if (getAttr(height, "hRule") === "exact") {
+        // The reader cuts its cells off at its height (clipExactRows).
+        addClass(modelRows[index], "ld-exact-row");
+      }
+      if ((cantSplit && isOn(cantSplit)) || getAttr(height, "hRule") === "exact") {
         addClass(modelRows[index], "ld-cant-split");
         result.cantSplitRows += 1;
       }
@@ -1078,6 +1100,177 @@
     return empty;
   }
 
+  // An empty paragraph is a line of its mark's font (w:pPr/w:rPr/w:rFonts)
+  // in Word; docx-preview reads only the mark's size, so an empty line whose
+  // mark is 8 pt Consolas was drawn in its style's 11 pt Calibri, 5 px
+  // taller. Body paragraphs only, paired with the XML.
+  function applyEmptyMarkFonts(modelBody, xmlBody, slots) {
+    var modelParagraphs = [];
+    var xmlParagraphs = [];
+    modelBlocks(modelBody ? modelBody.children : [], modelParagraphs, []);
+    if (xmlBody) {
+      xmlBlocks(xmlBody, false, xmlParagraphs, []);
+    }
+    if (!xmlBody || xmlParagraphs.length !== modelParagraphs.length) {
+      return 0;
+    }
+    var count = 0;
+    xmlParagraphs.forEach(function (element, index) {
+      var model = modelParagraphs[index];
+      if (!isEmptyParagraph(model)) {
+        return;
+      }
+      var properties = childNamed(element, "pPr");
+      var mark = properties && childNamed(properties, "rPr");
+      var fonts = mark && childNamed(mark, "rFonts");
+      if (!fonts) {
+        return;
+      }
+      var name = getAttr(fonts, "ascii") || getAttr(fonts, "hAnsi");
+      var theme = getAttr(fonts, "asciiTheme") || getAttr(fonts, "hAnsiTheme");
+      var family = name ? (/\s/.test(name) ? "'" + name.replace(/'/g, "") + "'" : name)
+        : theme ? resolveThemeFonts("var(--docx-" + theme + "-font)", slots) : "";
+      if (!family || /var\(/.test(family)) {
+        return;
+      }
+      model.cssStyle = model.cssStyle || {};
+      model.cssStyle["font-family"] = withFontFallback(family);
+      count += 1;
+    });
+    return count;
+  }
+
+  // Runs Word sets in the complex-script font: those marked w:rtl or w:cs.
+  // Word takes their font from w:rFonts/@w:cs (or @w:cstheme) and their size
+  // from w:szCs; docx-preview reads neither, so right-to-left text in a
+  // style of 11 pt Times New Roman with a complex-script size of 15 pt was
+  // set at 11 pt. Each value is resolved as Word does: the run, its character style, the paragraph's
+  // style, then the document defaults. Body paragraphs only, paired with the
+  // XML; a paragraph whose runs do not pair one to one is left alone.
+  var RUN_CONTAINERS = /^(hyperlink|smartTag|ins|del|sdt|sdtContent)$/;
+
+  function xmlRuns(container, out) {
+    Array.prototype.forEach.call(container.children || [], function (child) {
+      if (child.localName === "r") {
+        out.push(child);
+      } else if (RUN_CONTAINERS.test(child.localName)) {
+        xmlRuns(child, out);
+      }
+    });
+    return out;
+  }
+
+  function modelRuns(element, out) {
+    (element.children || []).forEach(function (child) {
+      if (!child || typeof child !== "object") {
+        return;
+      }
+      if (child.type === "run") {
+        out.push(child);
+      } else if (!/^(paragraph|table|drawing|vmlPicture|image)$/.test(child.type || "")) {
+        modelRuns(child, out);
+      }
+    });
+    return out;
+  }
+
+  function complexScriptRuns(modelBody, xmlBody, stylesRoot, slots, defaultId) {
+    // A document that marks no run rtl or cs has nothing to do.
+    var marked = [xmlBody, stylesRoot].some(function (root) {
+      return !!root && (!root.getElementsByTagNameNS ||
+        root.getElementsByTagNameNS("*", "rtl").length + root.getElementsByTagNameNS("*", "cs").length > 0);
+    });
+    if (!marked) {
+      return 0;
+    }
+    var modelParagraphs = [];
+    var xmlParagraphs = [];
+    modelBlocks(modelBody ? modelBody.children : [], modelParagraphs, []);
+    if (xmlBody) {
+      xmlBlocks(xmlBody, false, xmlParagraphs, []);
+    }
+    if (!xmlBody || xmlParagraphs.length !== modelParagraphs.length) {
+      return 0;
+    }
+    var byId = {};
+    elementsNamed(stylesRoot, "style").forEach(function (style) {
+      byId[getAttr(style, "styleId")] = style;
+    });
+    var docDefaults = stylesRoot ? childNamed(stylesRoot, "docDefaults") : null;
+    var rPrDefault = docDefaults ? childNamed(docDefaults, "rPrDefault") : null;
+    var defaults = rPrDefault ? childNamed(rPrDefault, "rPr") : null;
+    function fromStyle(id, read, depth) {
+      var style = id ? byId[id] : null;
+      if (!style || depth > 32) {
+        return null;
+      }
+      var value = read(childNamed(style, "rPr"));
+      var base = childNamed(style, "basedOn");
+      return value !== null ? value : base ? fromStyle(getAttr(base, "val"), read, depth + 1) : null;
+    }
+    function resolve(rPr, runStyle, paragraphStyle, read) {
+      var value = read(rPr);
+      if (value === null) {
+        value = fromStyle(runStyle, read, 0);
+      }
+      if (value === null) {
+        value = fromStyle(paragraphStyle, read, 0);
+      }
+      return value !== null ? value : read(defaults);
+    }
+    function flag(name) {
+      return function (rPr) {
+        var element = rPr ? childNamed(rPr, name) : null;
+        return element ? isOn(element) : null;
+      };
+    }
+    function size(rPr) {
+      var element = rPr ? childNamed(rPr, "szCs") : null;
+      var value = element ? parseFloat(getAttr(element, "val")) : NaN;
+      return value > 0 ? value / 2 : null;
+    }
+    function font(rPr) {
+      var fonts = rPr ? childNamed(rPr, "rFonts") : null;
+      var name = fonts ? getAttr(fonts, "cs") : null;
+      if (name) {
+        return /\s/.test(name) ? "'" + name.replace(/'/g, "") + "'" : name;
+      }
+      var theme = fonts ? getAttr(fonts, "cstheme") : null;
+      return theme ? resolveThemeFonts("var(--docx-" + theme + "-font)", slots) : null;
+    }
+    var count = 0;
+    xmlParagraphs.forEach(function (paragraph, index) {
+      var properties = childNamed(paragraph, "pPr");
+      var name = properties && childNamed(properties, "pStyle");
+      var paragraphStyle = (name && getAttr(name, "val")) || defaultId || "";
+      var sources = xmlRuns(paragraph, []);
+      var runs = modelRuns(modelParagraphs[index], []);
+      if (!sources.length || sources.length !== runs.length) {
+        return;
+      }
+      sources.forEach(function (source, position) {
+        var rPr = childNamed(source, "rPr");
+        var styleElement = rPr ? childNamed(rPr, "rStyle") : null;
+        var runStyle = styleElement ? getAttr(styleElement, "val") : null;
+        if (!resolve(rPr, runStyle, paragraphStyle, flag("rtl")) && !resolve(rPr, runStyle, paragraphStyle, flag("cs"))) {
+          return;
+        }
+        var run = runs[position];
+        var points = resolve(rPr, runStyle, paragraphStyle, size);
+        var family = resolve(rPr, runStyle, paragraphStyle, font);
+        run.cssStyle = run.cssStyle || {};
+        if (points) {
+          run.cssStyle["font-size"] = points + "pt";
+        }
+        if (family && !/var\(/.test(family)) {
+          run.cssStyle["font-family"] = withFontFallback(family);
+        }
+        count += 1;
+      });
+    });
+    return count;
+  }
+
   // Word gives no height to an empty paragraph that only carries the break
   // into a continuous section: in Word's own PDF of a pandoc-style paper the
   // heading after the title, the table after a two-column section, and the
@@ -1097,6 +1290,35 @@
       }
     });
     return hidden;
+  }
+
+  // Word ends the page at a column break (w:br w:type="column") in a section
+  // of one column; docx-preview drew nothing for it, so a heading that
+  // starts with one ran on from the text before it. A column break in a
+  // section with columns is left as it is.
+  function columnBreaksAsPages(body) {
+    var section = [];
+    var count = 0;
+    function close(props) {
+      var columns = props && props.columns && props.columns.numberOfColumns;
+      if (!(columns > 1)) {
+        eachModelElement(section, function (element) {
+          if (element.type === "break" && element.break === "column") {
+            element.break = "page";
+            count += 1;
+          }
+        });
+      }
+      section = [];
+    }
+    ((body && body.children) || []).forEach(function (block) {
+      section.push(block);
+      if (block && block.type === "paragraph" && block.sectionProps) {
+        close(block.sectionProps);
+      }
+    });
+    close(body && body.props);
+    return count;
   }
 
   // VML lengths in points ("466.3pt", "6in", ".4pt").
@@ -1222,21 +1444,81 @@
     return /^(f|false|0|off)$/i.test(String(value || ""));
   }
 
+  // Word sets no text beside a box wrapped square (or tight, or through)
+  // where the column leaves less than this on both of its sides, in points;
+  // such a box takes its lines whole, as one wrapped top and bottom does.
+  var MIN_WRAP_ROOM = 72;
+
+  // The width of the text of each body paragraph, in points, from the
+  // section the paragraph is in (w:pgSz, w:pgMar); null in a section of
+  // several columns or one whose page is not given.
+  function columnWidths(xmlBody, xmlParagraphs) {
+    function width(sectPr) {
+      var size = sectPr && childNamed(sectPr, "pgSz");
+      var margins = sectPr && childNamed(sectPr, "pgMar");
+      var columns = sectPr && childNamed(sectPr, "cols");
+      var page = parseFloat(getAttr(size, "w"));
+      if (!(page > 0) || !margins || (parseInt(getAttr(columns, "num"), 10) || 1) > 1) {
+        return null;
+      }
+      return (page - (parseFloat(getAttr(margins, "left")) || 0) - (parseFloat(getAttr(margins, "right")) || 0) -
+        (parseFloat(getAttr(margins, "gutter")) || 0)) / 20;
+    }
+    var widths = new Array(xmlParagraphs.length);
+    var last = width(childNamed(xmlBody, "sectPr"));
+    var current = last;
+    for (var index = xmlParagraphs.length - 1; index >= 0; index -= 1) {
+      var properties = childNamed(xmlParagraphs[index], "pPr");
+      var sectPr = properties && childNamed(properties, "sectPr");
+      if (sectPr && xmlParagraphs[index].parentNode === xmlBody) {
+        current = width(sectPr);
+      }
+      widths[index] = current;
+    }
+    return widths;
+  }
+
+  // Whether a box wrapped square leaves no room for text beside it in a
+  // section whose text is `column` points wide.
+  function fillsColumn(style, width, column) {
+    if (!(column > 0)) {
+      return false;
+    }
+    var relative = vmlStyleValue(style, "mso-position-horizontal-relative") || "text";
+    if (!/^(text|margin|char)$/.test(relative)) {
+      return false;
+    }
+    var horizontal = vmlStyleValue(style, "mso-position-horizontal");
+    var left = horizontal === "center" ? (column - width) / 2
+      : horizontal === "right" || horizontal === "outside" ? column - width
+      : horizontal === "left" || horizontal === "inside" ? 0
+      : vmlLength(style, "margin-left") * (/margin-left\s*:\s*-/i.test(style) ? -1 : 1);
+    var right = column - left - width;
+    return Math.max(left, right) < MIN_WRAP_ROOM;
+  }
+
   // How a VML shape floats, or null when it is not a text box Word wraps
   // top and bottom. "top" and "bottom" boxes are positioned against the
-  // page or its margins; any other box sits in the text at its anchor.
-  function floatPlacement(shape) {
+  // page or its margins; any other box sits in the text at its anchor. A
+  // box wrapped square that fills its column (MIN_WRAP_ROOM) floats as one
+  // wrapped top and bottom. Such a box had taken no space, and the text
+  // after it was set under the box's text.
+  function floatPlacement(shape, column) {
     var style = shape ? getAttr(shape, "style") || "" : "";
     if (!/position\s*:\s*absolute/i.test(style)) {
       return null;
     }
     var wrap = childNamed(shape, "wrap");
     var textbox = childNamed(shape, "textbox");
-    if (!wrap || getAttr(wrap, "type") !== "topAndBottom" || !textbox || !childNamed(textbox, "txbxContent")) {
+    var type = wrap ? getAttr(wrap, "type") : null;
+    if (!type || !textbox || !childNamed(textbox, "txbxContent")) {
       return null;
     }
     var width = vmlLength(style, "width");
     if (!(width > 0)) {
+      return null;
+    }
+    if (type !== "topAndBottom" && !(/^(square|tight|through)$/.test(type) && fillsColumn(style, width, column))) {
       return null;
     }
     var relative = vmlStyleValue(style, "mso-position-vertical-relative") || "text";
@@ -1322,6 +1604,7 @@
       return 0;
     }
     var floated = 0;
+    var columns = null;
     modelParagraphs.forEach(function (paragraph, index) {
       var pictures = [];
       eachModelElement(paragraph.children || [], function (element) {
@@ -1336,8 +1619,9 @@
       if (sources.length !== pictures.length) {
         return;
       }
+      columns = columns || columnWidths(xmlBody, xmlParagraphs);
       pictures.forEach(function (picture, position) {
-        var placement = floatPlacement(vmlShape(sources[position]));
+        var placement = floatPlacement(vmlShape(sources[position]), columns[index]);
         var content = placement ? textBoxContent(picture) : null;
         if (!content || !content.length) {
           return;
@@ -1737,6 +2021,18 @@
     numbered.forEach(function (level) {
       level.suff = "nothing";
     });
+    // Any other label Word follows with a tab keeps docx-preview's place
+    // for its text, a space's width after it, but not its line break: the
+    // tab, printed as a space, let a word longer than the line (a long URL)
+    // move to the line after its bullet, which stood alone. Word breaks such a word on the label's line. A no-break space
+    // (w:suff "space" in docx-preview) keeps the word there.
+    Object.keys(levels).forEach(function (key) {
+      levels[key].forEach(function (level) {
+        if (level.suff === undefined || level.suff === "tab") {
+          level.suff = "space";
+        }
+      });
+    });
     return marked;
   }
 
@@ -2063,6 +2359,192 @@
     return dropped;
   }
 
+  // An attribute of a paragraph's w:spacing as Word resolves it: each
+  // attribute on its own, from the paragraph, then its style chain, then the
+  // document defaults. Returns the attribute's text, or null.
+  function spacingAttributeResolver(stylesRoot, attribute, property) {
+    var byId = {};
+    elementsNamed(stylesRoot, "style").forEach(function (style) {
+      if (getAttr(style, "type") === "paragraph") {
+        byId[getAttr(style, "styleId")] = style;
+      }
+    });
+    function own(properties) {
+      var spacing = properties && childNamed(properties, property || "spacing");
+      return spacing ? getAttr(spacing, attribute) : null;
+    }
+    var defaults = stylesRoot ? childNamed(stylesRoot, "docDefaults") : null;
+    var pPrDefault = defaults ? childNamed(defaults, "pPrDefault") : null;
+    var fallback = own(pPrDefault ? childNamed(pPrDefault, "pPr") : null);
+    var known = {};
+    function fromStyle(id, depth) {
+      if (Object.prototype.hasOwnProperty.call(known, id)) {
+        return known[id];
+      }
+      var style = byId[id];
+      var value = style ? own(childNamed(style, "pPr")) : null;
+      var base = style && childNamed(style, "basedOn");
+      var result = value !== null ? value
+        : base && depth < 32 ? fromStyle(getAttr(base, "val"), depth + 1) : fallback;
+      known[id] = result;
+      return result;
+    }
+    return function (element, styleId) {
+      var value = own(childNamed(element, "pPr"));
+      return value !== null ? value : fromStyle(styleId || "", 0);
+    };
+  }
+
+  // The list a paragraph is in (its w:numId, from the paragraph or its
+  // style chain), or "" when it is not numbered.
+  function numberingResolver(stylesRoot) {
+    var byId = {};
+    elementsNamed(stylesRoot, "style").forEach(function (style) {
+      if (getAttr(style, "type") === "paragraph") {
+        byId[getAttr(style, "styleId")] = style;
+      }
+    });
+    function own(properties) {
+      var numbering = properties && childNamed(properties, "numPr");
+      var id = numbering && childNamed(numbering, "numId");
+      return id ? getAttr(id, "val") || "" : null;
+    }
+    function fromStyle(id, depth) {
+      var style = byId[id];
+      var value = style ? own(childNamed(style, "pPr")) : null;
+      var base = style && childNamed(style, "basedOn");
+      return value !== null ? value
+        : base && depth < 32 ? fromStyle(getAttr(base, "val"), depth + 1) : "";
+    }
+    return function (element, styleId) {
+      var value = own(childNamed(element, "pPr"));
+      value = value !== null ? value : fromStyle(styleId || "", 0);
+      return value === "0" ? "" : value;
+    };
+  }
+
+  // HTML auto spacing (w:beforeAutospacing, w:afterAutospacing), which Word
+  // saves for the Normal (Web) style and for text pasted from web pages.
+  // Word then spaces the paragraph by 14 pt and ignores w:before and
+  // w:after, which hold the 5 pt other applications use. As in a web page,
+  // the space is dropped above the first paragraph of a table cell and below
+  // the last, and between the paragraphs of one list. With w:doNotUseHTMLParagraphAutoSpacing Word uses w:before and
+  // w:after, which docx-preview already does.
+  var HTML_AUTO_SPACING = "14pt";
+
+  function isOnValue(value) {
+    return value !== null && !/^(0|false|off)$/i.test(value);
+  }
+
+  // Whether any w:spacing under `root` turns auto spacing on. Most documents
+  // set none, and one pass over their w:spacing elements saves pairing
+  // every paragraph of a long document with the XML.
+  function hasAutoSpacing(root) {
+    if (!root) {
+      return false;
+    }
+    if (!root.getElementsByTagNameNS) {
+      return true;
+    }
+    var spacings = root.getElementsByTagNameNS("*", "spacing");
+    for (var index = 0; index < spacings.length; index += 1) {
+      if (isOnValue(getAttr(spacings[index], "beforeAutospacing")) ||
+          isOnValue(getAttr(spacings[index], "afterAutospacing"))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function applyAutoSpacing(modelBody, xmlBody, stylesRoot, settingsRoot, defaultId) {
+    var fixed = settingsRoot && childNamed(settingsRoot, "compat");
+    fixed = fixed && childNamed(fixed, "doNotUseHTMLParagraphAutoSpacing");
+    if (!xmlBody || (fixed && isOn(fixed)) || (!hasAutoSpacing(stylesRoot) && !hasAutoSpacing(xmlBody))) {
+      return 0;
+    }
+    var modelParagraphs = [];
+    var xmlParagraphs = [];
+    modelBlocks(modelBody ? modelBody.children : [], modelParagraphs, []);
+    xmlBlocks(xmlBody, false, xmlParagraphs, []);
+    if (xmlParagraphs.length !== modelParagraphs.length) {
+      return 0;
+    }
+    var before = spacingAttributeResolver(stylesRoot, "beforeAutospacing");
+    var after = spacingAttributeResolver(stylesRoot, "afterAutospacing");
+    var outline = spacingAttributeResolver(stylesRoot, "val", "outlineLvl");
+    var list = numberingResolver(stylesRoot);
+    function styleOf(element) {
+      var properties = childNamed(element, "pPr");
+      var name = properties && childNamed(properties, "pStyle");
+      return (name && getAttr(name, "val")) || defaultId || "";
+    }
+    var auto = new Map();
+    xmlParagraphs.forEach(function (element, index) {
+      var style = styleOf(element);
+      var top = isOnValue(before(element, style));
+      var bottom = isOnValue(after(element, style));
+      if (top || bottom) {
+        var level = outline(element, style);
+        auto.set(element, { model: modelParagraphs[index], top: top, bottom: bottom, list: list(element, style),
+          heading: level !== null && parseInt(level, 10) < 9 });
+      }
+    });
+    if (!auto.size) {
+      return 0;
+    }
+    auto.forEach(function (entry, element) {
+      var cell = element.parentNode && element.parentNode.localName === "tc";
+      if (entry.top && cell && !previousBlock(element)) {
+        entry.top = "0pt";
+      }
+      if (entry.bottom && cell && !nextBlock(element)) {
+        entry.bottom = "0pt";
+      }
+      var previous = neighbourParagraph(element, -1);
+      var prior = previous && auto.get(previous);
+      if (entry.top && entry.list && prior && prior.list === entry.list) {
+        entry.top = "0pt";
+        if (prior.bottom) {
+          prior.bottom = "0pt";
+        }
+      }
+    });
+    var count = 0;
+    auto.forEach(function (entry) {
+      var model = entry.model;
+      model.cssStyle = model.cssStyle || {};
+      if (entry.top) {
+        if (entry.top === true && !entry.heading) {
+          addClass(model, "ld-auto-top");
+        }
+        model.cssStyle["margin-top"] = entry.top === true ? HTML_AUTO_SPACING : entry.top;
+      }
+      if (entry.bottom) {
+        model.cssStyle["margin-bottom"] = entry.bottom === true ? HTML_AUTO_SPACING : entry.bottom;
+      }
+      count += 1;
+    });
+    return count;
+  }
+
+  // The block before or after a paragraph in its container, skipping
+  // bookmarks and the like and a cell's w:tcPr.
+  function previousBlock(element) {
+    var sibling = element.previousElementSibling;
+    while (sibling && (NON_BLOCKS.test(sibling.localName) || sibling.localName === "tcPr")) {
+      sibling = sibling.previousElementSibling;
+    }
+    return sibling;
+  }
+
+  function nextBlock(element) {
+    var sibling = element.nextElementSibling;
+    while (sibling && NON_BLOCKS.test(sibling.localName)) {
+      sibling = sibling.nextElementSibling;
+    }
+    return sibling;
+  }
+
   // In CSS every line of a paragraph is at least as tall as the paragraph's
   // own font; in Word a line is as tall as the text on it, and the paragraph
   // mark counts on the last line. References at 10 pt in a 12 pt style were
@@ -2148,6 +2630,102 @@
     return found;
   }
 
+  // A saved start in the first cell of a table row, before any text of the
+  // cell, is where Word's page began at that row. docx-preview draws no page
+  // there (it splits only the body's own paragraphs), so the row is marked
+  // for the reader's pagination (ld-saved-row), which starts a page at it.
+  // A saved start after text in a cell is in a row Word split across pages
+  // (ld-saved-split). Each saved start in such a row gets a bookmark: one
+  // after text (SAVED_LINE) marks the line Word's page began at, where the
+  // reader splits the row too; one before a cell's text (SAVED_CELL) marks a
+  // cell that went on to the next page whole. The row after it holds a saved
+  // start again in its first cell, though Word's page began in the row
+  // before. Marked as a start, it had made a page of its own of the split
+  // row wherever the reader could not split that row (its cells are merged
+  // down), so the split row stood alone on a page. It stays marked
+  // (ld-saved-after) for when the reader cannot split the row where Word
+  // did, and the reader lets a page continue past it right below the split
+  // row (reader.js continueAtSavedRow). A row after one with only saved
+  // starts before text is not marked.
+  var SAVED_ROW = "ld-saved-row";
+  var SAVED_SPLIT = "ld-saved-split";
+  var SAVED_AFTER = "ld-saved-after";
+  var SAVED_LINE = "ld-saved-line-";
+  var SAVED_CELL = "ld-saved-cell-";
+
+  function markSavedLines(cell, counter) {
+    var shown = false;
+    (function visit(list) {
+      for (var index = 0; index < list.length; index += 1) {
+        var element = list[index];
+        if (!element || typeof element !== "object") {
+          continue;
+        }
+        if (element.type === "break" && element.break === "lastRenderedPageBreak") {
+          list.splice(index + 1, 0, { type: "bookmarkStart", name: (shown ? SAVED_LINE : SAVED_CELL) + counter.next });
+          counter.next += 1;
+          index += 1;
+        } else if (element.type === "break" ||
+            (SHOWN_TYPES.test(element.type || "") && !(element.type === "text" && !element.text))) {
+          shown = true;
+        }
+        if (Array.isArray(element.children)) {
+          visit(element.children);
+        }
+      }
+    }(cell.children || []));
+  }
+
+  // Where a cell's saved starts lie: before any of its text, after some.
+  function cellSavedStarts(cell) {
+    var found = { first: false, later: false };
+    var shown = false;
+    eachModelElement(cell.children || [], function (element) {
+      if (element.type === "break" && element.break === "lastRenderedPageBreak") {
+        found[shown ? "later" : "first"] = true;
+      } else if (element.type === "break" ||
+          (SHOWN_TYPES.test(element.type || "") && !(element.type === "text" && !element.text))) {
+        shown = true;
+      }
+    });
+    return found;
+  }
+
+  function markSavedRows(body) {
+    var count = 0;
+    var counter = { next: 0 };
+    ((body && body.children) || []).forEach(function (block) {
+      if (!block || block.type !== "table") {
+        return;
+      }
+      var previous = false;
+      var previousSplit = false;
+      modelChildren(block, "row").forEach(function (row) {
+        var first = false;
+        var later = false;
+        var any = false;
+        modelChildren(row, "cell").forEach(function (cell, index) {
+          var found = cellSavedStarts(cell);
+          first = first || (index === 0 && found.first);
+          later = later || found.later;
+          any = any || found.first || found.later;
+        });
+        if (first && !later && (!previous || previousSplit)) {
+          addClass(row, previous ? SAVED_ROW + " " + SAVED_AFTER : SAVED_ROW);
+          count += 1;
+        } else if (later) {
+          addClass(row, SAVED_SPLIT);
+          modelChildren(row, "cell").forEach(function (cell) {
+            markSavedLines(cell, counter);
+          });
+        }
+        previous = any;
+        previousSplit = later;
+      });
+    });
+    return count;
+  }
+
   function markSavedPageStarts(body, styles) {
     var byId = {};
     (styles || []).forEach(function (style) {
@@ -2155,7 +2733,7 @@
         byId[style.id] = style;
       }
     });
-    var stats = { marked: 0, dropped: 0 };
+    var stats = { marked: 0, dropped: 0, sectionBreaks: 0 };
     var afterSection = false;
     var afterPageBreak = false;
     var pending = null;
@@ -2173,7 +2751,11 @@
         following = blocks[back].sectionProps;
       }
     }
-    blocks.forEach(function (block) {
+    function breaksBefore(block) {
+      return !!block && block.type === "paragraph" &&
+        (!!block.pageBreakBefore || styleBreaksBefore(block.styleName, byId));
+    }
+    blocks.forEach(function (block, index) {
       if (pending && block && block.type === "paragraph") {
         block.children = [pending].concat(block.children || []);
       }
@@ -2183,13 +2765,23 @@
         afterPageBreak = false;
         return;
       }
-      var newPage = afterPageBreak || !!block.pageBreakBefore || styleBreaksBefore(block.styleName, byId);
+      var newPage = afterPageBreak || breaksBefore(block);
       var newSection = afterSection;
       var found = firstPageBreak(block);
       var children = block.children || [];
       afterSection = !!block.sectionProps && nextSectionType.get(block) !== "continuous";
       afterPageBreak = !!found && found.kind === "page" &&
         !shows(found.inner.slice(found.at + 1).concat(children.slice(found.child + 1)));
+      // docx-preview starts a page at a section break only where the page
+      // size changes; in Word every section but a continuous one starts on a
+      // new page, so such sections ran on from each other. A page break at
+      // the end of the section's last paragraph starts it, unless the
+      // paragraph breaks already or the next one starts a page itself.
+      if (afterSection && !found && !breaksBefore(blocks[index + 1])) {
+        block.children = children.concat([{ type: "run", children: [{ type: "break", break: "page" }] }]);
+        afterPageBreak = true;
+        stats.sectionBreaks += 1;
+      }
       if (!found || found.kind !== "lastRenderedPageBreak") {
         return;
       }
@@ -2400,8 +2992,8 @@
 
   function prepareModel(doc) {
     var stats = { bullets: 0, symbols: 0, paragraphs: 0, paired: false, bidiVisualTables: 0,
-      noteReferences: 0, pageFields: 0, autoHyphenation: false, sectionBreakParagraphs: 0, fittedTables: 0,
-      fixedTables: 0, markSizes: 0, contextualSpacing: 0, savedPageStarts: 0, droppedPageStarts: 0,
+      noteReferences: 0, pageFields: 0, autoHyphenation: false, sectionBreakParagraphs: 0, columnBreakPages: 0, fittedTables: 0,
+      fixedTables: 0, markSizes: 0, emptyMarkFonts: 0, complexScriptRuns: 0, contextualSpacing: 0, savedPageStarts: 0, droppedPageStarts: 0,
       widowControlOff: 0, keepLines: 0, keepNext: 0, defaultPageSetups: 0, reservedPictures: 0,
       fontStandIns: 0, floats: 0, inheritedHeaders: 0, tabs: 0, defaultTabStop: 36, customMarkNotes: [], numberedCustomMarkNotes: [] };
     if (!doc) {
@@ -2571,7 +3163,7 @@
         if (!element.styleName && defaultParagraph) {
           element.styleName = defaultParagraph.id;
         }
-        if (spansSized && applyMarkSize(element, styleById, defaultSize)) {
+        if ((spansSized || isEmptyParagraph(element)) && applyMarkSize(element, styleById, defaultSize)) {
           stats.markSizes += 1;
         }
         if (element.cssStyle && element.cssStyle.hyphens === "auto" && !stats.autoHyphenation) {
@@ -2601,12 +3193,26 @@
         stats.fittedTables += 1;
       }
     });
+    // Every paragraph now names its style. docx-preview also writes the
+    // default style's rules for every paragraph (".docx p"), where Word gives
+    // a style only the styles it is based on and the document defaults, so
+    // paragraphs in a style based on another style, and not on Normal, took
+    // Normal's line spacing.
+    // Styles based on the default style have its rules already, merged in.
+    if (defaultParagraph) {
+      defaultParagraph.isDefault = false;
+    }
 
     var annotation = annotateBody(modelBody, xmlBody);
     stats.paragraphs = annotation.paragraphs;
     stats.paired = annotation.paired;
     stats.bidiVisualTables = annotation.bidiVisualTables;
     stats.borderedTables = annotation.borderedTables;
+    stats.emptyMarkFonts = applyEmptyMarkFonts(modelBody, xmlBody, slots);
+    stats.complexScriptRuns = complexScriptRuns(modelBody, xmlBody, partRoot(doc.stylesPart), slots,
+      defaultParagraph && defaultParagraph.id);
+    stats.autoSpacing = applyAutoSpacing(modelBody, xmlBody, partRoot(doc.stylesPart), partRoot(doc.settingsPart),
+      defaultParagraph && defaultParagraph.id);
     stats.contextualSpacing = applyContextualSpacing(modelBody, xmlBody, partRoot(doc.stylesPart),
       defaultParagraph && defaultParagraph.id);
     var rules = markPageBreakRules(modelBody, xmlBody, partRoot(doc.stylesPart),
@@ -2619,6 +3225,8 @@
     var saved = markSavedPageStarts(modelBody, styles);
     stats.savedPageStarts = saved.marked;
     stats.droppedPageStarts = saved.dropped;
+    stats.sectionPageBreaks = saved.sectionBreaks;
+    stats.savedRows = markSavedRows(modelBody);
     markNotes(doc.footnotesPart);
     stats.customMarkNotes = customMarkNotes(xmlBody);
     if (stats.customMarkNotes.length) {
@@ -2628,6 +3236,7 @@
       });
     }
     stats.sectionBreakParagraphs = hideSectionBreakParagraphs(doc.documentPart && doc.documentPart.body);
+    stats.columnBreakPages = columnBreaksAsPages(doc.documentPart && doc.documentPart.body);
     stats.defaultPageSetups = fillDocumentPageSetup(doc.documentPart && doc.documentPart.body);
     stats.inheritedHeaders = inheritHeaderFooters(doc.documentPart && doc.documentPart.body);
     stats.titleSections = markTitleSections(doc.documentPart && doc.documentPart.body);
@@ -2792,6 +3401,7 @@
     mapBulletText: mapBulletText,
     withFontFallback: withFontFallback,
     standInSpacing: standInSpacing,
+    monoAdvance: monoAdvance,
     logicalTextAlign: logicalTextAlign,
     mapNumberFormat: mapNumberFormat,
     classifyHref: classifyHref,
@@ -2801,6 +3411,8 @@
     NOTE_REFERENCE_ANCHOR: NOTE_REFERENCE_ANCHOR,
     NOTE_ANCHOR: NOTE_ANCHOR,
     SAVED_PAGE_START: SAVED_PAGE_START,
+    SAVED_LINE: SAVED_LINE,
+    SAVED_CELL: SAVED_CELL,
     normalizeText: normalizeText,
     annotateBody: annotateBody,
     guardResources: guardResources,
