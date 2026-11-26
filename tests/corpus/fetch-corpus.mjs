@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 // Downloads the public corpus listed in manifest.json into tests/corpus/cache/.
-// `--corpus parity-corpus` reads tests/parity-corpus/manifest.json and fills
-// tests/parity-corpus/cache/ instead.
 // The first download of a file records its SHA-256 in the manifest; later
 // runs verify it. Pass --update to accept new upstream bytes.
 //
@@ -12,12 +10,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const corpusFlag = process.argv.indexOf("--corpus");
-const corpusName = corpusFlag >= 0 ? process.argv[corpusFlag + 1] : "corpus";
-if (!/^[a-z-]+$/.test(corpusName ?? "")) {
-  throw new Error(`unsafe corpus folder: ${corpusName}`);
-}
-const here = join(dirname(fileURLToPath(import.meta.url)), "..", corpusName);
+const here = dirname(fileURLToPath(import.meta.url));
 const manifestPath = join(here, "manifest.json");
 const cacheRoot = join(here, "cache");
 const update = process.argv.includes("--update");
