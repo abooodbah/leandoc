@@ -14,7 +14,9 @@ and one fix commit per change.
 
 - **Documents.** The public parity corpus (`tests/parity-corpus/manifest.json`)
   with Word's page count and first text of each page
-  (`tests/reader/parity/word-public.json`): 38 documents. A seeded draw split
+  (`tests/reader/parity/word-public.json`): 38 documents. Both files were
+  removed from main after the contest; they remain on the `parity-contest`
+  branch. A seeded draw split
   them 70/30: 27 scored, whose results the helpers saw, and 11 held out,
   scored only by the lead. This report gives scores only as totals per set.
 - **Score.** A Word page start counts as matched when a reader page begins
