@@ -109,6 +109,13 @@ Decisions taken here (the owner can change them):
   `$XDG_CONFIG_HOME/leandoc/settings.ini` group `[Reader]`, macOS
   `NSUserDefaults` (`LeanDocTheme`, `LeanDocPageColor`).
 
+## LeanDoc 0.4.1
+
+- The 0.4.1 version bump: the page parity changes of #58 (a patch release,
+  since they change how pages break and add no feature) and the fix for a
+  drawing with missing graphic or picture data. Then the release tag, the
+  Store package workflow for the tag, and the post-release pull request.
+
 ## LeanDoc 0.4.0
 
 - The 0.4.0 version bump: the Simplified Chinese and Japanese interfaces of

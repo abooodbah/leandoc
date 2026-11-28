@@ -3,7 +3,7 @@
 All notable LeanDoc changes are recorded here. The project follows semantic
 versioning.
 
-## [Unreleased]
+## [0.4.1] - 2026-11-28
 
 ### Changed
 

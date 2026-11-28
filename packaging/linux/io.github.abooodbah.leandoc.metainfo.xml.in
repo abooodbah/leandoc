@@ -39,6 +39,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.4.1" date="2026-11-28">
+      <description>
+        <p>Page view breaks pages much closer to where Word breaks them in long, complex documents: tables that run across pages, documents with many styles, sections or columns, contents pages, code, charts and right-to-left text. A document with a drawing whose graphic or picture data is missing now opens without that drawing.</p>
+      </description>
+    </release>
     <release version="0.4.0" date="2026-11-25">
       <description>
         <p>The interface is available in Simplified Chinese and Japanese. LeanDoc follows the system language, and Settings has a Language choice. Documents whose pictures keep their image inside a compatibility block now open. A paragraph kept together that is taller than a page is split across pages, and nonbreaking hyphens show as hyphens.</p>
