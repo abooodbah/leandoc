@@ -5,7 +5,7 @@
 [execution plan](EXECUTION_PLAN.md)) and published from `main`; the Linux
 session, GitHub Actions runners for Windows, macOS, and Linux, and the reader
 in headless Chromium<br>
-**Current public release:** LeanDoc 0.4.0
+**Current public release:** LeanDoc 0.4.1
 
 This page records the result of every ID in the [test plan](TEST_PLAN.md),
 with the evidence rules of [ACCEPTANCE.md](ACCEPTANCE.md). The defects found
@@ -13,6 +13,44 @@ and how each was fixed are in the [test report](TEST_REPORT.md). Every
 figure below is a test-gate figure from a cloud session or a CI runner. None
 of them is a product claim: published figures come only from the owner's
 laptop run of `tests/owner/`.
+
+## v0.4.1 publication
+
+LeanDoc 0.4.1, a patch release, is published on
+[GitHub Releases](https://github.com/abooodbah/leandoc/releases/tag/v0.4.1).
+It carries the page parity changes of the November contest (#58; method and
+results in [parity-contest-2026-11.md](parity-contest-2026-11.md)) and the
+fix for a drawing whose graphic or picture data is missing. The core and
+the reader changed in this release; the hosts and the installer did not.
+The annotated tag `v0.4.1` is on
+`bf090911167fc3ddae85559dae078ec031113135`, the merge commit of #61,
+created by "Tag a release"
+([run 46127133168](https://github.com/abooodbah/leandoc/actions/runs/46127133168)).
+Tag build
+[run 46127153025](https://github.com/abooodbah/leandoc/actions/runs/46127153025)
+published the release on its first attempt, with no failed job.
+`gh attestation verify <file> --repo abooodbah/leandoc` succeeded for the
+three assets below. The Store package workflow
+([run 46128159246](https://github.com/abooodbah/leandoc/actions/runs/46128159246))
+built `LeanDoc-v0.4.1-x64.msix` (1,107,719 bytes, SHA-256
+`f90cd4405560f27444ec7c9440cb6d7b0e6d6e124aac1c004ce1d57fdf6b56d7`), version
+0.4.1.0, Identity Name `LeanAppsStudio.LeanDoc`, display name `LeanDoc Word
+Viewer`, with no placeholder identity values. The package still declares
+`en-us` as its only language.
+
+| Asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `LeanDoc-v0.4.1-windows-x64.zip` | 1,033,354 | `a4221afc25e048e0c1da2e3b7953dba7b4bf8b357b990c259f8f0c9ea1974040` |
+| `LeanDoc-v0.4.1-linux-x86_64.deb` | 686,324 | `937715cbb05fe093bf0f6dcc56fca1dbc5ee7f5381694a364fd425309acb7183` |
+| `LeanDoc-v0.4.1-macos-universal-preview.zip` | 883,421 | `1af32fdf8ea33e3dd6ff3c2dbe19daa4737bf434a249407f7fcb750ce5dc8611` |
+
+The downloaded files matched their sidecars; the Windows ZIP's `LeanDoc.exe`
+is 594,944 bytes (593,920 in 0.4.0).
+
+| Check | Result |
+| --- | --- |
+| Pull requests in 0.4.1 | #58 (page parity, each change tests first), #61 (version bump) |
+| Distribution | Scoop and Homebrew moved to 0.4.1, winget pull request microsoft/winget-pkgs#491715 opened, both on 2026-11-28. Chocolatey 0.4.1 waits until 0.3.3 and 0.4.0 leave moderation. The Store update is not submitted yet. |
 
 ## v0.4.0 publication
 
